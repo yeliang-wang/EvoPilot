@@ -1,0 +1,21 @@
+project:
+  id: simple-agent-project
+  name: Simple Agent Project
+  type: ai-agent-product
+
+weights:
+  performance: 0.25
+  reliability: 0.25
+  user_experience: 0.25
+  maintainability: 0.15
+  cost: 0.10
+
+protected_paths:
+  - "secrets/**"
+  - "production.yaml"
+
+delivery:
+  require_user_confirmation: true
+  block_release_on_ci_failure: true
+  require_post_release_verification: true
+

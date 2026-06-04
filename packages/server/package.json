@@ -1,0 +1,26 @@
+{
+  "name": "@evopilot/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@evopilot/adapter-github": "0.1.0",
+    "@evopilot/adapter-gitlab": "0.1.0",
+    "@evopilot/adapter-jenkins": "0.1.0",
+    "@evopilot/adapter-local-git": "0.1.0",
+    "@evopilot/adapter-openhands": "0.1.0",
+    "@evopilot/core": "0.1.0",
+    "@evopilot/llm": "0.1.0",
+    "@evopilot/profile-domainforge-fabric": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

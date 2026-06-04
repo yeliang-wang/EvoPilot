@@ -1,0 +1,31 @@
+{
+  "name": "evopilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "由 domainforge-fabric-self-evolution 演化出的 AI Agent 产品演进与交付控制平台。",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dashboard": "open apps/dashboard/index.html",
+    "server": "node packages/server/dist/index.js",
+    "server:debug": "EVOPILOT_RUN_MODE=debug node packages/server/dist/index.js",
+    "check": "npm run build && npm test && npm run verify:production-assets && npm run audit:security",
+    "test": "npm run test:unit && npm run test:smoke && npm run test:functional && npm run test:e2e",
+    "test:unit": "npm run build && node --test tests/unit/*.test.mjs",
+    "test:smoke": "npm run build && node --test tests/smoke/*.test.mjs",
+    "test:functional": "npm run build && node --test tests/functional/*.test.mjs",
+    "test:e2e": "npm run build && node --test tests/e2e/*.test.mjs",
+    "test:e2e:real-llm": "npm run build && node scripts/real-llm-e2e.mjs",
+    "test:e2e:production": "npm run build && node scripts/production-e2e.mjs",
+    "verify:production-assets": "node scripts/verify-production-assets.mjs",
+    "audit:security": "npm audit --audit-level=high"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

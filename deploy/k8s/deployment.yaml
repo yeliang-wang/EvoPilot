@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evopilot
+  labels:
+    app: evopilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evopilot
+  template:
+    metadata:
+      labels:
+        app: evopilot
+    spec:
+      containers:
+        - name: evopilot
+          image: evopilot:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 19876
+          env:
+            - name: EVOPILOT_PORT
+              value: "19876"
+            - name: EVOPILOT_RUN_MODE
+              value: prod
+            - name: EVOPILOT_DATA_ROOT
+              value: /var/lib/evopilot
+            - name: EVOPILOT_DASHBOARD_ROOT
+              value: /app/apps/dashboard
+            - name: EVOPILOT_CODE_UPGRADER_BASE_URL
+              value: http://evopilot-code-upgrader:3000
+            - name: EVOPILOT_PRODUCT_JENKINS_BASE_URL
+              value: http://evopilot-jenkins:8080
+            - name: EVOPILOT_PRODUCT_JENKINS_JOB
+              value: evopilot-evolution-delivery
+            - name: EVOPILOT_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: evopilot-auth
+                  key: tokens
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 19876
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 19876
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/evopilot
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: evopilot-data

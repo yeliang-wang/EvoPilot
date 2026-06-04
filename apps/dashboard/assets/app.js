@@ -1,0 +1,1855 @@
+const navItems = ["首页", "接入项目", "证据策略", "评测集", "机会点", "流水线", "历史记录"];
+
+const state = {
+  active: "首页",
+  apiStatus: "示例数据",
+  operationNotice: "",
+  projectRegistration: {
+    message: "",
+    status: ""
+  },
+  showProjectRegistrationModal: false,
+  reviewingOpportunityId: "",
+  editingProposalId: "",
+  proposalNotice: "",
+  confirmingOpportunityId: "",
+  showOpportunityComposer: false,
+  opportunityDraftNotice: "",
+  selectedDatasetIds: ["eval-latency", "eval-rag-drift", "eval-cost-latency"],
+  evidenceDetailId: "",
+  historyDetailId: "",
+  projects: [
+    {
+      id: "domainforge-fabric",
+      name: "DomainForge Fabric",
+      status: "健康",
+      validation: "已验证",
+      repository: "内置项目画像",
+      credentials: "无需凭据",
+      lastSignal: "MCP 链路 p95 3.5s"
+    },
+    {
+      id: "simple-agent-project",
+      name: "Simple Agent Project",
+      status: "观察中",
+      validation: "待验证",
+      repository: "尚未完成 Git 注册",
+      credentials: "未配置",
+      lastSignal: "工具失败率上升"
+    }
+  ],
+  rules: [
+    {
+      id: "chain-latency-over-3s",
+      projectId: "domainforge-fabric",
+      prompt: "所有链路调用小于 3 秒",
+      compiledPath: "rules/chain-latency-over-3s.md",
+      status: "已启用",
+      triggers: "链路耗时 > 3000ms 时生成性能优化机会点"
+    },
+    {
+      id: "tool-failure-recovery",
+      projectId: "simple-agent-project",
+      prompt: "工具连续失败时需要恢复设计",
+      compiledPath: "rules/tool-failure-recovery.md",
+      status: "已启用",
+      triggers: "工具失败事件连续出现时生成可靠性机会点"
+    }
+  ],
+  evaluationDatasets: [
+    {
+      id: "eval-latency",
+      projectId: "domainforge-fabric",
+      name: "高延迟链路问答",
+      source: "Trace 聚类",
+      status: "REGRESSION_READY",
+      severity: "HIGH",
+      sampleCount: 428,
+      metric: "p95 3.6s",
+      scope: "MCP Trace / 订单问答链路",
+      triggeredAt: "2026-06-03T09:28:00.000Z"
+    },
+    {
+      id: "eval-tool-recovery",
+      projectId: "simple-agent-project",
+      name: "工具失败恢复",
+      source: "Tool Call",
+      status: "NEEDS_LABELING",
+      severity: "MEDIUM",
+      sampleCount: 96,
+      metric: "失败率 8.4%",
+      scope: "Tool Call / 恢复路径",
+      triggeredAt: "2026-06-03T09:34:00.000Z"
+    },
+    {
+      id: "eval-rag-drift",
+      projectId: "domainforge-fabric",
+      name: "RAG 引用漂移",
+      source: "RAG Context",
+      status: "REGRESSION_READY",
+      severity: "MEDIUM",
+      sampleCount: 171,
+      metric: "命中率下降 6.2%",
+      scope: "RAG Context / 知识引用",
+      triggeredAt: "2026-06-03T09:39:00.000Z"
+    },
+    {
+      id: "eval-cost-latency",
+      projectId: "domainforge-fabric",
+      name: "成本与延迟异常",
+      source: "Cost / Latency",
+      status: "EVALUATED",
+      severity: "MEDIUM",
+      sampleCount: 142,
+      metric: "成本 +12%",
+      scope: "LLM 调用 / 路由策略",
+      triggeredAt: "2026-06-03T09:45:00.000Z"
+    }
+  ],
+  opportunities: [
+    {
+      id: "opp-domainforge-latency",
+      projectId: "domainforge-fabric",
+      title: "降低 MCP 链路调用 p95 延迟",
+      triggerSource: "接入系统 / MCP Trace",
+      triggerRules: ["所有链路调用小于 3 秒"],
+      triggeredAt: "2026-06-03 09:28",
+      ip: "10.24.8.31",
+      evidence: "最近 24 小时 MCP 调用 durationMs 多次超过 3000ms",
+      datasetIds: ["eval-latency", "eval-rag-drift", "eval-cost-latency"],
+      impact: "高",
+      status: "待确认",
+      reviewId: "",
+      deliveryPlanId: "",
+      proposal: {
+        problem: "运行证据显示 Agent 链路性能已经突破用户定义的体验阈值，主要风险是交互等待变长并拖慢后续工具编排。",
+        decision: "按软件架构师输出生成性能优化方案：先收敛链路边界和依赖方向，再引入可观测的适应度函数，把 p95 阈值作为 CI 门禁。",
+        alternatives: [
+          "方案 A：仅优化单个慢调用，实现快，但无法防止后续链路退化。",
+          "方案 B：增加链路级缓存、超时预算和性能适应度函数，改动更完整，验证成本更高。"
+        ],
+        impact: "更容易定位性能退化并阻断不合格变更；代价是需要维护链路指标和阈值门禁。",
+        validation: "根据方案进行代码升级后，单元测试覆盖超时预算；冒烟测试覆盖一次运行到机会点生成；功能闭环测试覆盖确认后触发 CI/CD 流水线。"
+      }
+    },
+    {
+      id: "opp-tool-recovery",
+      projectId: "simple-agent-project",
+      title: "补齐工具失败恢复策略",
+      triggerSource: "接入系统 / Tool Event",
+      triggerRules: ["工具连续失败时需要恢复设计", "出现高严重级别运行信号"],
+      triggeredAt: "2026-06-03 09:41",
+      ip: "10.24.8.46",
+      evidence: "工具失败事件集中在恢复路径，缺少稳定降级策略",
+      datasetIds: ["eval-tool-recovery"],
+      impact: "中",
+      status: "可排期",
+      reviewId: "",
+      deliveryPlanId: "",
+      proposal: {
+        problem: "工具失败后 Agent 缺少明确恢复路径，用户可能看到中断式失败而不是可解释的降级结果。",
+        decision: "以领域事件方式记录工具失败，补齐重试、降级和人工确认边界，并形成 ADR。",
+        alternatives: [
+          "方案 A：在调用点增加重试，改动小但容易形成分散策略。",
+          "方案 B：抽象恢复端口并集中治理，初始工作量更高，但可维护性更好。"
+        ],
+        impact: "恢复策略可复用，失败原因更可观测；需要新增恢复契约和回归测试。",
+        validation: "模拟工具失败，验证恢复路径、审计记录和流水线门禁。"
+      }
+    }
+  ],
+  codeUpgrades: [],
+  pipelines: [
+    {
+      opportunityId: "opp-domainforge-latency",
+      projectId: "domainforge-fabric",
+      title: "降低 MCP 链路调用 p95 延迟",
+      jobName: "domainforge-fabric-evolution",
+      buildNumber: 128,
+      status: "RUNNING",
+      startedAt: "2026-06-03T09:35:00.000Z",
+      agentTrace: [
+        { type: "agent", role: "升级执行器", status: "SUCCEEDED", message: "我会基于用户确认的 Markdown 进化方案执行代码升级。先检查项目结构和相关测试，再生成可审查的补丁。", elapsed: "1s" },
+        { type: "tool", role: "Shell", status: "SUCCEEDED", command: "rg -n \"timeout|durationMs|p95\" src tests", message: "定位链路超时预算、性能指标和测试入口。", elapsed: "1s" },
+        { type: "file", role: "Code Agent", status: "SUCCEEDED", file: "src/runtime-performance.ts", diffStat: "+42 -8", message: "写入链路超时预算和 p95 适应度函数。", elapsed: "2s" },
+        { type: "file", role: "Code Agent", status: "SUCCEEDED", file: "tests/runtime-performance.test.ts", diffStat: "+31", message: "补齐性能预算回归测试。", elapsed: "1s" },
+        { type: "tool", role: "验证器", status: "RUNNING", command: "npm run check", message: "运行本地验证；通过后才允许进入 CI/CD。", elapsed: "3s" }
+      ],
+      stages: [
+        { name: "根据方案进行代码升级", status: "SUCCEEDED", durationMs: 47000 },
+        { name: "单元测试", status: "SUCCEEDED", durationMs: 26000 },
+        { name: "冒烟测试", status: "RUNNING", durationMs: 64000 },
+        { name: "功能闭环测试", status: "PENDING" },
+        { name: "质量报告", status: "PENDING" }
+      ]
+    }
+  ],
+  history: [
+    {
+      projectId: "domainforge-fabric",
+      title: "补齐 CI/CD 流水线接入",
+      completedAt: "2026-06-03 08:40",
+      result: "成功",
+      evidence: "单元测试、冒烟测试、功能闭环测试通过",
+      artifact: "CI/CD 构建 #127",
+      datasets: ["高延迟链路问答", "RAG 引用漂移"],
+      pipeline: "代码升级成功，CI/CD 通过"
+    },
+    {
+      projectId: "domainforge-fabric",
+      title: "规则 Markdown 存储",
+      completedAt: "2026-06-02 22:18",
+      result: "成功",
+      evidence: "管理员可读 rules/*.md，执行读取 JSON 规则块",
+      artifact: "规则存储目录",
+      datasets: ["规则编译回归"],
+      pipeline: "规则存储验证通过"
+    }
+  ]
+};
+
+const nav = document.querySelector("#nav");
+const content = document.querySelector("#content");
+const title = document.querySelector("#page-title");
+
+function renderNav() {
+  nav.innerHTML = navItems.map((item) => `
+    <button class="nav-item ${state.active === item ? "active" : ""}" data-page="${item}">${item}</button>
+  `).join("");
+  for (const button of nav.querySelectorAll("button")) {
+    button.addEventListener("click", () => {
+      state.active = button.dataset.page;
+      render();
+    });
+  }
+}
+
+function renderPage(page) {
+  if (page === "首页") return renderHome();
+  if (page === "接入项目") return renderProjects();
+  if (page === "证据策略") return renderRules();
+  if (page === "评测集") return renderEvaluationDatasets();
+  if (page === "机会点") return renderOpportunities();
+  if (page === "流水线") return renderPipelines();
+  if (page === "历史记录") return renderHistory();
+  return "";
+}
+
+function renderHome() {
+  return `
+    ${renderEvolutionObservabilityMap()}
+  `;
+}
+
+function renderFlowHeader() {
+  const steps = [
+    ["接入项目", "接入状态与证据采集"],
+    ["证据策略", "用户 Prompt 到执行规则"],
+    ["评测集", "证据沉淀与回归集合"],
+    ["机会点", "多评测集形成进化方案"],
+    ["流水线", "代码升级成功后进入 CI/CD"],
+    ["历史记录", "已完成进化与结果"]
+  ];
+  return `
+    <section class="flow-header">
+      ${steps.map(([name, desc], index) => `
+        <button class="flow-card ${state.active === name ? "active" : ""}" data-page="${name}">
+          <span>${index + 1}</span>
+          <strong>${name}</strong>
+          <small>${desc}</small>
+        </button>
+      `).join("")}
+    </section>
+  `;
+}
+
+function renderEvolutionObservabilityMap() {
+  const model = evolutionObservabilityModel();
+  return `
+    <section class="card observability-map" aria-label="进化观测图">
+      <div class="section-title observability-title">
+        <div>
+          <h2>进化观测图</h2>
+          <p>以 APM 拓扑视角展示接入项目、证据源、评测集、机会点与流水线之间的实时进化证据流。</p>
+        </div>
+        <span class="map-live-badge">已接入 ${model.projectCount} 个项目</span>
+      </div>
+      <div class="observability-shell">
+        <div class="topology-board" role="img" aria-label="项目拓扑和证据流">
+          <div class="topology-orbit orbit-a"></div>
+          <div class="topology-orbit orbit-b"></div>
+          <div class="topology-glow glow-a"></div>
+          <div class="topology-glow glow-b"></div>
+          <div class="topology-edges" aria-hidden="true">
+            <span class="edge edge-a"></span>
+            <span class="edge edge-b"></span>
+            <span class="edge edge-c"></span>
+            <span class="edge edge-d"></span>
+            <span class="edge edge-e"></span>
+          </div>
+          ${renderTopologyColumn("项目拓扑", model.projectNodes, "project")}
+          ${renderTopologyColumn("运行证据", model.evidenceNodes, "evidence")}
+          ${renderTopologyColumn("评测归因", model.datasetNodes, "dataset")}
+          ${renderTopologyColumn("进化交付", model.deliveryNodes, "delivery")}
+        </div>
+        <aside class="topology-side">
+          <div class="side-metric">
+            <span>接入项目</span>
+            <strong>${model.projectCount}</strong>
+            <small>${model.verifiedCount} 个验证通过，${model.collectingCount} 个正在收集</small>
+          </div>
+          <div class="side-list">
+            <strong>证据源</strong>
+            <div>${model.sourceTags.map((source) => `<span class="tag">${source}</span>`).join("")}</div>
+          </div>
+          <div class="side-list">
+            <strong>热点信号</strong>
+            ${model.hotSignals.map((signal) => `
+              <div class="hot-signal">
+                <span>${signal.projectId}</span>
+                <b>${signal.title}</b>
+              </div>
+            `).join("")}
+          </div>
+        </aside>
+      </div>
+      <div class="observability-status">
+        ${model.statusItems.map((item) => `
+          <div>
+            <span>${item.label}</span>
+            <strong>${item.value}</strong>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderTopologyColumn(title, nodes, type) {
+  return `
+    <div class="topology-column ${type}">
+      <div class="topology-column-title">${title}</div>
+      ${nodes.map((node) => `
+        <div class="topology-node ${node.tone ?? ""}">
+          <span>${node.label}</span>
+          <strong>${node.value}</strong>
+          <small>${node.detail}</small>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function evolutionObservabilityModel() {
+  const projectCount = state.projects.length;
+  const verifiedCount = state.projects.filter((project) => /已验证|健康/.test(`${project.validation}${project.status}`)).length;
+  const collectingCount = state.projects.filter((project) => /观察中|正在收集|待验证/.test(`${project.status}${project.validation}`)).length;
+  const sourceTags = unique([
+    "OpenTelemetry",
+    "SkyWalking",
+    ...state.evaluationDatasets.map((dataset) => dataset.source),
+    "用户反馈"
+  ]).slice(0, 7);
+  const datasetReadyCount = state.evaluationDatasets.filter((dataset) => dataset.status === "REGRESSION_READY").length;
+  const runningPipelineCount = state.pipelines.filter((pipeline) => ["RUNNING", "QUEUED"].includes(pipeline.status)).length + state.codeUpgrades.filter((run) => ["RUNNING", "QUEUED"].includes(run.status)).length;
+  const healthClass = projectCount > 0 && verifiedCount === projectCount ? "good" : "warn";
+  const projectNodes = state.projects.slice(0, 3).map((project) => ({
+    label: project.name,
+    value: project.status,
+    detail: project.lastSignal,
+    tone: /健康|已验证/.test(`${project.status}${project.validation}`) ? "good" : "warn"
+  }));
+  const evidenceNodes = [
+    { label: "Trace / Log", value: `${state.evaluationDatasets.filter((dataset) => /Trace|Log/.test(dataset.source)).length} 类`, detail: "链路、日志与延迟证据", tone: "good" },
+    { label: "Tool Call", value: `${state.evaluationDatasets.filter((dataset) => /Tool/.test(dataset.source)).length} 类`, detail: "工具调用成功率与恢复路径", tone: "warn" },
+    { label: "RAG / Cost", value: `${state.evaluationDatasets.filter((dataset) => /RAG|Cost|Latency/.test(dataset.source)).length} 类`, detail: "检索漂移、成本和时延", tone: "warn" }
+  ];
+  const datasetNodes = [
+    { label: "Eval Dataset", value: `${state.evaluationDatasets.length} 个`, detail: "线上证据沉淀为评测集", tone: "good" },
+    { label: "Regression Suite", value: `${datasetReadyCount} 个`, detail: "可进入回归门禁", tone: datasetReadyCount > 0 ? "good" : "warn" },
+    { label: "失败归因", value: `${state.opportunities.length} 个`, detail: "已识别演进机会", tone: state.opportunities.length > 0 ? "warn" : "" }
+  ];
+  const deliveryNodes = [
+    { label: "机会点", value: `${state.opportunities.length} 个`, detail: "查看方案后确认进化", tone: "warn" },
+    { label: "代码升级", value: `${state.codeUpgrades.length || state.pipelines.length} 个`, detail: "白盒执行，成功后进入 CI/CD", tone: runningPipelineCount > 0 ? "warn" : "" },
+    { label: "流水线", value: `${state.pipelines.length} 条`, detail: "单测、冒烟、闭环测试", tone: runningPipelineCount > 0 ? "good" : "" }
+  ];
+  return {
+    projectCount,
+    verifiedCount,
+    collectingCount,
+    runningPipelineCount,
+    sourceTags,
+    healthClass,
+    projectNodes,
+    evidenceNodes,
+    datasetNodes,
+    deliveryNodes,
+    hotSignals: state.opportunities.slice(0, 3),
+    statusItems: [
+      { label: "项目", value: projectCount },
+      { label: "证据源", value: sourceTags.length },
+      { label: "评测集", value: state.evaluationDatasets.length },
+      { label: "机会点", value: state.opportunities.length },
+      { label: "流水线", value: state.pipelines.length },
+      { label: "最近刷新", value: state.apiStatus }
+    ]
+  };
+}
+
+function unique(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function renderProjects() {
+  return `
+    ${renderFlowHeader()}
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>接入项目</h2>
+          <p>这里显示已经通过 Git 注册并验证的 AI Agent 项目。只有验证通过的项目才能进入证据策略、机会点和流水线。</p>
+        </div>
+        <div class="row-actions">
+          <span class="pill ${state.apiStatus === "实时数据" ? "good" : "warn"}">${state.apiStatus}</span>
+          <button class="primary" data-action="open-project-registration">注册项目</button>
+        </div>
+      </div>
+      ${!state.showProjectRegistrationModal && state.projectRegistration.message ? `<div class="notice ${state.projectRegistration.status}">${state.projectRegistration.message}</div>` : ""}
+      ${table(["项目", "状态", "仓库注册", "凭据", "验证", "最近信号"], state.projects.map((project) => [
+        `<strong>${project.name}</strong><span class="subtext">${project.id}</span>`,
+        statusPill(project.status),
+        project.repository,
+        project.credentials,
+        statusPill(project.validation),
+        project.lastSignal
+      ]))}
+    </section>
+    ${state.showProjectRegistrationModal ? renderProjectRegistrationModal() : ""}
+  `;
+}
+
+function renderProjectRegistrationModal() {
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="project-registration-title">
+        <div class="section-title">
+          <div>
+            <h2 id="project-registration-title">注册项目</h2>
+            <p>填写 Git 仓库、用户名、密码或 token。EvoPilot 会先验证仓库可访问，验证通过后才允许进入下游流程。</p>
+          </div>
+          <button data-action="close-project-registration" aria-label="关闭注册项目弹窗">关闭</button>
+        </div>
+        <span class="pill warn modal-status">验证通过才可用</span>
+        ${state.projectRegistration.message ? `<div class="notice ${state.projectRegistration.status}">${state.projectRegistration.message}</div>` : ""}
+        <form class="project-form" id="project-registration-form">
+          <label>
+            <span>项目 ID</span>
+            <input name="id" placeholder="agent-prod" required />
+          </label>
+          <label>
+            <span>项目名称</span>
+            <input name="name" placeholder="Agent Product" required />
+          </label>
+          <label>
+            <span>接入方式</span>
+            <select name="provider">
+              <option value="local-git">本地 Git</option>
+              <option value="gitlab">GitLab</option>
+              <option value="github">GitHub</option>
+            </select>
+          </label>
+          <label>
+            <span>Git URL</span>
+            <input name="gitUrl" placeholder="https://gitlab.example.com/group/agent.git" />
+          </label>
+          <label>
+            <span>本地目录</span>
+            <input name="root" placeholder="/Users/me/project/agent" />
+          </label>
+          <label>
+            <span>默认分支</span>
+            <input name="defaultBranch" value="main" />
+          </label>
+          <label>
+            <span>用户名</span>
+            <input name="username" autocomplete="username" />
+          </label>
+          <label>
+            <span>密码</span>
+            <input name="password" type="password" autocomplete="current-password" />
+          </label>
+          <label>
+            <span>Token</span>
+            <input name="token" type="password" autocomplete="off" />
+          </label>
+          <label>
+            <span>Token 环境变量</span>
+            <input name="tokenRef" placeholder="GITLAB_TOKEN" />
+          </label>
+          <div class="form-actions">
+            <button data-action="close-project-registration" type="button">取消</button>
+            <button class="primary" type="submit">验证并注册</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
+function renderRules() {
+  return `
+    ${renderFlowHeader()}
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>证据策略</h2>
+          <p>用户用简单 Prompt 定义规则；EvoPilot 通过 LLM 编译成系统执行规则，并以 Markdown 存储，管理员可以直接审查。</p>
+        </div>
+        <span class="pill">系统执行规则存储为 Markdown</span>
+      </div>
+      ${table(["项目", "用户看到的规则", "执行触发", "系统规则存储", "状态"], state.rules.map((rule) => [
+        rule.projectId,
+        `<strong>${rule.prompt}</strong>`,
+        rule.triggers,
+        `<code>${rule.compiledPath}</code>`,
+        statusPill(rule.status)
+      ]))}
+    </section>
+  `;
+}
+
+function renderEvaluationDatasets() {
+  const selected = selectedDatasets();
+  return `
+    ${renderFlowHeader()}
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>评测集</h2>
+          <p>线上 Trace、Log、Tool Call、Prompt Version、RAG Context、Cost、Latency 和用户反馈沉淀为 Eval Dataset / Regression Suite。用户可以多选评测集形成一个机会点。</p>
+        </div>
+        <span class="pill ${selected.length > 0 ? "warn" : ""}">已选择 ${selected.length} 个</span>
+      </div>
+      ${state.opportunityDraftNotice ? `<div class="notice good">${state.opportunityDraftNotice}</div>` : ""}
+      <div class="table-scroll">
+        ${table(["选择", "评测集", "项目", "来源", "状态", "严重级别", "样本数", "指标", "范围", "触发时间"], state.evaluationDatasets.map((dataset) => [
+          `<input type="checkbox" class="dataset-checkbox" data-id="${dataset.id}" ${state.selectedDatasetIds.includes(dataset.id) ? "checked" : ""} aria-label="选择 ${dataset.name}" />`,
+          `<strong>${dataset.name}</strong><span class="subtext">${dataset.id}</span>`,
+          dataset.projectId,
+          dataset.source,
+          datasetStatusPill(dataset.status),
+          severityPill(dataset.severity),
+          String(dataset.sampleCount),
+          dataset.metric,
+          dataset.scope,
+          formatDate(dataset.triggeredAt)
+        ]))}
+      </div>
+      <div class="selection-bar">
+        <div>
+          <strong>形成机会点</strong>
+          <span>选择多个评测集后，由系统生成一个可编辑的 Markdown 进化方案。</span>
+        </div>
+        <button class="primary" data-action="open-opportunity-composer" ${selected.length === 0 ? "disabled" : ""}>形成机会点</button>
+      </div>
+    </section>
+    ${state.showOpportunityComposer ? renderOpportunityComposerModal(selected) : ""}
+  `;
+}
+
+function renderOpportunityComposerModal(datasets) {
+  const projectIds = [...new Set(datasets.map((dataset) => dataset.projectId))];
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="opportunity-composer-title">
+        <div class="section-title">
+          <div>
+            <h2 id="opportunity-composer-title">形成机会点</h2>
+            <p>将已选择的评测集合并为一个机会点，系统会基于证据生成软件架构师风格的 Markdown 进化方案。</p>
+          </div>
+          <button data-action="close-opportunity-composer">关闭</button>
+        </div>
+        <form class="project-form" id="opportunity-composer-form">
+          <label>
+            <span>机会点标题</span>
+            <input name="title" value="${escapeHtml(defaultOpportunityTitle(datasets))}" required />
+          </label>
+          <label>
+            <span>项目</span>
+            <input name="projectId" value="${escapeHtml(projectIds[0] ?? "domainforge-fabric")}" required />
+          </label>
+          <label class="wide-field">
+            <span>进化目标</span>
+            <input name="target" value="端到端响应时间提升 5%，p95 小于 3 秒，RAG 命中率不下降" required />
+          </label>
+          <div class="selected-datasets">
+            ${datasets.map((dataset) => `<span class="tag">${dataset.name}</span>`).join("")}
+          </div>
+          <div class="form-actions">
+            <button type="button" data-action="close-opportunity-composer">取消</button>
+            <button class="primary" type="submit">生成机会点</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
+function renderOpportunities() {
+  const reviewing = state.opportunities.find((opportunity) => opportunity.id === state.reviewingOpportunityId);
+  const evidence = state.opportunities.find((opportunity) => opportunity.id === state.evidenceDetailId);
+  const confirming = state.opportunities.find((opportunity) => opportunity.id === state.confirmingOpportunityId);
+  return `
+    ${renderFlowHeader()}
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>机会点</h2>
+          <p>机会点由已接入项目的运行证据触发。EvoPilot 根据证据策略识别性能、可靠性、工具失败和发布风险等演进机会。</p>
+        </div>
+        <span class="pill warn">查看方案并确认后才进入流水线</span>
+      </div>
+      <div class="table-scroll">
+      ${table(["操作", "机会点", "项目", "关联评测集", "触发来源", "触发策略", "触发时间", "IP", "证据摘要", "影响", "状态"], state.opportunities.map((opportunity) => [
+        `<div class="row-actions">
+          <button data-action="view-proposal" data-id="${opportunity.id}">查看方案</button>
+          <button data-action="view-opportunity-evidence" data-id="${opportunity.id}">关联评测集</button>
+        </div>`,
+        `<strong>${opportunity.title}</strong>`,
+        opportunity.projectId,
+        `${opportunityDatasets(opportunity).length} 个`,
+        opportunity.triggerSource,
+        opportunity.triggerRules.map((rule) => `<span class="tag">${rule}</span>`).join(""),
+        opportunity.triggeredAt,
+        opportunity.ip,
+        opportunity.evidence,
+        translateImpactPill(opportunity.impact),
+        statusPill(opportunity.status)
+      ]))}
+      </div>
+    </section>
+    ${reviewing ? renderProposalModal(reviewing) : ""}
+    ${evidence ? renderOpportunityEvidenceModal(evidence) : ""}
+    ${confirming ? renderConfirmEvolutionModal(confirming) : ""}
+  `;
+}
+
+function renderProposalModal(opportunity) {
+  const isEditing = state.editingProposalId === opportunity.id;
+  const markdown = proposalMarkdown(opportunity);
+  return `
+    <div class="modal-backdrop" role="presentation">
+    <section class="modal-panel proposal-review" role="dialog" aria-modal="true" aria-labelledby="proposal-editor-title">
+      <div class="section-title">
+        <div>
+          <h2 id="proposal-editor-title">编辑进化方案：${opportunity.title}</h2>
+          <p>方案以 Markdown 展示，双击正文即可修改。提交后，流水线会按当前 Markdown 方案先执行代码升级，升级成功后才进入 CI/CD。</p>
+        </div>
+        <span class="pill">Markdown 方案</span>
+      </div>
+      <div class="proposal-meta">
+        <span>项目：${opportunity.projectId}</span>
+        <span>触发来源：${opportunity.triggerSource}</span>
+        <span>触发时间：${opportunity.triggeredAt}</span>
+        <span>IP：${opportunity.ip}</span>
+      </div>
+      ${state.proposalNotice ? `<div class="notice good">${state.proposalNotice}</div>` : ""}
+      <form class="proposal-markdown-form" id="proposal-markdown-form" data-id="${opportunity.id}">
+        <div class="proposal-markdown-toolbar">
+          <strong>Markdown 方案正文</strong>
+          <span>${isEditing ? "编辑后点击提交方案" : "双击正文进入编辑"}</span>
+        </div>
+        ${isEditing ? `
+          <textarea name="proposalMarkdown" class="proposal-editor" spellcheck="false">${escapeHtml(markdown)}</textarea>
+          <div class="form-actions">
+            <button type="button" data-action="cancel-proposal-edit">取消编辑</button>
+            <button type="submit" class="primary">提交方案修改</button>
+          </div>
+        ` : `
+          <article class="markdown-document" data-action="edit-proposal-markdown" data-id="${opportunity.id}" title="双击编辑方案">
+            ${renderMarkdown(markdown)}
+          </article>
+        `}
+      </form>
+      <div class="form-actions proposal-actions">
+        <button data-action="close-proposal-review">继续查看</button>
+        <button class="primary" data-action="confirm-proposal" data-id="${opportunity.id}">确认进化</button>
+      </div>
+    </section>
+    </div>
+  `;
+}
+
+function renderOpportunityEvidenceModal(opportunity) {
+  const datasets = opportunityDatasets(opportunity);
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="opportunity-evidence-title">
+        <div class="section-title">
+          <div>
+            <h2 id="opportunity-evidence-title">关联评测集：${opportunity.title}</h2>
+            <p>这里展示机会点从哪些评测集触发，以及每个评测集的来源、指标和回归状态。</p>
+          </div>
+          <button data-action="close-opportunity-evidence">关闭</button>
+        </div>
+        ${datasets.length === 0 ? `<div class="empty">当前机会点暂无关联评测集。</div>` : table(["评测集", "来源", "状态", "样本数", "指标", "范围"], datasets.map((dataset) => [
+          `<strong>${dataset.name}</strong><span class="subtext">${dataset.id}</span>`,
+          dataset.source,
+          datasetStatusPill(dataset.status),
+          String(dataset.sampleCount),
+          dataset.metric,
+          dataset.scope
+        ]))}
+      </section>
+    </div>
+  `;
+}
+
+function renderConfirmEvolutionModal(opportunity) {
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-evolution-title">
+        <div class="section-title">
+          <div>
+            <h2 id="confirm-evolution-title">确认进化</h2>
+            <p>确认后会创建执行任务：第一步按 Markdown 方案进行代码升级；代码升级失败则停止，成功后才进入 CI/CD。</p>
+          </div>
+          <button data-action="close-confirm-evolution">关闭</button>
+        </div>
+        <div class="proposal-meta">
+          <span>项目：${opportunity.projectId}</span>
+          <span>机会点：${opportunity.title}</span>
+          <span>关联评测集：${opportunityDatasets(opportunity).length} 个</span>
+        </div>
+        <div class="confirm-actions">
+          <button data-action="start-evolution-now" data-id="${opportunity.id}" class="primary">马上开始</button>
+          <label class="schedule-box">
+            <span>定时触发</span>
+            <input type="datetime-local" id="schedule-at" />
+          </label>
+          <button data-action="schedule-evolution" data-id="${opportunity.id}">保存排期</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderPipelines() {
+  const confirmed = state.pipelines;
+  const codeUpgrades = state.codeUpgrades;
+  if (confirmed.length === 0 && codeUpgrades.length === 0) {
+    return `
+      ${renderFlowHeader()}
+      <section class="card">
+        <div class="section-title"><h2>流水线</h2></div>
+        <div class="empty">暂无执行中的进化方案，请先在机会点查看方案并确认进化。</div>
+      </section>
+    `;
+  }
+  const stageNames = pipelineStageNames(confirmed);
+  const activeCodeUpgrade = codeUpgrades[0] ?? codeUpgradeFromPipeline(confirmed[0]);
+  const hasSuccessfulUpgrade = activeCodeUpgrade?.status === "SUCCEEDED";
+  return `
+    ${renderFlowHeader()}
+    <div class="pipeline-layout">
+      <aside class="jenkins-panel card">
+        <div class="delivery-context">
+          <span>已确认进化方案</span>
+          <strong>${confirmed[0]?.jobName ?? activeCodeUpgrade?.title ?? "等待代码升级"}</strong>
+        </div>
+        ${renderDeliveryExecutionFlow(activeCodeUpgrade, confirmed.length > 0)}
+        <div class="delivery-menu">
+          ${["阶段视图", "构建日志", "测试报告", "变更与制品", "失败分析"].map((item, index) => `
+            <button class="${index === 0 ? "active" : ""}">${item}</button>
+          `).join("")}
+        </div>
+        <div class="build-history">
+          <div class="section-title"><h2>执行列表</h2><span class="pill">代码升级 + CI/CD</span></div>
+          ${codeUpgrades.map((run) => `
+            <div class="history-row ${pipelineStatusClass(run.status)}">
+              <span class="build-dot"></span>
+              <strong>升级</strong>
+              <span>${run.title ?? run.projectId}</span>
+            </div>
+          `).join("")}
+          ${confirmed.map((pipeline) => `
+            <div class="history-row ${pipelineStatusClass(pipeline.status)}">
+              <span class="build-dot"></span>
+              <strong>#${pipeline.buildNumber ?? "-"}</strong>
+              <span>${pipeline.title}</span>
+            </div>
+          `).join("")}
+        </div>
+      </aside>
+      <section class="card stage-view">
+        <div class="section-title">
+          <div>
+            <h2>流水线阶段视图</h2>
+            <p>用户确认方案后，EvoPilot 先执行代码升级。只有代码升级成功，才会进入 CI/CD；如果升级失败，流程停止并保留失败证据。</p>
+          </div>
+          <span class="pill good">CI/CD 阶段视图</span>
+        </div>
+        ${renderAgentTrace(activeCodeUpgrade)}
+        ${confirmed.length === 0 ? `<div class="empty">${activeCodeUpgrade?.status === "FAILED" ? "代码升级失败，流程已停止，不会进入 CI/CD。" : "代码升级成功后才会进入 CI/CD。"}</div>` : `
+        <div class="stage-grid" style="--stage-count:${stageNames.length}">
+          <div class="stage-corner">
+            <strong>平均阶段耗时</strong>
+            <span>平均总耗时：${averagePipelineDuration(confirmed)}</span>
+          </div>
+          ${stageNames.map((stage) => `<div class="stage-header"><strong>${stage}</strong><span>${averageStageDuration(confirmed, stage)}</span></div>`).join("")}
+          ${confirmed.map((pipeline) => `
+            <div class="build-cell ${pipelineStatusClass(pipeline.status)}">
+              <strong>#${pipeline.buildNumber ?? "-"}</strong>
+              <span>${pipeline.startedAt ? formatDate(pipeline.startedAt) : "待开始"}</span>
+              <small>${translatePipelineStatus(pipeline.status)}</small>
+            </div>
+            ${stageNames.map((stageName) => renderStageCell(findStage(pipeline, stageName))).join("")}
+          `).join("")}
+        </div>
+        `}
+      </section>
+    </div>
+  `;
+}
+
+function renderDeliveryExecutionFlow(codeUpgrade, hasPipeline) {
+  const upgradeStatus = codeUpgrade?.status ?? "PENDING";
+  const cicdStatus = upgradeStatus === "FAILED" ? "SKIPPED" : (hasPipeline ? "RUNNING" : "PENDING");
+  return `
+    <div class="execution-flow">
+      ${renderExecutionFlowStep("方案确认", "SUCCEEDED")}
+      ${renderExecutionFlowStep("代码升级", upgradeStatus)}
+      ${renderExecutionFlowStep("CI/CD", cicdStatus)}
+      ${renderExecutionFlowStep("历史记录", hasPipeline ? "PENDING" : "SKIPPED")}
+    </div>
+  `;
+}
+
+function renderExecutionFlowStep(label, status) {
+  return `
+    <div class="execution-flow-step ${pipelineStatusClass(status)}">
+      <span></span>
+      <strong>${label}</strong>
+      <small>${translatePipelineStatus(status)}</small>
+    </div>
+  `;
+}
+
+function renderHistory() {
+  const detail = state.history.find((item) => historyId(item) === state.historyDetailId);
+  return `
+    ${renderFlowHeader()}
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>历史记录</h2>
+          <p>历史记录告诉用户已经完成了哪些演进、结果如何，以及留下了哪些验证证据。</p>
+        </div>
+        <span class="pill good">${state.history.length} 条完成记录</span>
+      </div>
+      ${table(["操作", "项目", "已完成演进", "完成时间", "结果", "验证证据", "产物"], state.history.map((item) => [
+        `<button data-action="view-history-detail" data-id="${historyId(item)}">历史详情</button>`,
+        item.projectId,
+        `<strong>${item.title}</strong>`,
+        item.completedAt,
+        statusPill(item.result),
+        item.evidence,
+        item.artifact
+      ]))}
+    </section>
+    ${detail ? renderHistoryDetailModal(detail) : ""}
+  `;
+}
+
+function renderHistoryDetailModal(item) {
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="history-detail-title">
+        <div class="section-title">
+          <div>
+            <h2 id="history-detail-title">历史详情：${item.title}</h2>
+            <p>完成记录用于追溯机会点来源、方案、代码升级、CI/CD 与验证证据。</p>
+          </div>
+          <button data-action="close-history-detail">关闭</button>
+        </div>
+        <div class="detail-grid">
+          <div><span>项目</span><strong>${item.projectId}</strong></div>
+          <div><span>完成时间</span><strong>${item.completedAt}</strong></div>
+          <div><span>结果</span><strong>${item.result}</strong></div>
+          <div><span>产物</span><strong>${item.artifact}</strong></div>
+          <div><span>关联评测集</span><strong>${(item.datasets ?? []).join("、") || "已归档"}</strong></div>
+          <div><span>执行链路</span><strong>${item.pipeline ?? "代码升级与 CI/CD 证据已归档"}</strong></div>
+        </div>
+        <div class="notice good">${item.evidence}</div>
+      </section>
+    </div>
+  `;
+}
+
+function selectedDatasets() {
+  return state.evaluationDatasets.filter((dataset) => state.selectedDatasetIds.includes(dataset.id));
+}
+
+function opportunityDatasets(opportunity) {
+  const ids = new Set(opportunity.datasetIds ?? []);
+  return state.evaluationDatasets.filter((dataset) => ids.has(dataset.id));
+}
+
+function defaultOpportunityTitle(datasets) {
+  if (datasets.some((dataset) => /延迟|Latency|latency/.test(dataset.name))) return "订单助手端到端响应体验优化";
+  if (datasets.some((dataset) => /工具/.test(dataset.name))) return "工具失败恢复路径优化";
+  return "Agent 运行质量回归优化";
+}
+
+function localOpportunityDraft(payload) {
+  const datasets = selectedDatasets();
+  return {
+    id: `draft-${Date.now()}`,
+    projectId: payload.projectId,
+    title: payload.title,
+    target: payload.target,
+    datasetIds: [...state.selectedDatasetIds],
+    sampleCount: datasets.reduce((sum, dataset) => sum + dataset.sampleCount, 0),
+    triggerSource: "评测集组装 / Trace + RAG + Cost",
+    createdAt: new Date().toISOString(),
+    proposalMarkdown: [
+      `# ${payload.title}`,
+      "",
+      "## 背景",
+      "",
+      `该机会点由 ${datasets.length} 个评测集共同形成：${datasets.map((dataset) => dataset.name).join("、")}。`,
+      "",
+      "## 进化目标",
+      "",
+      `- ${payload.target}`,
+      "",
+      "## 架构改造建议",
+      "",
+      "1. 为关键链路增加预算和适应度函数。",
+      "2. 调整 RAG、工具调用和路由策略，避免牺牲回答质量换取速度。",
+      "3. 将关联评测集写入 Regression Suite，并作为后续 CI 门禁。",
+      "",
+      "## 验证计划",
+      "",
+      "- 单元测试覆盖关键策略。",
+      "- 冒烟测试覆盖一次完整 Agent 调用。",
+      "- 功能闭环测试覆盖评测集回归。",
+      "- CI/CD 通过后进入灰度验证。"
+    ].join("\n")
+  };
+}
+
+function opportunityFromDraft(draft) {
+  return {
+    id: draft.id,
+    projectId: draft.projectId,
+    title: draft.title,
+    triggerSource: draft.triggerSource,
+    triggerRules: ["评测集多选形成机会点", "Regression Suite 达到优化阈值"],
+    triggeredAt: formatDate(draft.createdAt),
+    ip: "10.24.8.31",
+    evidence: `关联 ${draft.datasetIds.length} 个评测集，样本数 ${draft.sampleCount}`,
+    datasetIds: draft.datasetIds,
+    impact: "高",
+    status: "待确认",
+    proposalMarkdown: draft.proposalMarkdown,
+    reviewId: "",
+    deliveryPlanId: ""
+  };
+}
+
+function historyId(item) {
+  return `${item.projectId}:${item.title}:${item.completedAt}`;
+}
+
+function table(headers, rows) {
+  return `
+    <table>
+      <thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>
+  `;
+}
+
+function datasetStatusPill(status) {
+  return statusPill(({
+    REGRESSION_READY: "可回归",
+    EVALUATED: "已评估",
+    NEEDS_LABELING: "待标注",
+    INSUFFICIENT_EVIDENCE: "证据不足"
+  })[status] ?? status);
+}
+
+function severityPill(severity) {
+  return statusPill(({ HIGH: "高", MEDIUM: "中", LOW: "低" })[severity] ?? severity);
+}
+
+function statusPill(status) {
+  const cls = ({
+    健康: "good",
+    成功: "good",
+    已验证: "good",
+    已启用: "good",
+    可回归: "good",
+    已评估: "good",
+    执行中: "warn",
+    正在收集: "warn",
+    观察中: "warn",
+    待确认: "warn",
+    可排期: "warn",
+    待验证: "warn",
+    待标注: "warn",
+    中: "warn",
+    高: "warn",
+    失败: "bad",
+    接入失败: "bad",
+    验证失败: "bad",
+    证据不足: "bad",
+    低: ""
+  })[status] ?? "";
+  return `<span class="pill ${cls}">${status}</span>`;
+}
+
+function translateImpactPill(impact) {
+  return statusPill(impact === "高" ? "待确认" : "可排期").replace(/>.*</, `>${impact}<`);
+}
+
+function render() {
+  title.textContent = state.active;
+  renderNav();
+  content.innerHTML = renderPage(state.active);
+  bindFlowHeader();
+  bindPageLinks();
+  bindProjectRegistration();
+  bindEvaluationDatasets();
+  bindOpportunityActions();
+  bindHistoryActions();
+}
+
+function bindPageLinks() {
+  for (const button of content.querySelectorAll("[data-page-link]")) {
+    button.addEventListener("click", () => {
+      state.active = button.dataset.pageLink;
+      render();
+    });
+  }
+}
+
+function bindFlowHeader() {
+  for (const button of content.querySelectorAll(".flow-card")) {
+    button.addEventListener("click", () => {
+      state.active = button.dataset.page;
+      render();
+    });
+  }
+}
+
+function bindOpportunityActions() {
+  for (const button of content.querySelectorAll("[data-action]")) {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.id;
+      const action = button.dataset.action;
+      if (action === "view-proposal") {
+        state.reviewingOpportunityId = id;
+        state.editingProposalId = "";
+        state.proposalNotice = "";
+      }
+      if (action === "view-opportunity-evidence") {
+        state.evidenceDetailId = id;
+      }
+      if (action === "close-opportunity-evidence") {
+        state.evidenceDetailId = "";
+      }
+      if (action === "close-proposal-review") {
+        state.reviewingOpportunityId = "";
+        state.editingProposalId = "";
+        state.proposalNotice = "";
+      }
+      if (action === "cancel-proposal-edit") {
+        state.editingProposalId = "";
+        state.proposalNotice = "";
+      }
+      if (action === "confirm-proposal") {
+        state.reviewingOpportunityId = "";
+        state.confirmingOpportunityId = id;
+      }
+      if (action === "close-confirm-evolution") {
+        state.confirmingOpportunityId = "";
+      }
+      if (action === "start-evolution-now") {
+        await confirmOpportunity(id, { scheduled: false });
+        state.active = "流水线";
+        await loadPipelines();
+        await loadSummary();
+      }
+      if (action === "schedule-evolution") {
+        const scheduledAt = content.querySelector("#schedule-at")?.value;
+        await confirmOpportunity(id, { scheduled: true, scheduledAt });
+        state.active = "流水线";
+        await loadPipelines();
+        await loadSummary();
+      }
+      render();
+    });
+  }
+  for (const document of content.querySelectorAll('[data-action="edit-proposal-markdown"]')) {
+    document.addEventListener("dblclick", () => {
+      state.editingProposalId = document.dataset.id;
+      state.proposalNotice = "";
+      render();
+    });
+  }
+  const proposalForm = content.querySelector("#proposal-markdown-form");
+  if (proposalForm) {
+    proposalForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const opportunity = state.opportunities.find((item) => item.id === proposalForm.dataset.id);
+      if (!opportunity) return;
+      const formData = new FormData(proposalForm);
+      opportunity.proposalMarkdown = String(formData.get("proposalMarkdown") ?? "").trim();
+      opportunity.status = "方案已修改";
+      state.editingProposalId = "";
+      state.proposalNotice = "方案已提交修改，确认进化时将以当前 Markdown 方案执行。";
+      render();
+    });
+  }
+}
+
+function bindEvaluationDatasets() {
+  for (const checkbox of content.querySelectorAll(".dataset-checkbox")) {
+    checkbox.addEventListener("change", () => {
+      const id = checkbox.dataset.id;
+      if (checkbox.checked && !state.selectedDatasetIds.includes(id)) state.selectedDatasetIds.push(id);
+      if (!checkbox.checked) state.selectedDatasetIds = state.selectedDatasetIds.filter((item) => item !== id);
+      render();
+    });
+  }
+  const openComposer = content.querySelector('[data-action="open-opportunity-composer"]');
+  if (openComposer) {
+    openComposer.addEventListener("click", () => {
+      state.showOpportunityComposer = true;
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="close-opportunity-composer"]')) {
+    button.addEventListener("click", () => {
+      state.showOpportunityComposer = false;
+      render();
+    });
+  }
+  const form = content.querySelector("#opportunity-composer-form");
+  if (!form) return;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const payload = {
+      datasetIds: state.selectedDatasetIds,
+      title: String(data.get("title") ?? "").trim(),
+      projectId: String(data.get("projectId") ?? "").trim(),
+      target: String(data.get("target") ?? "").trim()
+    };
+    let draft;
+    try {
+      const response = await postJson("/api/v1/opportunity-drafts", payload);
+      draft = response.data;
+    } catch {
+      draft = localOpportunityDraft(payload);
+    }
+    state.opportunities.unshift(opportunityFromDraft(draft));
+    state.opportunityDraftNotice = "机会点已生成，可在机会点列表中查看并编辑进化方案。";
+    state.showOpportunityComposer = false;
+    state.active = "机会点";
+    render();
+  });
+}
+
+function bindHistoryActions() {
+  for (const button of content.querySelectorAll('[data-action="view-history-detail"]')) {
+    button.addEventListener("click", () => {
+      state.historyDetailId = button.dataset.id;
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="close-history-detail"]')) {
+    button.addEventListener("click", () => {
+      state.historyDetailId = "";
+      render();
+    });
+  }
+}
+
+function bindProjectRegistration() {
+  for (const button of content.querySelectorAll('[data-action="open-project-registration"]')) {
+    button.addEventListener("click", () => {
+      state.projectRegistration = { message: "", status: "" };
+      state.showProjectRegistrationModal = true;
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="close-project-registration"]')) {
+    button.addEventListener("click", () => {
+      state.showProjectRegistrationModal = false;
+      render();
+    });
+  }
+  const form = content.querySelector("#project-registration-form");
+  if (!form) return;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = projectRegistrationPayload(new FormData(form));
+    const submit = form.querySelector("button[type='submit']");
+    submit.disabled = true;
+    state.projectRegistration = { status: "warn", message: "正在验证 Git 仓库连接..." };
+    render();
+    try {
+      const response = await postJson("/api/v1/projects", payload);
+      state.projectRegistration = {
+        status: "good",
+        message: `${response.data.name} 已验证并注册，文件数：${response.data.validation?.fileCount ?? "-"}`
+      };
+      state.showProjectRegistrationModal = false;
+      await loadProjects();
+    } catch (error) {
+      state.projectRegistration = {
+        status: "bad",
+        message: `项目注册失败：${error.message}`
+      };
+      state.showProjectRegistrationModal = true;
+    } finally {
+      render();
+    }
+  });
+}
+
+function projectRegistrationPayload(formData) {
+  const value = (name) => String(formData.get(name) ?? "").trim();
+  const repository = {
+    provider: value("provider"),
+    gitUrl: value("gitUrl") || undefined,
+    root: value("root") || undefined,
+    defaultBranch: value("defaultBranch") || "main",
+    username: value("username") || undefined,
+    password: value("password") || undefined,
+    token: value("token") || undefined,
+    tokenRef: value("tokenRef") || undefined
+  };
+  return {
+    id: value("id"),
+    name: value("name"),
+    profileId: "domainforge-fabric",
+    repository
+  };
+}
+
+async function confirmOpportunity(id, options = {}) {
+  const opportunity = state.opportunities.find((item) => item.id === id);
+  if (!opportunity) return;
+  state.operationNotice = "";
+  if (opportunity.reviewId && opportunity.deliveryPlanId) {
+    try {
+      await postJson(`/api/v1/reviews/${encodeURIComponent(opportunity.reviewId)}/decision`, {
+        action: "accept",
+        actor: "dashboard-user",
+        note: options.scheduled ? "Dashboard 确认定时进化" : "Dashboard 确认马上进化"
+      });
+      const upgrade = await postJson(`/api/v1/deliveries/${encodeURIComponent(opportunity.deliveryPlanId)}/code-upgrade`, {
+        connectorId: "default",
+        proposalMarkdown: proposalMarkdown(opportunity),
+        validationCommands: ["npm run check"]
+      });
+      const codeUpgradeRun = upgrade.data?.codeUpgradeRun;
+      if (options.scheduled) {
+        await postJson(`/api/v1/deliveries/${encodeURIComponent(opportunity.deliveryPlanId)}/schedule`, {
+          executor: "jenkins",
+          connectorId: "default",
+          scheduledAt: toIsoDateTime(options.scheduledAt),
+          parameters: { VERSION: "dashboard-scheduled", PROPOSAL_MARKDOWN: proposalMarkdown(opportunity) }
+        });
+      } else if (codeUpgradeRun?.status === "SUCCEEDED") {
+        await postJson(`/api/v1/deliveries/${encodeURIComponent(opportunity.deliveryPlanId)}/execute`, {
+          executor: "jenkins",
+          connectorId: "default",
+          parameters: { VERSION: "dashboard-now", PROPOSAL_MARKDOWN: proposalMarkdown(opportunity) }
+        });
+      }
+      state.operationNotice = options.scheduled ? "已确认并保存排期，触发时会先执行代码升级。" : "已确认方案，代码升级正在白盒执行；升级成功后进入 CI/CD。";
+    } catch (error) {
+      state.operationNotice = `真实接口未完成本次操作：${error.message}。当前保留页面演示状态。`;
+    }
+  }
+  opportunity.status = options.scheduled ? "已排期" : "执行中";
+  state.confirmingOpportunityId = "";
+  if (!state.pipelines.some((pipeline) => pipeline.opportunityId === id)) {
+    state.pipelines.unshift({
+      opportunityId: id,
+      projectId: opportunity.projectId,
+      title: opportunity.title,
+      jobName: `${opportunity.projectId}-evolution`,
+      buildNumber: options.scheduled ? undefined : 129,
+      status: options.scheduled ? "QUEUED" : "RUNNING",
+      startedAt: options.scheduled ? undefined : new Date().toISOString(),
+      proposalMarkdown: proposalMarkdown(opportunity),
+      agentTrace: agentTraceFromOpportunity(opportunity, options.scheduled),
+      stages: [
+        { name: "根据方案进行代码升级", status: options.scheduled ? "PENDING" : "RUNNING" },
+        { name: "单元测试", status: "PENDING" },
+        { name: "冒烟测试", status: "PENDING" },
+        { name: "功能闭环测试", status: "PENDING" },
+        { name: "质量报告", status: "PENDING" }
+      ]
+    });
+  }
+}
+
+async function loadSummary() {
+  try {
+    const response = await fetch("/api/v1/summary");
+    if (!response.ok) throw new Error(`汇总接口状态 ${response.status}`);
+    const { data } = await response.json();
+    state.apiStatus = "实时数据";
+    if (Array.isArray(data.recentRuns) && data.recentRuns.length > 0) {
+      state.opportunities = data.recentRuns.flatMap((run) => (run.opportunities ?? []).map((opportunity) => ({
+        id: opportunity.id,
+        projectId: run.evidenceBundle?.projectId ?? opportunity.projectId ?? "unknown",
+        title: translateOpportunityText(opportunity.title),
+        triggerSource: describeOpportunitySource(run, opportunity),
+        triggerRules: [inferSourceRule(opportunity)],
+        triggeredAt: formatDate(firstEvidenceEvent(run, opportunity)?.timestamp ?? run.evidenceBundle?.timeWindow?.to ?? new Date().toISOString()),
+        ip: extractEvidenceIp(firstEvidenceEvent(run, opportunity)),
+        evidence: firstEvidenceEvent(run, opportunity)?.message ?? "由运行证据触发",
+        impact: translateImpact(opportunity.impact),
+        status: translateReviewStatus((run.reviews ?? [])[0]?.status ?? "USER_CONFIRM_REQUIRED"),
+        reviewId: (run.reviews ?? [])[0]?.id,
+        deliveryPlanId: (run.deliveryPlans ?? [])[0]?.id,
+        proposal: proposalFromRun(opportunity)
+      }))).slice(0, 8);
+      state.history = data.recentRuns.flatMap((run) => (run.releaseReports ?? []).map((release) => ({
+        projectId: release.projectId,
+        title: translateOpportunityText((run.opportunities ?? [])[0]?.title ?? "已完成演进"),
+        completedAt: formatDate(release.completedAt ?? release.createdAt ?? new Date().toISOString()),
+        result: translateReleaseStatus(release.status),
+        evidence: release.validationSummary ?? "发布后验证完成",
+        artifact: release.version
+      }))).slice(0, 10).concat(state.history);
+    }
+    if (Array.isArray(data.recentCodeUpgrades) && data.recentCodeUpgrades.length > 0) {
+      state.codeUpgrades = data.recentCodeUpgrades.map((run) => codeUpgradeViewModel(run));
+    }
+  } catch {
+    state.apiStatus = "示例数据";
+  }
+}
+
+function firstEvidenceEvent(run, opportunity) {
+  const ids = new Set(opportunity.evidenceEventIds ?? []);
+  return (run.evidenceBundle?.events ?? []).find((event) => ids.has(event.id)) ?? (run.evidenceBundle?.events ?? [])[0];
+}
+
+function describeOpportunitySource(run, opportunity) {
+  const event = firstEvidenceEvent(run, opportunity);
+  if (!event) return "接入系统";
+  return `接入系统 / ${translateEvidenceSource(event.source)} / ${event.type}`;
+}
+
+function extractEvidenceIp(event) {
+  const attrs = event?.attributes ?? {};
+  return attrs.ip ?? attrs.clientIp ?? attrs.remoteAddress ?? attrs.hostIp ?? "-";
+}
+
+async function loadProjects() {
+  try {
+    const response = await fetch("/api/v1/projects");
+    if (!response.ok) throw new Error(`项目接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      state.projects = data.map((project) => ({
+        id: project.id,
+        name: project.name,
+        status: project.validation?.status === "VERIFIED" ? "健康" : "接入失败",
+        validation: project.validation?.status === "VERIFIED" ? "已验证" : "验证失败",
+        repository: project.repository?.gitUrl ?? project.repository?.root ?? project.repository?.projectId ?? "内置项目画像",
+        credentials: project.repository ? (project.repository.credentialsConfigured ? "已配置" : "未配置") : "无需凭据",
+        lastSignal: project.validation?.message ?? "等待运行证据"
+      }));
+    }
+  } catch {
+    // 保留示例项目，便于静态查看控制台。
+  }
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
+  return text ? JSON.parse(text) : {};
+}
+
+function toIsoDateTime(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
+}
+
+async function loadPipelines() {
+  try {
+    const response = await fetch("/api/v1/pipelines");
+    if (!response.ok) throw new Error(`流水线接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      state.pipelines = data.map((pipeline) => ({
+        ...pipeline,
+        title: pipeline.title ?? pipeline.jobName ?? "已确认进化方案"
+      }));
+    }
+  } catch {
+    // 保留示例流水线数据，便于静态查看控制台。
+  }
+}
+
+async function loadCodeUpgrades() {
+  try {
+    const response = await fetch("/api/v1/code-upgrade-runs");
+    if (!response.ok) throw new Error(`代码升级接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      state.codeUpgrades = await Promise.all(data.map(async (run) => {
+        const events = await loadCodeUpgradeEvents(run.id);
+        return codeUpgradeViewModel({ ...run, events });
+      }));
+    }
+  } catch {
+    // 保留示例代码升级过程，便于静态查看控制台。
+  }
+}
+
+async function loadCodeUpgradeEvents(id) {
+  try {
+    const response = await fetch(`/api/v1/code-upgrade-runs/${encodeURIComponent(id)}/events`);
+    if (!response.ok) throw new Error(`代码升级事件接口状态 ${response.status}`);
+    const { data } = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadEvaluationDatasets() {
+  try {
+    const response = await fetch("/api/v1/evaluation-datasets");
+    if (!response.ok) throw new Error(`评测集接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      state.evaluationDatasets = data;
+      state.selectedDatasetIds = state.selectedDatasetIds.filter((id) => data.some((dataset) => dataset.id === id));
+      if (state.selectedDatasetIds.length === 0) state.selectedDatasetIds = data.slice(0, 2).map((dataset) => dataset.id);
+    }
+  } catch {
+    // 保留示例评测集，便于静态查看控制台。
+  }
+}
+
+async function loadRules() {
+  try {
+    const response = await fetch("/api/v1/rules");
+    if (!response.ok) throw new Error(`规则接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      state.rules = data.map((rule) => ({
+        id: rule.id,
+        projectId: rule.projectId ?? "全部项目",
+        prompt: rule.prompt ?? translateRuleName(rule),
+        compiledPath: `rules/${rule.id}.md`,
+        status: rule.enabled ? "已启用" : "已停用",
+        triggers: rule.description ?? describeRule(rule)
+      }));
+    }
+  } catch {
+    // 保留示例规则，便于静态查看控制台。
+  }
+}
+
+function proposalFromRun(opportunity) {
+  return {
+    problem: `${translateOpportunityText(opportunity.title)}，需要基于证据判断影响面和边界。`,
+    decision: "按软件架构师输出生成 ADR 草案、方案权衡、质量属性验证和演进策略。",
+    alternatives: [
+      "方案 A：局部修复当前信号，交付快但防退化能力弱。",
+      "方案 B：补齐架构适应度函数和门禁，成本更高但闭环更稳。"
+    ],
+    impact: "提升可维护性和可观测性，同时增加必要的验证成本。",
+    validation: "确认后先根据方案进行代码升级，再进入 CI/CD 流水线，执行单元测试、冒烟测试和功能闭环测试。"
+  };
+}
+
+function renderAgentTrace(codeUpgrade) {
+  const trace = codeUpgrade?.agentTrace ?? defaultAgentTrace(codeUpgrade ?? {});
+  return `
+    <section class="agent-transcript-panel">
+      <div class="agent-transcript-header">
+        <div>
+          <h2>代码升级过程</h2>
+          <p>升级执行器按白盒执行流展示：执行说明、命令执行、文件读写、补丁和验证过程都按时间线展开。</p>
+        </div>
+        <span class="pill ${codeUpgrade?.status === "RUNNING" || codeUpgrade?.status === "QUEUED" ? "warn" : "good"}">白盒执行</span>
+      </div>
+      ${renderBranchStrategy(codeUpgrade)}
+      <div class="execution-transcript">
+        ${trace.map((item) => renderTranscriptItem(item)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderBranchStrategy(codeUpgrade) {
+  if (!codeUpgrade?.branchStrategy && !codeUpgrade?.artifacts) return "";
+  const sourceBranch = codeUpgrade.branchStrategy?.sourceBranch ?? "-";
+  const upgradeBranch = codeUpgrade.artifacts?.branchName ?? codeUpgrade.branchStrategy?.upgradeBranch ?? "-";
+  const mergeRequestUrl = codeUpgrade.artifacts?.pullRequestUrl;
+  return `
+    <div class="branch-strategy">
+      <span><strong>源分支</strong>${escapeHtml(sourceBranch)}</span>
+      <span><strong>升级分支</strong>${escapeHtml(upgradeBranch)}</span>
+      ${mergeRequestUrl ? `<span><strong>合并请求</strong><a href="${escapeHtml(mergeRequestUrl)}" target="_blank" rel="noreferrer">查看 MR</a></span>` : ""}
+    </div>
+  `;
+}
+
+function renderTranscriptItem(item) {
+  const type = item.type ?? inferTranscriptType(item);
+  const status = translatePipelineStatus(item.status);
+  return `
+    <article class="transcript-item ${type} ${pipelineStatusClass(item.status)}">
+      <div class="transcript-main">
+        <div class="transcript-meta">
+          <span class="transcript-caret">${type === "agent" ? "◆" : "›"}</span>
+          <strong>${item.role ?? transcriptRole(type)}</strong>
+          <span>${status}${item.elapsed ? ` · 已运行 ${item.elapsed}` : ""}</span>
+        </div>
+        ${item.message ? `<p>${item.message}</p>` : ""}
+        ${item.command ? `<div class="transcript-command"><span>⌘</span><code>${item.command}</code></div>` : ""}
+        ${item.file ? `<div class="transcript-file"><span>已编辑</span><strong>${item.file}</strong>${item.diffStat ? `<em>${item.diffStat}</em>` : ""}</div>` : ""}
+        ${item.outputPreview ? `<pre class="transcript-output">${escapeHtml(item.outputPreview)}</pre>` : ""}
+        ${item.raw ? `
+          <details class="raw-event">
+            <summary>查看原始执行事件</summary>
+            <pre>${escapeHtml(JSON.stringify(item.raw, null, 2))}</pre>
+          </details>
+        ` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function inferTranscriptType(item) {
+  if (item.command) return "tool";
+  if (item.file || item.diffStat) return "file";
+  if (/读取|搜索|scan|rg|grep/i.test(item.message ?? "")) return "tool";
+  return "agent";
+}
+
+function transcriptRole(type) {
+  return ({ agent: "升级执行器", tool: "工具执行", file: "文件修改" })[type] ?? "升级执行器";
+}
+
+function codeUpgradeViewModel(run) {
+  return {
+    ...run,
+    title: run.title ?? `${run.projectId} 代码升级`,
+    agentTrace: Array.isArray(run.events) && run.events.length > 0
+      ? run.events.map((event) => ({
+        type: transcriptTypeFromEvent(event),
+        role: event.phase ?? event.source ?? "升级执行器",
+        status: run.status,
+        message: event.message,
+        command: event.raw?.command,
+        file: event.raw?.file,
+        diffStat: event.raw?.diffStat,
+        elapsed: event.raw?.elapsed,
+        outputPreview: event.raw?.outputPreview ?? event.raw?.output,
+        raw: event.raw ?? event
+      }))
+      : defaultAgentTrace(run)
+  };
+}
+
+function transcriptTypeFromEvent(event) {
+  if (event.raw?.command || event.source === "tool") return "tool";
+  if (event.raw?.file || /补丁|diff|patch|修改|写入/.test(event.phase ?? "") || /补丁|diff|patch|修改|写入/.test(event.message ?? "")) return "file";
+  return "agent";
+}
+
+function codeUpgradeFromPipeline(pipeline) {
+  if (!pipeline) return undefined;
+  return {
+    id: pipeline.id,
+    projectId: pipeline.projectId,
+    status: (pipeline.stages ?? [])[0]?.status ?? pipeline.status,
+    agentTrace: pipeline.agentTrace ?? defaultAgentTrace(pipeline)
+  };
+}
+
+function agentTraceFromOpportunity(opportunity, scheduled) {
+  const pendingStatus = scheduled ? "PENDING" : "RUNNING";
+  return [
+    { type: "agent", role: "升级执行器", status: pendingStatus, message: "我会读取用户确认的 Markdown 方案，先形成代码升级任务清单。", elapsed: "0s" },
+    { type: "tool", role: "仓库分析", status: "PENDING", command: `rg -n \"${opportunity.title}\" .`, message: `基于项目 ${opportunity.projectId} 的注册仓库分析影响文件。` },
+    { type: "file", role: "代码修改", status: "PENDING", file: "待定位", diffStat: "+0 -0", message: "按方案生成补丁，修改代码与必要测试。" },
+    { type: "tool", role: "验证器", status: "PENDING", command: "npm run check", message: "代码升级通过本地验证后，才会进入 CI/CD。" }
+  ];
+}
+
+function defaultAgentTrace(pipeline) {
+  const status = (pipeline.stages ?? [])[0]?.status ?? pipeline.status ?? "PENDING";
+  return [
+    { type: "agent", role: "升级执行器", status, message: "读取确认后的进化方案，准备代码升级。", elapsed: "1s" },
+    { type: "file", role: "代码修改", status: status === "SUCCEEDED" ? "SUCCEEDED" : "PENDING", file: "变更集", diffStat: "+0 -0", message: "执行仓库修改并形成变更集。" },
+    { type: "tool", role: "验证器", status: status === "SUCCEEDED" ? "SUCCEEDED" : "PENDING", command: "npm run check", message: "代码升级验证通过后进入 CI/CD。" }
+  ];
+}
+
+function proposalMarkdown(opportunity) {
+  if (opportunity.proposalMarkdown) return opportunity.proposalMarkdown;
+  const proposal = opportunity.proposal;
+  return [
+    `# ${opportunity.title}`,
+    "",
+    "## 背景",
+    "",
+    proposal.problem,
+    "",
+    "## 架构决策",
+    "",
+    proposal.decision,
+    "",
+    "## 备选方案与权衡",
+    "",
+    ...proposal.alternatives.map((item) => `- ${item}`),
+    "",
+    "## 影响",
+    "",
+    proposal.impact,
+    "",
+    "## 验证与交付",
+    "",
+    proposal.validation,
+    "",
+    "## 执行顺序",
+    "",
+    "1. 根据本方案进行代码升级。",
+    "2. 提交升级变更后进入 CI/CD。",
+    "3. 通过单元测试、冒烟测试、功能闭环测试和质量报告后记录历史。"
+  ].join("\n");
+}
+
+function renderMarkdown(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const html = [];
+  let listItems = [];
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    html.push(`<ul>${listItems.map((item) => `<li>${inlineMarkdown(item)}</li>`).join("")}</ul>`);
+    listItems = [];
+  };
+  for (const line of lines) {
+    if (line.startsWith("- ")) {
+      listItems.push(line.slice(2));
+      continue;
+    }
+    flushList();
+    if (line.startsWith("# ")) html.push(`<h1>${inlineMarkdown(line.slice(2))}</h1>`);
+    else if (line.startsWith("## ")) html.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`);
+    else if (/^\d+\.\s+/.test(line)) html.push(`<p class="ordered-line">${inlineMarkdown(line)}</p>`);
+    else if (line.trim()) html.push(`<p>${inlineMarkdown(line)}</p>`);
+  }
+  flushList();
+  return html.join("");
+}
+
+function inlineMarkdown(text) {
+  return escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function translateRuleName(rule) {
+  const labels = {
+    "chain-latency-over-3s": "所有链路调用小于 3 秒",
+    "performance-latency-signal": "性能延迟信号",
+    "product-gap-signal": "产品缺口信号",
+    "tool-failure-signal": "工具失败信号"
+  };
+  return labels[rule.id] ?? rule.name ?? rule.id;
+}
+
+function describeRule(rule) {
+  if (Array.isArray(rule.anyOf) && rule.anyOf.length > 0) return "满足任一执行条件时触发";
+  if (Array.isArray(rule.allOf) && rule.allOf.length > 0) return "满足全部执行条件时触发";
+  return "由 EvoPilot 编译为执行规则";
+}
+
+function translateOpportunityText(text) {
+  const labels = {
+    "Performance hotspot requires optimization": "性能热点需要优化",
+    "Product capability gap requires evolution": "产品能力缺口需要演进",
+    "Tool failure pattern requires recovery design": "工具失败模式需要恢复设计",
+    "High severity runtime signal requires source impact analysis": "高严重级别运行信号需要源码影响分析"
+  };
+  return labels[text] ?? text;
+}
+
+function translateImpact(impact) {
+  return ({ high: "高", medium: "中", low: "低" })[impact] ?? impact ?? "中";
+}
+
+function translateReviewStatus(status) {
+  return ({
+    USER_CONFIRM_REQUIRED: "待确认",
+    USER_CONFIRMED: "已确认",
+    REJECTED: "已拒绝",
+    CHANGES_REQUESTED: "要求修改"
+  })[status] ?? status;
+}
+
+function translateReleaseStatus(status) {
+  return ({
+    PENDING: "待执行",
+    RUNNING: "执行中",
+    SUCCEEDED: "成功",
+    FAILED: "失败",
+    ROLLED_BACK: "已回滚"
+  })[status] ?? status;
+}
+
+function translateEvidenceSource(source) {
+  return ({
+    agent: "Agent",
+    mcp: "MCP",
+    tool: "工具",
+    llm: "LLM",
+    ci: "CI",
+    cd: "CD",
+    release: "发布",
+    deployment: "部署",
+    observability: "可观测性",
+    user: "用户",
+    manual: "人工"
+  })[source] ?? source;
+}
+
+function translatePipelineStatus(status) {
+  return ({
+    QUEUED: "排队中",
+    RUNNING: "运行中",
+    SUCCEEDED: "成功",
+    FAILED: "失败",
+    CANCELED: "已取消",
+    PENDING: "等待",
+    SKIPPED: "跳过",
+    UNKNOWN: "未知"
+  })[status] ?? status;
+}
+
+function inferSourceRule(opportunity) {
+  if (opportunity.type === "performance-hotspot") return "所有链路调用小于 3 秒";
+  if (opportunity.type === "tool-failure") return "工具连续失败时需要恢复设计";
+  if (opportunity.type === "product-gap") return "出现产品能力缺口时创建演进机会";
+  return "运行证据达到策略阈值";
+}
+
+function pipelineStageNames(pipelines) {
+  const names = [];
+  for (const pipeline of pipelines) {
+    for (const stage of pipeline.stages ?? []) {
+      if (!names.includes(stage.name)) names.push(stage.name);
+    }
+  }
+  return names.length > 0 ? names : ["方案装配", "代码生成", "单元测试", "冒烟测试", "功能闭环测试", "质量报告"];
+}
+
+function findStage(pipeline, stageName) {
+  return (pipeline.stages ?? []).find((stage) => stage.name === stageName);
+}
+
+function renderStageCell(stage) {
+  if (!stage) return `<div class="stage-result empty-stage"></div>`;
+  return `
+    <div class="stage-result ${stageStatusClass(stage.status)}">
+      <strong>${formatDuration(stage.durationMs)}</strong>
+      <span>${translateStageStatus(stage.status)}</span>
+    </div>
+  `;
+}
+
+function stageStatusClass(status) {
+  return ({
+    SUCCEEDED: "success",
+    RUNNING: "running",
+    FAILED: "failed",
+    SKIPPED: "skipped",
+    PENDING: "pending"
+  })[status] ?? "pending";
+}
+
+function pipelineStatusClass(status) {
+  return ({
+    SUCCEEDED: "success",
+    RUNNING: "running",
+    QUEUED: "running",
+    FAILED: "failed",
+    CANCELED: "failed"
+  })[status] ?? "pending";
+}
+
+function translateStageStatus(status) {
+  return ({
+    SUCCEEDED: "通过",
+    RUNNING: "执行中",
+    FAILED: "失败",
+    SKIPPED: "跳过",
+    PENDING: "等待"
+  })[status] ?? "未知";
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(Number(ms))) return "";
+  const value = Number(ms);
+  if (value < 1000) return `${Math.round(value)}ms`;
+  if (value < 60_000) return `${Math.round(value / 1000)}s`;
+  const minutes = Math.floor(value / 60_000);
+  const seconds = Math.round((value % 60_000) / 1000);
+  return seconds > 0 ? `${minutes}min ${seconds}s` : `${minutes}min`;
+}
+
+function averageStageDuration(pipelines, stageName) {
+  const values = pipelines
+    .map((pipeline) => findStage(pipeline, stageName)?.durationMs)
+    .filter((value) => Number.isFinite(Number(value)))
+    .map(Number);
+  if (values.length === 0) return "";
+  return formatDuration(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function averagePipelineDuration(pipelines) {
+  const values = pipelines.map((pipeline) => (pipeline.stages ?? []).reduce((sum, stage) => sum + (Number(stage.durationMs) || 0), 0)).filter((value) => value > 0);
+  if (values.length === 0) return "-";
+  return formatDuration(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+Promise.all([loadProjects(), loadSummary(), loadRules(), loadEvaluationDatasets(), loadCodeUpgrades(), loadPipelines()]).finally(render);

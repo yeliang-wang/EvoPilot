@@ -1,0 +1,591 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "EvoPilot API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "健康检查",
+        "responses": {
+          "200": {
+            "description": "服务已启动"
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "就绪检查",
+        "responses": {
+          "200": {
+            "description": "存储已就绪"
+          }
+        }
+      }
+    },
+    "/api/v1/summary": {
+      "get": {
+        "summary": "控制台汇总",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "汇总"
+          },
+          "401": {
+            "description": "未授权"
+          }
+        }
+      }
+    },
+    "/api/v1/profiles": {
+      "get": {
+        "summary": "列出项目画像",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目画像"
+          }
+        }
+      }
+    },
+    "/api/v1/rules": {
+      "get": {
+        "summary": "列出用户规则",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dashboard 用户视角的自然语言规则"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/evaluation-datasets": {
+      "get": {
+        "summary": "列出评测集",
+        "description": "返回由 Trace、Log、Tool Call、Prompt Version、RAG Context、Cost、Latency 和用户反馈沉淀出的 Eval Dataset / Regression Suite，用于 Dashboard 多选形成机会点。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "评测集列表"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/opportunity-drafts": {
+      "post": {
+        "summary": "由评测集形成机会点草稿",
+        "description": "Dashboard 选择一个或多个评测集后，生成机会点草稿和可编辑 Markdown 进化方案。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "机会点草稿已生成"
+          },
+          "400": {
+            "description": "必须选择评测集"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "summary": "列出项目",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目列表"
+          }
+        }
+      },
+      "post": {
+        "summary": "注册项目",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "项目已创建"
+          },
+          "403": {
+            "description": "需要管理员角色"
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/jenkins": {
+      "get": {
+        "summary": "列出产品托管 CI/CD 配置",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "产品托管 CI/CD 配置列表"
+          }
+        }
+      },
+      "post": {
+        "summary": "保存产品托管 CI/CD 配置",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "产品托管 CI/CD 配置已保存"
+          },
+          "403": {
+            "description": "需要管理员角色"
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines": {
+      "get": {
+        "summary": "列出流水线运行",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "流水线运行列表"
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/{pipelineRunId}": {
+      "get": {
+        "summary": "获取流水线运行详情",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pipelineRunId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "流水线运行详情"
+          },
+          "404": {
+            "description": "未找到流水线运行"
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/{pipelineRunId}/logs": {
+      "get": {
+        "summary": "获取流水线日志摘要",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "流水线日志摘要"
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/{pipelineRunId}/artifacts": {
+      "get": {
+        "summary": "获取流水线制品",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "流水线制品"
+          }
+        }
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "summary": "列出运行记录",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "运行记录"
+          }
+        }
+      },
+      "post": {
+        "summary": "创建演进运行",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "运行已创建"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{runId}": {
+      "get": {
+        "summary": "获取运行详情",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "运行详情"
+          },
+          "404": {
+            "description": "未找到运行记录"
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{reviewId}/decision": {
+      "post": {
+        "summary": "提交评审决策",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "决策已记录"
+          }
+        }
+      }
+    },
+    "/api/v1/deliveries/{deliveryId}/execute": {
+      "post": {
+        "summary": "执行交付",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "交付已执行"
+          },
+          "202": {
+            "description": "Jenkins 流水线已触发"
+          },
+          "409": {
+            "description": "需要用户确认"
+          }
+        }
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "summary": "列出审计记录",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "审计记录"
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "summary": "Prometheus 风格指标",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "指标"
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/events": {
+      "post": {
+        "summary": "通用事件证据接入",
+        "description": "接收 Agent、工具、LLM、RAG、路由、工作流等自定义证据，并创建演进运行。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "证据已接入并创建演进运行"
+          },
+          "400": {
+            "description": "请求体不合法"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目未验证"
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/otlp/v1/traces": {
+      "post": {
+        "summary": "OpenTelemetry Trace 证据接入",
+        "description": "接收 OTLP JSON Trace，将 span、traceId、service.name、耗时和 GenAI 属性转换为进化证据。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "证据已接入并创建演进运行"
+          },
+          "400": {
+            "description": "请求体不合法"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目未验证"
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/otlp/v1/logs": {
+      "post": {
+        "summary": "OpenTelemetry Log 证据接入",
+        "description": "接收 OTLP JSON Log，将错误日志转换为进化证据。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "证据已接入并创建演进运行"
+          },
+          "400": {
+            "description": "请求体不合法"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目未验证"
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/skywalking": {
+      "post": {
+        "summary": "SkyWalking 证据接入",
+        "description": "接收 SkyWalking 链路或查询结果转换后的 JSON，并转换为进化证据。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "证据已接入并创建演进运行"
+          },
+          "400": {
+            "description": "请求体不合法"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目未验证"
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/evaluations": {
+      "post": {
+        "summary": "评测结果证据接入",
+        "description": "接收外部评测系统、语义回归测试或 CI 回归套件结果。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "证据已接入并创建演进运行"
+          },
+          "400": {
+            "description": "请求体不合法"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目未验证"
+          }
+        }
+      }
+    },
+    "/api/v1/evidence/feedback": {
+      "post": {
+        "summary": "用户反馈证据接入",
+        "description": "接收用户差评、投诉、满意度和人工标注，并与 traceId/sessionId 关联。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "证据已接入并创建演进运行"
+          },
+          "400": {
+            "description": "请求体不合法"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目未验证"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

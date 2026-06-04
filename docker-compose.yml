@@ -1,0 +1,19 @@
+services:
+  evopilot:
+    build: .
+    ports:
+      - "19876:19876"
+    environment:
+      EVOPILOT_PORT: "19876"
+      EVOPILOT_RUN_MODE: "prod"
+      EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
+      EVOPILOT_DASHBOARD_ROOT: "/app/apps/dashboard"
+      EVOPILOT_CODE_UPGRADER_BASE_URL: "http://evopilot-code-upgrader:3000"
+      EVOPILOT_PRODUCT_JENKINS_BASE_URL: "http://evopilot-jenkins:8080"
+      EVOPILOT_PRODUCT_JENKINS_JOB: "evopilot-evolution-delivery"
+      EVOPILOT_TOKENS: "admin:change-me-admin-token:admin,operator:change-me-operator-token:operator,viewer:change-me-viewer-token:viewer"
+    volumes:
+      - evopilot-data:/var/lib/evopilot
+
+volumes:
+  evopilot-data:
