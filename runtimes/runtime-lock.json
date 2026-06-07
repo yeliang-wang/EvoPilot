@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "policy": "EvoPilot 生产发布要求托管代码升级运行时以独立真实进程随产品套件部署，并锁定版本、镜像、Digest、SBOM、许可证报告、漏洞报告和健康端点。Jenkins 是外部 CI/CD 连接器，不纳入 EvoPilot 托管运行时锁。",
+  "runtimes": [
+    {
+      "id": "evopilot-code-upgrader",
+      "name": "EvoPilot 代码升级运行时",
+      "implementation": "OpenHands",
+      "role": "code-upgrader",
+      "version": "0.59",
+      "image": "evopilot/code-upgrader-runtime:0.59",
+      "digest": "sha256:04deef9078e85aca13a38e86660da6e093d8062c621d0c7baa6693e09b145405",
+      "baseImage": "ghcr.io/all-hands-ai/openhands:0.59",
+      "baseDigest": "sha256:00968de77a7b36546413e1f3b5c6b4e2c387d19ade54de7926e10f5b3d265fa6",
+      "runtimeImage": "ghcr.io/all-hands-ai/runtime:0.59-nikolaik",
+      "runtimeDigest": "sha256:6791db9f6344908f642ca422bd2328c1a39b667566d95c09c6c64ee22d202ac1",
+      "healthEndpoint": "http://evopilot-code-upgrader:3000/health",
+      "sbom": "runtimes/sbom/openhands-0.59.spdx.json",
+      "licenseReport": "runtimes/licenses/openhands-0.59.json",
+      "vulnerabilityReport": "runtimes/vulnerabilities/openhands-0.59.json",
+      "managedBy": "evopilot",
+      "required": true
+    }
+  ]
+}

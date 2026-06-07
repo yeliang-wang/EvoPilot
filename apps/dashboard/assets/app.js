@@ -1,12 +1,38 @@
 const navItems = ["首页", "接入项目", "证据策略", "评测集", "机会点", "流水线", "历史记录"];
+const requestedPage = new URLSearchParams(window.location.search).get("page");
 
 const state = {
-  active: "首页",
+  active: navItems.includes(requestedPage) ? requestedPage : "首页",
   apiStatus: "示例数据",
   operationNotice: "",
   projectRegistration: {
     message: "",
     status: ""
+  },
+  serviceScorecards: [],
+  intelligence: {
+    selfLearningDatasetCount: 0,
+    opportunityInsightCount: 0,
+    opportunityInsightQuality: 0,
+    learningRecordCount: 0,
+    averageServiceScore: 0,
+    sloHealth: 100,
+    errorBudgetRemaining: 100,
+    failedPolicyCount: 0,
+    supplyChainRiskCount: 0,
+    runtimeReadyCount: 0,
+    costRiskCount: 0,
+    costHealth: 100,
+    releaseReadyCount: 0,
+    releaseBlockedCount: 0,
+    releaseReadinessScore: 100,
+    canaryReadyCount: 0,
+    rolloutBlockedCount: 0,
+    evolutionBatchCount: 0,
+    activeEvolutionBatchCount: 0,
+    successfulEvolutionBatchCount: 0,
+    failedEvolutionBatchCount: 0,
+    insights: []
   },
   showProjectRegistrationModal: false,
   reviewingOpportunityId: "",
@@ -26,7 +52,10 @@ const state = {
       validation: "已验证",
       repository: "内置项目画像",
       credentials: "无需凭据",
-      lastSignal: "MCP 链路 p95 3.5s"
+      lastSignal: "MCP 链路 p95 3.5s",
+      score: 86,
+      level: "良好",
+      recommendedAction: "继续积累发布后学习记录。"
     },
     {
       id: "simple-agent-project",
@@ -35,7 +64,10 @@ const state = {
       validation: "待验证",
       repository: "尚未完成 Git 注册",
       credentials: "未配置",
-      lastSignal: "工具失败率上升"
+      lastSignal: "工具失败率上升",
+      score: 42,
+      level: "高风险",
+      recommendedAction: "优先完成项目注册验证。"
     }
   ],
   rules: [
@@ -118,6 +150,9 @@ const state = {
       evidence: "最近 24 小时 MCP 调用 durationMs 多次超过 3000ms",
       datasetIds: ["eval-latency", "eval-rag-drift", "eval-cost-latency"],
       impact: "高",
+      confidence: 0.91,
+      attribution: "链路性能退化",
+      governanceLevel: "方案确认",
       status: "待确认",
       reviewId: "",
       deliveryPlanId: "",
@@ -143,6 +178,9 @@ const state = {
       evidence: "工具失败事件集中在恢复路径，缺少稳定降级策略",
       datasetIds: ["eval-tool-recovery"],
       impact: "中",
+      confidence: 0.84,
+      attribution: "工具恢复失败",
+      governanceLevel: "方案确认",
       status: "可排期",
       reviewId: "",
       deliveryPlanId: "",
@@ -154,7 +192,7 @@ const state = {
           "方案 B：抽象恢复端口并集中治理，初始工作量更高，但可维护性更好。"
         ],
         impact: "恢复策略可复用，失败原因更可观测；需要新增恢复契约和回归测试。",
-        validation: "模拟工具失败，验证恢复路径、审计记录和流水线门禁。"
+        validation: "构造工具失败场景，验证恢复路径、审计记录和流水线门禁。"
       }
     }
   ],
@@ -351,6 +389,7 @@ function evolutionObservabilityModel() {
     "用户反馈"
   ]).slice(0, 7);
   const datasetReadyCount = state.evaluationDatasets.filter((dataset) => dataset.status === "REGRESSION_READY").length;
+  const selfLearningCount = state.intelligence.selfLearningDatasetCount || state.evaluationDatasets.filter((dataset) => dataset.generatedBy === "self-learning").length;
   const runningPipelineCount = state.pipelines.filter((pipeline) => ["RUNNING", "QUEUED"].includes(pipeline.status)).length + state.codeUpgrades.filter((run) => ["RUNNING", "QUEUED"].includes(run.status)).length;
   const healthClass = projectCount > 0 && verifiedCount === projectCount ? "good" : "warn";
   const projectNodes = state.projects.slice(0, 3).map((project) => ({
@@ -367,10 +406,12 @@ function evolutionObservabilityModel() {
   const datasetNodes = [
     { label: "Eval Dataset", value: `${state.evaluationDatasets.length} 个`, detail: "线上证据沉淀为评测集", tone: "good" },
     { label: "Regression Suite", value: `${datasetReadyCount} 个`, detail: "可进入回归门禁", tone: datasetReadyCount > 0 ? "good" : "warn" },
-    { label: "失败归因", value: `${state.opportunities.length} 个`, detail: "已识别演进机会", tone: state.opportunities.length > 0 ? "warn" : "" }
+    { label: "自学习沉淀", value: `${selfLearningCount} 个`, detail: "系统自动生成评测集", tone: selfLearningCount > 0 ? "good" : "warn" },
+    { label: "智能机会洞察", value: `${state.intelligence.opportunityInsightCount || state.opportunities.length} 个`, detail: "自学习机会发现", tone: state.opportunities.length > 0 ? "warn" : "" }
   ];
   const deliveryNodes = [
     { label: "机会点", value: `${state.opportunities.length} 个`, detail: "查看方案后确认进化", tone: "warn" },
+    { label: "进化调度", value: `${state.intelligence.activeEvolutionBatchCount}/${state.intelligence.evolutionBatchCount} 个`, detail: "EvoPilot 按评测集批次持续触发", tone: state.intelligence.activeEvolutionBatchCount > 0 ? "warn" : "good" },
     { label: "代码升级", value: `${state.codeUpgrades.length || state.pipelines.length} 个`, detail: "白盒执行，成功后进入 CI/CD", tone: runningPipelineCount > 0 ? "warn" : "" },
     { label: "流水线", value: `${state.pipelines.length} 条`, detail: "单测、冒烟、闭环测试", tone: runningPipelineCount > 0 ? "good" : "" }
   ];
@@ -388,9 +429,21 @@ function evolutionObservabilityModel() {
     hotSignals: state.opportunities.slice(0, 3),
     statusItems: [
       { label: "项目", value: projectCount },
+      { label: "平均服务分", value: state.intelligence.averageServiceScore || averageProjectScore() },
+      { label: "SLO健康", value: `${state.intelligence.sloHealth}%` },
+      { label: "错误预算", value: `${state.intelligence.errorBudgetRemaining}%` },
+      { label: "失败策略", value: state.intelligence.failedPolicyCount },
+      { label: "供应链风险", value: state.intelligence.supplyChainRiskCount },
+      { label: "运行时就绪", value: state.intelligence.runtimeReadyCount },
+      { label: "成本健康", value: `${state.intelligence.costHealth}%` },
+      { label: "发布就绪", value: `${state.intelligence.releaseReadinessScore}%` },
+      { label: "发布阻断", value: state.intelligence.releaseBlockedCount },
+      { label: "灰度就绪", value: state.intelligence.canaryReadyCount },
+      { label: "灰度阻断", value: state.intelligence.rolloutBlockedCount },
       { label: "证据源", value: sourceTags.length },
       { label: "评测集", value: state.evaluationDatasets.length },
       { label: "机会点", value: state.opportunities.length },
+      { label: "智能洞察", value: state.intelligence.opportunityInsightCount || state.opportunities.length },
       { label: "流水线", value: state.pipelines.length },
       { label: "最近刷新", value: state.apiStatus }
     ]
@@ -399,6 +452,11 @@ function evolutionObservabilityModel() {
 
 function unique(items) {
   return [...new Set(items.filter(Boolean))];
+}
+
+function averageProjectScore() {
+  if (state.projects.length === 0) return 0;
+  return Math.round(state.projects.reduce((sum, project) => sum + Number(project.score ?? 0), 0) / state.projects.length);
 }
 
 function renderProjects() {
@@ -416,13 +474,17 @@ function renderProjects() {
         </div>
       </div>
       ${!state.showProjectRegistrationModal && state.projectRegistration.message ? `<div class="notice ${state.projectRegistration.status}">${state.projectRegistration.message}</div>` : ""}
-      ${table(["项目", "状态", "仓库注册", "凭据", "验证", "最近信号"], state.projects.map((project) => [
+      ${table(["项目", "状态", "成熟度", "等级", "仓库注册", "凭据", "CI/CD", "验证", "最近信号", "建议动作"], state.projects.map((project) => [
         `<strong>${project.name}</strong><span class="subtext">${project.id}</span>`,
         statusPill(project.status),
+        scorePill(project.score),
+        statusPill(project.level),
         project.repository,
         project.credentials,
+        project.cicd ?? "系统默认 Jenkins",
         statusPill(project.validation),
-        project.lastSignal
+        project.lastSignal,
+        project.recommendedAction ?? "等待更多证据"
       ]))}
     </section>
     ${state.showProjectRegistrationModal ? renderProjectRegistrationModal() : ""}
@@ -487,6 +549,63 @@ function renderProjectRegistrationModal() {
             <span>Token 环境变量</span>
             <input name="tokenRef" placeholder="GITLAB_TOKEN" />
           </label>
+          <label>
+            <span>CI/CD 配置</span>
+            <select name="cicdMode">
+              <option value="system-default">使用系统默认 Jenkins</option>
+              <option value="project-override">使用项目独立 Jenkins</option>
+            </select>
+          </label>
+          <label>
+            <span>Jenkins 地址</span>
+            <input name="jenkinsBaseUrl" placeholder="https://jenkins.example.com" />
+          </label>
+          <label>
+            <span>Jenkins 用户名</span>
+            <input name="jenkinsUsername" autocomplete="username" />
+          </label>
+          <label>
+            <span>Jenkins API Token</span>
+            <input name="jenkinsApiToken" type="password" autocomplete="off" />
+          </label>
+          <label>
+            <span>Jenkins Job</span>
+            <input name="jenkinsJob" placeholder="agent-product-evolution" />
+          </label>
+          <label>
+            <span>项目语言</span>
+            <select name="runtimeLanguage">
+              <option value="generic">通用</option>
+              <option value="python">Python</option>
+              <option value="node">Node.js</option>
+              <option value="java">Java</option>
+              <option value="go">Go</option>
+            </select>
+          </label>
+          <label>
+            <span>单元测试命令</span>
+            <input name="unitCommands" placeholder="python3 -m unittest discover -s tests -p 'test_*.py'" />
+          </label>
+          <label>
+            <span>服务启动命令</span>
+            <input name="serviceStartCommand" placeholder="python3 app.py --host 127.0.0.1 --port 49318" />
+          </label>
+          <label>
+            <span>服务端口</span>
+            <input name="servicePort" placeholder="49318" />
+          </label>
+          <label>
+            <span>健康检查路径</span>
+            <input name="serviceHealthPath" value="/health" />
+          </label>
+          <label>
+            <span>冒烟测试命令</span>
+            <input name="smokeCommands" placeholder="python3 scripts/smoke.py" />
+          </label>
+          <label>
+            <span>功能闭环测试命令</span>
+            <input name="functionalCommands" placeholder="python3 scripts/functional.py" />
+          </label>
           <div class="form-actions">
             <button data-action="close-project-registration" type="button">取消</button>
             <button class="primary" type="submit">验证并注册</button>
@@ -533,7 +652,7 @@ function renderEvaluationDatasets() {
       </div>
       ${state.opportunityDraftNotice ? `<div class="notice good">${state.opportunityDraftNotice}</div>` : ""}
       <div class="table-scroll">
-        ${table(["选择", "评测集", "项目", "来源", "状态", "严重级别", "样本数", "指标", "范围", "触发时间"], state.evaluationDatasets.map((dataset) => [
+        ${table(["选择", "评测集", "项目", "来源", "状态", "严重级别", "样本数", "指标", "范围", "学习方式", "触发时间"], state.evaluationDatasets.map((dataset) => [
           `<input type="checkbox" class="dataset-checkbox" data-id="${dataset.id}" ${state.selectedDatasetIds.includes(dataset.id) ? "checked" : ""} aria-label="选择 ${dataset.name}" />`,
           `<strong>${dataset.name}</strong><span class="subtext">${dataset.id}</span>`,
           dataset.projectId,
@@ -543,6 +662,7 @@ function renderEvaluationDatasets() {
           String(dataset.sampleCount),
           dataset.metric,
           dataset.scope,
+          dataset.generatedBy === "self-learning" ? statusPill("智能沉淀") : statusPill("人工导入"),
           formatDate(dataset.triggeredAt)
         ]))}
       </div>
@@ -611,7 +731,7 @@ function renderOpportunities() {
         <span class="pill warn">查看方案并确认后才进入流水线</span>
       </div>
       <div class="table-scroll">
-      ${table(["操作", "机会点", "项目", "关联评测集", "触发来源", "触发策略", "触发时间", "IP", "证据摘要", "影响", "状态"], state.opportunities.map((opportunity) => [
+      ${table(["操作", "机会点", "项目", "关联评测集", "触发来源", "触发策略", "触发时间", "IP", "证据摘要", "置信度", "归因", "治理等级", "影响", "状态"], state.opportunities.map((opportunity) => [
         `<div class="row-actions">
           <button data-action="view-proposal" data-id="${opportunity.id}">查看方案</button>
           <button data-action="view-opportunity-evidence" data-id="${opportunity.id}">关联评测集</button>
@@ -624,6 +744,9 @@ function renderOpportunities() {
         opportunity.triggeredAt,
         opportunity.ip,
         opportunity.evidence,
+        confidencePill(opportunity.confidence),
+        opportunity.attribution ?? "待归因",
+        statusPill(opportunity.governanceLevel ?? "方案确认"),
         translateImpactPill(opportunity.impact),
         statusPill(opportunity.status)
       ]))}
@@ -952,6 +1075,9 @@ function opportunityFromDraft(draft) {
     evidence: `关联 ${draft.datasetIds.length} 个评测集，样本数 ${draft.sampleCount}`,
     datasetIds: draft.datasetIds,
     impact: "高",
+    confidence: 0.86,
+    attribution: "评测回归失败",
+    governanceLevel: "方案确认",
     status: "待确认",
     proposalMarkdown: draft.proposalMarkdown,
     reviewId: "",
@@ -985,6 +1111,20 @@ function severityPill(severity) {
   return statusPill(({ HIGH: "高", MEDIUM: "中", LOW: "低" })[severity] ?? severity);
 }
 
+function confidencePill(value) {
+  if (value === undefined || value === null || value === "") return `<span class="pill">待计算</span>`;
+  const numeric = Number(value);
+  const label = Number.isFinite(numeric) ? `${Math.round(numeric * 100)}%` : String(value);
+  const cls = numeric >= 0.88 ? "good" : numeric >= 0.72 ? "warn" : "bad";
+  return `<span class="pill ${cls}">${label}</span>`;
+}
+
+function scorePill(value) {
+  const numeric = Number(value ?? 0);
+  const cls = numeric >= 85 ? "good" : numeric >= 60 ? "warn" : "bad";
+  return `<span class="pill ${cls}">${Math.round(numeric)}</span>`;
+}
+
 function statusPill(status) {
   const cls = ({
     健康: "good",
@@ -993,6 +1133,9 @@ function statusPill(status) {
     已启用: "good",
     可回归: "good",
     已评估: "good",
+    自动执行: "good",
+    优秀: "good",
+    良好: "good",
     执行中: "warn",
     正在收集: "warn",
     观察中: "warn",
@@ -1000,8 +1143,15 @@ function statusPill(status) {
     可排期: "warn",
     待验证: "warn",
     待标注: "warn",
+    方案确认: "warn",
+    人工设计: "warn",
+    诊断模式: "warn",
+    智能沉淀: "good",
+    人工导入: "",
+    待改进: "warn",
     中: "warn",
     高: "warn",
+    高风险: "bad",
     失败: "bad",
     接入失败: "bad",
     验证失败: "bad",
@@ -1238,8 +1388,40 @@ function projectRegistrationPayload(formData) {
     id: value("id"),
     name: value("name"),
     profileId: "domainforge-fabric",
-    repository
+    repository,
+    cicd: {
+      provider: "jenkins",
+      mode: value("cicdMode") || "system-default",
+      jenkins: {
+        mode: value("cicdMode") || "system-default",
+        baseUrl: value("jenkinsBaseUrl") || undefined,
+        username: value("jenkinsUsername") || undefined,
+        apiToken: value("jenkinsApiToken") || undefined,
+        job: value("jenkinsJob") || undefined
+      }
+    },
+    runtime: {
+      language: value("runtimeLanguage") || "generic",
+      unitCommands: commandList(value("unitCommands")),
+      service: value("serviceStartCommand") ? {
+        enabled: true,
+        startCommand: value("serviceStartCommand"),
+        host: "127.0.0.1",
+        port: value("servicePort") ? Number(value("servicePort")) : undefined,
+        healthPath: value("serviceHealthPath") || "/health",
+        readyTimeoutSeconds: 20
+      } : undefined,
+      smokeCommands: commandList(value("smokeCommands")),
+      functionalCommands: commandList(value("functionalCommands"))
+    }
   };
+}
+
+function commandList(value) {
+  return String(value ?? "")
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 async function confirmOpportunity(id, options = {}) {
@@ -1255,21 +1437,18 @@ async function confirmOpportunity(id, options = {}) {
       });
       const upgrade = await postJson(`/api/v1/deliveries/${encodeURIComponent(opportunity.deliveryPlanId)}/code-upgrade`, {
         connectorId: "default",
-        proposalMarkdown: proposalMarkdown(opportunity),
-        validationCommands: ["npm run check"]
+        proposalMarkdown: proposalMarkdown(opportunity)
       });
       const codeUpgradeRun = upgrade.data?.codeUpgradeRun;
       if (options.scheduled) {
         await postJson(`/api/v1/deliveries/${encodeURIComponent(opportunity.deliveryPlanId)}/schedule`, {
           executor: "jenkins",
-          connectorId: "default",
           scheduledAt: toIsoDateTime(options.scheduledAt),
           parameters: { VERSION: "dashboard-scheduled", PROPOSAL_MARKDOWN: proposalMarkdown(opportunity) }
         });
       } else if (codeUpgradeRun?.status === "SUCCEEDED") {
         await postJson(`/api/v1/deliveries/${encodeURIComponent(opportunity.deliveryPlanId)}/execute`, {
           executor: "jenkins",
-          connectorId: "default",
           parameters: { VERSION: "dashboard-now", PROPOSAL_MARKDOWN: proposalMarkdown(opportunity) }
         });
       }
@@ -1308,6 +1487,33 @@ async function loadSummary() {
     if (!response.ok) throw new Error(`汇总接口状态 ${response.status}`);
     const { data } = await response.json();
     state.apiStatus = "实时数据";
+    state.intelligence = {
+      selfLearningDatasetCount: data.selfLearningDatasetCount ?? state.intelligence.selfLearningDatasetCount,
+      opportunityInsightCount: data.opportunityInsightCount ?? state.intelligence.opportunityInsightCount,
+      opportunityInsightQuality: data.opportunityInsightQuality ?? state.intelligence.opportunityInsightQuality,
+      learningRecordCount: data.learningRecordCount ?? state.intelligence.learningRecordCount,
+      averageServiceScore: data.averageServiceScore ?? state.intelligence.averageServiceScore,
+      sloHealth: data.sloHealth ?? state.intelligence.sloHealth,
+      errorBudgetRemaining: data.errorBudgetRemaining ?? state.intelligence.errorBudgetRemaining,
+      failedPolicyCount: data.failedPolicyCount ?? state.intelligence.failedPolicyCount,
+      supplyChainRiskCount: data.supplyChainRiskCount ?? state.intelligence.supplyChainRiskCount,
+      runtimeReadyCount: Array.isArray(data.supplyChainReports)
+        ? data.supplyChainReports.filter((report) => report.status === "READY").length
+        : state.intelligence.runtimeReadyCount,
+      costRiskCount: data.costRiskCount ?? state.intelligence.costRiskCount,
+      costHealth: data.costHealth ?? state.intelligence.costHealth,
+      releaseReadyCount: data.releaseReadyCount ?? state.intelligence.releaseReadyCount,
+      releaseBlockedCount: data.releaseBlockedCount ?? state.intelligence.releaseBlockedCount,
+      releaseReadinessScore: data.releaseReadinessScore ?? state.intelligence.releaseReadinessScore,
+      canaryReadyCount: data.canaryReadyCount ?? state.intelligence.canaryReadyCount,
+      rolloutBlockedCount: data.rolloutBlockedCount ?? state.intelligence.rolloutBlockedCount,
+      evolutionBatchCount: data.evolutionBatchCount ?? state.intelligence.evolutionBatchCount,
+      activeEvolutionBatchCount: data.activeEvolutionBatchCount ?? state.intelligence.activeEvolutionBatchCount,
+      successfulEvolutionBatchCount: data.successfulEvolutionBatchCount ?? state.intelligence.successfulEvolutionBatchCount,
+      failedEvolutionBatchCount: data.failedEvolutionBatchCount ?? state.intelligence.failedEvolutionBatchCount,
+      insights: Array.isArray(data.recentOpportunityInsights) ? data.recentOpportunityInsights : state.intelligence.insights
+    };
+    if (Array.isArray(data.serviceScorecards)) applyServiceScorecards(data.serviceScorecards);
     if (Array.isArray(data.recentRuns) && data.recentRuns.length > 0) {
       state.opportunities = data.recentRuns.flatMap((run) => (run.opportunities ?? []).map((opportunity) => ({
         id: opportunity.id,
@@ -1318,6 +1524,9 @@ async function loadSummary() {
         triggeredAt: formatDate(firstEvidenceEvent(run, opportunity)?.timestamp ?? run.evidenceBundle?.timeWindow?.to ?? new Date().toISOString()),
         ip: extractEvidenceIp(firstEvidenceEvent(run, opportunity)),
         evidence: firstEvidenceEvent(run, opportunity)?.message ?? "由运行证据触发",
+        confidence: opportunity.confidence,
+        attribution: translateAttribution(opportunity.failureAttribution),
+        governanceLevel: translateAutomationLevel((run.plans ?? []).find((plan) => plan.opportunityId === opportunity.id)?.automationLevel),
         impact: translateImpact(opportunity.impact),
         status: translateReviewStatus((run.reviews ?? [])[0]?.status ?? "USER_CONFIRM_REQUIRED"),
         reviewId: (run.reviews ?? [])[0]?.id,
@@ -1339,6 +1548,21 @@ async function loadSummary() {
   } catch {
     state.apiStatus = "示例数据";
   }
+}
+
+function applyServiceScorecards(scorecards) {
+  state.serviceScorecards = scorecards;
+  const byProject = new Map(scorecards.map((scorecard) => [scorecard.projectId, scorecard]));
+  state.projects = state.projects.map((project) => {
+    const scorecard = byProject.get(project.id);
+    if (!scorecard) return project;
+    return {
+      ...project,
+      score: scorecard.score,
+      level: scorecard.level,
+      recommendedAction: scorecard.recommendedAction
+    };
+  });
 }
 
 function firstEvidenceEvent(run, opportunity) {
@@ -1370,11 +1594,31 @@ async function loadProjects() {
         validation: project.validation?.status === "VERIFIED" ? "已验证" : "验证失败",
         repository: project.repository?.gitUrl ?? project.repository?.root ?? project.repository?.projectId ?? "内置项目画像",
         credentials: project.repository ? (project.repository.credentialsConfigured ? "已配置" : "未配置") : "无需凭据",
-        lastSignal: project.validation?.message ?? "等待运行证据"
+        cicd: project.cicd?.mode === "project-override"
+          ? `项目独立 Jenkins：${project.cicd.job ?? project.cicd.connectorId ?? "已配置"}`
+          : project.cicd?.mode === "system-default"
+            ? "系统默认 Jenkins"
+            : "未配置 CI/CD",
+        lastSignal: project.validation?.message ?? "等待运行证据",
+        score: project.score ?? 0,
+        level: project.level ?? "待改进",
+        recommendedAction: project.recommendedAction ?? "等待运行证据"
       }));
+      await loadServiceScorecards();
     }
   } catch {
     // 保留示例项目，便于静态查看控制台。
+  }
+}
+
+async function loadServiceScorecards() {
+  try {
+    const response = await fetch("/api/v1/service-scorecards");
+    if (!response.ok) throw new Error(`项目成熟度接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (Array.isArray(data)) applyServiceScorecards(data);
+  } catch {
+    // 保留示例成熟度。
   }
 }
 
@@ -1710,6 +1954,31 @@ function translateOpportunityText(text) {
 
 function translateImpact(impact) {
   return ({ high: "高", medium: "中", low: "低" })[impact] ?? impact ?? "中";
+}
+
+function translateAttribution(attribution) {
+  return ({
+    "latency-regression": "链路性能退化",
+    "tool-recovery": "工具恢复失败",
+    "rag-quality": "RAG 质量漂移",
+    "eval-regression": "评测回归失败",
+    "user-experience": "用户体验下降",
+    "observability-error": "可观测错误",
+    "security-risk": "安全风险",
+    "cost-regression": "成本退化",
+    unknown: "未知归因"
+  })[attribution] ?? "待归因";
+}
+
+function translateAutomationLevel(level) {
+  return ({
+    "observe-only": "诊断模式",
+    "diagnose-only": "诊断模式",
+    "proposal-only": "方案确认",
+    "auto-pr-allowed": "自动执行",
+    "manual-design-required": "人工设计",
+    reject: "已拒绝"
+  })[level] ?? "方案确认";
 }
 
 function translateReviewStatus(status) {

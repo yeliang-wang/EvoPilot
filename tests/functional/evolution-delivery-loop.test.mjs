@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { createServer } from "../../packages/server/dist/index.js";
 
@@ -58,6 +60,138 @@ test("runs evidence to review to confirmed delivery to learning closed loop", as
     const runs = await (await fetch(`${baseUrl}/api/v1/runs`)).json();
     assert.equal(runs.data.length, 1);
     assert.equal(runs.data[0].releaseReports.length, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("self-learning discovery generates evaluation datasets and opportunity insights from evidence", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-self-learning-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const run = await postWithToken(`${baseUrl}/api/v1/runs`, {
+      projectId: "domainforge-fabric",
+      now: "2026-06-04T00:00:00.000Z",
+      events: [
+        {
+          id: "trace-self-1",
+          type: "mcp.call",
+          source: "observability",
+          timestamp: "2026-06-04T00:00:00.000Z",
+          severity: "HIGH",
+          message: "链路 p95 超过 3 秒",
+          traceId: "trace-self-learning",
+          module: "runtime-performance",
+          attributes: { durationMs: 3900 }
+        },
+        {
+          id: "feedback-self-1",
+          type: "user.feedback.negative",
+          source: "user",
+          timestamp: "2026-06-04T00:00:01.000Z",
+          severity: "HIGH",
+          message: "用户反馈响应太慢",
+          traceId: "trace-self-learning"
+        },
+        {
+          id: "cost-self-1",
+          type: "llm.cost",
+          source: "observability",
+          timestamp: "2026-06-04T00:00:02.000Z",
+          severity: "MEDIUM",
+          message: "模型调用成本升高",
+          traceId: "trace-self-learning",
+          module: "runtime-cost",
+          attributes: { costUsd: 2.5, totalTokens: 9000 }
+        }
+      ],
+      files: ["src/runtime-performance.ts", "test/runtime-performance.test.ts"]
+    }, "operator-token");
+    assert.ok(run.data.opportunities[0].confidence >= 0.9);
+
+    const datasets = await getWithToken(`${baseUrl}/api/v1/evaluation-datasets`, "viewer-token");
+    assert.ok(datasets.data.some((dataset) =>
+      dataset.generatedBy === "self-learning" &&
+      dataset.opportunityIds.includes(run.data.opportunities[0].id) &&
+      dataset.status === "REGRESSION_READY"
+    ));
+
+    const insights = await getWithToken(`${baseUrl}/api/v1/opportunity-insights`, "viewer-token");
+    assert.ok(insights.data.some((insight) =>
+      insight.source === "self-learning" &&
+      insight.datasetIds.length > 0 &&
+      insight.score >= 60
+    ));
+
+    const scorecards = await getWithToken(`${baseUrl}/api/v1/service-scorecards`, "viewer-token");
+    const domainforgeScorecard = scorecards.data.find((scorecard) => scorecard.projectId === "domainforge-fabric");
+    assert.ok(domainforgeScorecard.score >= 55);
+    assert.ok(domainforgeScorecard.checks.some((check) => check.name === "证据覆盖" && check.status === "PASSED"));
+    assert.match(domainforgeScorecard.recommendedAction, /交付闭环|发布后学习|继续积累|建议增强/);
+
+    const sloReports = await getWithToken(`${baseUrl}/api/v1/slo-reports`, "viewer-token");
+    const slo = sloReports.data.find((report) => report.projectId === "domainforge-fabric");
+    assert.ok(slo.latencyViolationCount >= 1);
+    assert.ok(slo.errorBudgetRemaining <= 100);
+
+    const policies = await getWithToken(`${baseUrl}/api/v1/governance/policy-evaluations`, "viewer-token");
+    assert.ok(policies.data.some((policy) => policy.name === "SLO 错误预算门禁"));
+    assert.ok(policies.data.some((policy) => policy.id === "policy-runtime-supply-chain" && policy.status === "PASSED"));
+    assert.ok(policies.data.some((policy) => policy.name === "成本预算门禁" && policy.status !== "PASSED"));
+
+    const supplyChain = await getWithToken(`${baseUrl}/api/v1/supply-chain/reports`, "viewer-token");
+    assert.ok(!supplyChain.data.some((report) => report.implementation === "Jenkins"));
+    assert.ok(supplyChain.data.some((report) => report.implementation === "OpenHands" && report.status === "READY"));
+    assert.ok(supplyChain.data.every((report) => Array.isArray(report.packageArtifacts)));
+    assert.ok(supplyChain.data.every((report) => Array.isArray(report.missingArtifacts)));
+
+    const costReports = await getWithToken(`${baseUrl}/api/v1/cost/reports`, "viewer-token");
+    const costReport = costReports.data.find((report) => report.projectId === "domainforge-fabric");
+    assert.ok(costReport.totalCost >= 2.5);
+    assert.ok(costReport.totalTokens >= 9000);
+    assert.notEqual(costReport.status, "HEALTHY");
+
+    const readinessReports = await getWithToken(`${baseUrl}/api/v1/release/readiness`, "viewer-token");
+    const readiness = readinessReports.data.find((report) => report.projectId === "domainforge-fabric");
+    assert.equal(readiness.status, "BLOCKED");
+    assert.ok(readiness.gates.some((gate) => gate.name === "运行时供应链" && gate.status === "PASSED"));
+    assert.ok(readiness.gates.some((gate) => gate.name === "成本预算" && gate.status === "WARN"));
+
+    const rolloutReports = await getWithToken(`${baseUrl}/api/v1/rollout/strategies`, "viewer-token");
+    const rollout = rolloutReports.data.find((report) => report.projectId === "domainforge-fabric");
+    assert.equal(rollout.status, "BLOCKED");
+    assert.equal(rollout.strategy, "BLOCKED");
+    assert.equal(rollout.canaryPercent, 0);
+    assert.ok(rollout.gates.some((gate) => gate.name === "发布就绪度" && gate.status === "FAILED"));
+
+    const summary = await getWithToken(`${baseUrl}/api/v1/summary`, "viewer-token");
+    assert.equal(summary.data.selfLearningDatasetCount, datasets.data.filter((dataset) => dataset.generatedBy === "self-learning").length);
+    assert.ok(summary.data.opportunityInsightCount >= 1);
+    assert.ok(summary.data.opportunityInsightQuality >= 60);
+    assert.ok(summary.data.averageServiceScore >= 50);
+    assert.ok(summary.data.sloHealth <= 100);
+    assert.equal(summary.data.failedPolicyCount, 0);
+    assert.equal(summary.data.supplyChainRiskCount, 0);
+    assert.ok(summary.data.costRiskCount >= 1);
+    assert.ok(summary.data.costHealth < 100);
+    assert.ok(summary.data.releaseBlockedCount >= 1);
+    assert.ok(summary.data.releaseReadinessScore < 100);
+    assert.ok(summary.data.rolloutBlockedCount >= 1);
+    assert.equal(summary.data.canaryReadyCount, 0);
+
+    const audit = await getWithToken(`${baseUrl}/api/v1/audit`, "viewer-token");
+    assert.ok(audit.data.some((record) => record.action === "evaluation-datasets.autogenerated"));
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -294,16 +428,27 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const connector = await postWithToken(`${baseUrl}/api/v1/connectors/jenkins`, {
-      id: "default",
-      name: "本地测试 Jenkins",
-      baseUrl: jenkins.baseUrl,
-      username: "tester",
-      apiToken: "secret",
-      jobTemplates: { default: "domainforge-fabric-evolution" }
+    const repoRoot = createLocalProjectRepo(dataRoot, "domainforge-fabric-repo");
+    const project = await postWithToken(`${baseUrl}/api/v1/projects`, {
+      id: "domainforge-fabric",
+      name: "DomainForge Fabric",
+      repository: {
+        provider: "local-git",
+        root: repoRoot,
+        defaultBranch: "main"
+      },
+      cicd: {
+        provider: "jenkins",
+        jenkins: {
+          mode: "project-override",
+          baseUrl: jenkins.baseUrl,
+          username: "tester",
+          apiToken: "secret",
+          job: "domainforge-fabric-evolution"
+        }
+      }
     }, "admin-token");
-    assert.equal(connector.data.apiTokenConfigured, true);
-    assert.equal(connector.data.apiToken, undefined);
+    assert.equal(project.data.cicd.mode, "project-override");
     const openhandsConnector = await postWithToken(`${baseUrl}/api/v1/connectors/openhands`, {
       id: "default",
       name: "本地测试 OpenHands",
@@ -331,7 +476,7 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
     const blocked = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
-      body: JSON.stringify({ executor: "jenkins", connectorId: "default" })
+      body: JSON.stringify({ executor: "jenkins" })
     });
     assert.equal(blocked.status, 409);
 
@@ -344,7 +489,7 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
     const blockedBeforeCodeUpgrade = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
-      body: JSON.stringify({ executor: "jenkins", connectorId: "default" })
+      body: JSON.stringify({ executor: "jenkins" })
     });
     assert.equal(blockedBeforeCodeUpgrade.status, 409);
     assert.match(await blockedBeforeCodeUpgrade.text(), /CODE_UPGRADE_REQUIRED/);
@@ -361,7 +506,6 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
 
     const delivery = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       executor: "jenkins",
-      connectorId: "default",
       parameters: { VERSION: "0.2.0" }
     }, "admin-token");
     assert.equal(delivery.data.pipelineRun.status, "QUEUED");
@@ -398,6 +542,84 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
   }
 });
 
+test("cost over budget freezes automatic evolution and delivery execution gates", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-cost-freeze-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const run = await postWithToken(`${baseUrl}/api/v1/runs`, {
+      projectId: "domainforge-fabric",
+      now: "2026-06-07T00:00:00.000Z",
+      events: Array.from({ length: 5 }, (_, index) => ({
+        id: `cost-${index}`,
+        type: "mcp.call.cost",
+        source: "mcp",
+        timestamp: `2026-06-07T00:00:0${index}.000Z`,
+        severity: "HIGH",
+        message: "高成本调用触发预算风险",
+        attributes: { durationMs: 3600, latencyMs: 3600, costUsd: 0.6, totalTokens: 9000 }
+      })),
+      files: ["src/runtime-performance.ts"]
+    }, "operator-token");
+    assert.ok(run.data.deliveryPlans[0].id);
+
+    const costReports = await getWithToken(`${baseUrl}/api/v1/cost/reports`, "viewer-token");
+    const costReport = costReports.data.find((report) => report.projectId === "domainforge-fabric");
+    assert.equal(costReport.status, "OVER_BUDGET");
+
+    await postWithToken(`${baseUrl}/api/v1/evaluation-datasets/autogenerate`, {}, "operator-token");
+    const scan = await postWithToken(`${baseUrl}/api/v1/evolution-batches/scan`, {
+      projectId: "domainforge-fabric",
+      minDatasetCount: 1,
+      cooldownMinutes: 0
+    }, "operator-token");
+    assert.deepEqual(scan.data.created, []);
+    assert.ok(scan.data.skipped.some((item) =>
+      item.projectId === "domainforge-fabric" &&
+      item.reason.includes("成本预算已超限") &&
+      item.reason.includes("已冻结自动进化")
+    ));
+
+    await postWithToken(`${baseUrl}/api/v1/reviews/${encodeURIComponent(run.data.reviews[0].id)}/decision`, {
+      action: "accept",
+      actor: "tester",
+      note: "即使用户确认，超预算也不能进入代码升级。"
+    }, "operator-token");
+
+    const blockedUpgrade = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/code-upgrade`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
+      body: JSON.stringify({ connectorId: "default", proposalMarkdown: "# 成本超预算测试" })
+    });
+    assert.equal(blockedUpgrade.status, 409);
+    const blockedUpgradeBody = await blockedUpgrade.json();
+    assert.equal(blockedUpgradeBody.error, "EVOLUTION_COST_BUDGET_FROZEN");
+    assert.equal(blockedUpgradeBody.costReport.status, "OVER_BUDGET");
+
+    const blockedDelivery = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
+      body: JSON.stringify({ executor: "jenkins" })
+    });
+    assert.equal(blockedDelivery.status, 409);
+    const blockedDeliveryBody = await blockedDelivery.json();
+    assert.equal(blockedDeliveryBody.error, "EVOLUTION_COST_BUDGET_FROZEN");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("OTLP trace evidence enters the full evolution delivery loop", async () => {
   const openhands = await startFakeOpenHands();
   const jenkins = await startFakeJenkins();
@@ -423,7 +645,7 @@ test("OTLP trace evidence enters the full evolution delivery loop", async () => 
     }, "admin-token");
     await postWithToken(`${baseUrl}/api/v1/connectors/jenkins`, {
       id: "default",
-      name: "产品托管 CI/CD",
+      name: "外部 Jenkins CI/CD",
       baseUrl: jenkins.baseUrl,
       jobTemplates: { default: "domainforge-fabric-evolution" }
     }, "admin-token");
@@ -471,6 +693,96 @@ test("OTLP trace evidence enters the full evolution delivery loop", async () => 
     await new Promise((resolve) => server.close(resolve));
     await openhands.close();
     await jenkins.close();
+  }
+});
+
+test("opportunity draft generation reads current project code before architectural planning", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-code-aware-draft-"));
+  const repoRoot = createGitProjectRepo(dataRoot, "agent-code-aware-repo");
+  fs.writeFileSync(path.join(repoRoot, "app.py"), [
+    "def call_chain():",
+    "    return ['rag_lookup', 'tool_call', 'llm_answer']",
+    ""
+  ].join("\n"), "utf8");
+  execFileSync("git", ["add", "app.py"], { cwd: repoRoot });
+  execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "add app"], { cwd: repoRoot });
+  let capturedPrompt = "";
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "prod",
+    requireLlm: true,
+    llmClient: {
+      async generate(request) {
+        if (request.intent === "plan.generation") capturedPrompt = request.prompt;
+        return {
+          success: true,
+          text: "# 代码感知进化方案\n\n## 当前代码事实\n\n已读取 app.py。\n\n## 可行性判断\n\n目标需要基于当前调用链拆解。\n\n## 进化目标\n\np95 小于 3 秒。\n\n## 架构改造建议\n\n增加链路预算。\n\n## 修改范围\n\napp.py。\n\n## 验证计划\n\n运行功能闭环。\n\n## 风险与回滚\n\n保留原分支。",
+          provider: "test-llm",
+          model: "test-model",
+          durationMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "test"
+        };
+      }
+    },
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ],
+    autoRegisterProfileProject: false
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const project = await postWithToken(`${baseUrl}/api/v1/projects`, {
+      id: "agent-code-aware",
+      name: "代码感知 Agent",
+      repository: {
+        provider: "gitlab",
+        gitUrl: pathToFileURL(repoRoot).href,
+        baseUrl: "http://127.0.0.1:9",
+        projectId: "agent/code-aware",
+        token: "test-token",
+        defaultBranch: "main"
+      }
+    }, "admin-token");
+    assert.equal(project.data.validation.status, "VERIFIED");
+
+    const datasets = await postWithToken(`${baseUrl}/api/v1/evaluation-datasets`, {
+      id: "dataset-code-aware-latency",
+      projectId: "agent-code-aware",
+      name: "调用链 p95 超过 3 秒",
+      source: "Trace + Tool Call",
+      status: "REGRESSION_READY",
+      severity: "HIGH",
+      sampleCount: 32,
+      metric: "p95LatencyMs=3600",
+      scope: "agent.call_chain",
+      triggeredAt: "2026-06-06T00:00:00.000Z"
+    }, "operator-token");
+
+    const draft = await postWithToken(`${baseUrl}/api/v1/opportunity-drafts`, {
+      projectId: "agent-code-aware",
+      datasetIds: [datasets.data[0].id],
+      title: "调用链延迟优化",
+      target: "所有调用链路小于 3 秒"
+    }, "operator-token");
+
+    assert.equal(draft.data.codeContext.status, "AVAILABLE");
+    assert.equal(draft.data.codeContext.source, "git-clone");
+    assert.ok(draft.data.codeContext.selectedFiles.some((file) => file.path === "app.py"));
+    assert.match(capturedPrompt, /当前代码上下文/);
+    assert.match(capturedPrompt, /文件：app.py/);
+    assert.match(capturedPrompt, /rag_lookup/);
+    assert.match(capturedPrompt, /可行性判断/);
+    assert.match(capturedPrompt, /目标明显不可达/);
+    assert.equal(draft.data.llmTrace.mode, "llm");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 
@@ -535,24 +847,34 @@ async function startFakeOpenHands() {
   const state = { prompt: "", baseUrl: "" };
   const server = (await import("node:http")).createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method === "POST" && url.pathname === "/api/v1/conversations") {
-      const body = JSON.parse(await readRequestBody(request));
-      state.prompt = String(body.initialUserMessage ?? "");
-      return writeFakeJson(response, { workspaceId: "workspace-1", conversationId: "conversation-1", status: "RUNNING" });
+    if (request.method === "POST" && url.pathname === "/api/settings") {
+      await readRequestBody(request);
+      return writeFakeJson(response, { message: "Settings stored" });
     }
-    if (request.method === "GET" && url.pathname === "/api/v1/conversations/conversation-1") {
-      return writeFakeJson(response, {
-        workspaceId: "workspace-1",
-        conversationId: "conversation-1",
-        status: "SUCCEEDED",
-        branchName: "evopilot/upgrade",
-        commitSha: "abc123",
-        diff: "diff --git a/src/runtime-performance.ts b/src/runtime-performance.ts\n+// upgraded\n",
-        events: [
-          { id: "oh-1", phase: "读取方案", source: "agent", level: "info", message: "读取方案" },
-          { id: "oh-2", phase: "运行验证", source: "tool", level: "info", message: "npm test 通过" }
-        ]
-      });
+    if (request.method === "POST" && url.pathname === "/api/add-git-providers") {
+      await readRequestBody(request);
+      return writeFakeJson(response, { status: "ok" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/conversations") {
+      const body = JSON.parse(await readRequestBody(request));
+      state.prompt = String(body.initial_user_msg ?? "");
+      return writeFakeJson(response, { conversation_id: "conversation-1", status: "ok", conversation_status: "RUNNING" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/conversations/conversation-1/start") {
+      await readRequestBody(request);
+      return writeFakeJson(response, { conversation_id: "conversation-1", status: "ok", conversation_status: "RUNNING" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1") {
+      return writeFakeJson(response, { conversation_id: "conversation-1", status: "ok", conversation_status: "RUNNING" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1/events") {
+      return writeFakeJson(response, { events: fakeOpenHandsEvents(), has_more: false });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1/git/changes") {
+      return writeFakeJson(response, { files: ["docs/evopilot-upgrades/performance.md"] });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1/git/diff") {
+      return writeFakeJson(response, { diff: "diff --git a/docs/evopilot-upgrades/performance.md b/docs/evopilot-upgrades/performance.md\n+upgraded\n" });
     }
     response.writeHead(404);
     response.end("not found");
@@ -565,6 +887,27 @@ async function startFakeOpenHands() {
     get prompt() { return state.prompt; },
     close: () => new Promise((resolve) => server.close(resolve))
   };
+}
+
+function fakeOpenHandsEvents() {
+  return [
+    { id: 1, timestamp: "2026-06-03T10:02:00.000Z", source: "agent", action: "message", message: "读取方案" },
+    { id: 2, timestamp: "2026-06-03T10:02:01.000Z", source: "tool", action: "message", message: "npm test 通过" },
+    {
+      id: 3,
+      timestamp: "2026-06-03T10:02:02.000Z",
+      source: "agent",
+      action: "finish",
+      message: JSON.stringify({
+        branchName: "evopilot/upgrade",
+        commitSha: "abc123",
+        pullRequestUrl: "https://git.example.com/agent-prod/merge_requests/1",
+        changedFiles: ["docs/evopilot-upgrades/performance.md"],
+        diff: "diff --git a/docs/evopilot-upgrades/performance.md b/docs/evopilot-upgrades/performance.md\n+upgraded\n"
+      })
+    },
+    { id: 4, timestamp: "2026-06-03T10:02:03.000Z", source: "environment", observation: "agent_state_changed", message: "", extras: { agent_state: "finished", reason: "" } }
+  ];
 }
 
 async function startFakeJenkins() {
@@ -631,5 +974,13 @@ function createLocalProjectRepo(root, name) {
   const repoRoot = path.join(root, name);
   fs.mkdirSync(path.join(repoRoot, "src"), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, "src", "index.ts"), "export const ok = true;\n");
+  return repoRoot;
+}
+
+function createGitProjectRepo(root, name) {
+  const repoRoot = createLocalProjectRepo(root, name);
+  execFileSync("git", ["init", "-b", "main"], { cwd: repoRoot });
+  execFileSync("git", ["add", "."], { cwd: repoRoot });
+  execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-m", "init"], { cwd: repoRoot });
   return repoRoot;
 }

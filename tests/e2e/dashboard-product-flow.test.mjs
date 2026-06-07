@@ -58,10 +58,18 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
         root: repoRoot,
         username: "agent-user",
         token: "local-token"
+      },
+      cicd: {
+        provider: "jenkins",
+        jenkins: {
+          mode: "system-default",
+          job: "domainforge-fabric-evolution"
+        }
       }
     }, "admin-token");
     assert.equal(project.data.id, "agent-prod");
     assert.equal(project.data.validation.status, "VERIFIED");
+    assert.equal(project.data.cicd.mode, "system-default");
     assert.equal(project.data.repository.credentialsConfigured, true);
     assert.equal(project.data.repository.credentials, undefined);
 
@@ -155,8 +163,8 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
     assert.match(openhands.prompt, /npm run check/);
     assert.match(openhands.prompt, /源分支：main/);
     assert.match(openhands.prompt, /升级分支：evopilot\/upgrade\/domainforge-fabric\//);
-    assert.equal(openhands.body.branchStrategy.sourceBranch, "main");
-    assert.match(openhands.body.branchStrategy.upgradeBranch, /^evopilot\/upgrade\/domainforge-fabric\//);
+    assert.equal(openhands.body.selected_branch, "main");
+    assert.match(openhands.body.initial_user_msg, /升级分支：evopilot\/upgrade\/domainforge-fabric\//);
     const codeUpgradeEvents = await getWithToken(`${baseUrl}/api/v1/code-upgrade-runs/${encodeURIComponent(codeUpgrade.data.codeUpgradeRun.id)}/events`, "viewer-token");
     assert.ok(codeUpgradeEvents.data.some((event) => event.phase === "生成补丁"));
     const codeUpgradeDetail = await getWithToken(`${baseUrl}/api/v1/code-upgrade-runs/${encodeURIComponent(codeUpgrade.data.codeUpgradeRun.id)}`, "viewer-token");
@@ -165,7 +173,6 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
 
     const pipelineStart = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       executor: "jenkins",
-      connectorId: "default",
       parameters: { VERSION: "1.0.0" }
     }, "admin-token");
     assert.equal(pipelineStart.data.pipelineRun.status, "QUEUED");
@@ -214,7 +221,6 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
     }, "admin-token");
     const futureSchedule = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(scheduledRun.data.deliveryPlans[0].id)}/schedule`, {
       executor: "jenkins",
-      connectorId: "default",
       scheduledAt: "2099-01-01T00:00:00.000Z",
       parameters: { VERSION: "1.1.0" }
     }, "admin-token");
@@ -226,7 +232,6 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
 
     const dueSchedule = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(scheduledRun.data.deliveryPlans[0].id)}/schedule`, {
       executor: "jenkins",
-      connectorId: "default",
       scheduledAt: "2000-01-01T00:00:00.000Z",
       parameters: { VERSION: "1.1.1" }
     }, "admin-token");
@@ -262,7 +267,7 @@ async function assertDashboardContract(baseUrl) {
   const navMatch = app.match(/const navItems = (\[[^\]]+\]);/);
   assert.ok(navMatch, "Dashboard should define first-level navigation explicitly");
   assert.deepEqual(JSON.parse(navMatch[1]), ["首页", "接入项目", "证据策略", "评测集", "机会点", "流水线", "历史记录"]);
-  for (const label of ["首页", "进化观测图", "项目拓扑", "运行证据", "已接入", "OpenTelemetry", "SkyWalking", "用户反馈", "触发来源", "触发时间", "IP", "证据摘要", "评测集", "Eval Dataset", "Regression Suite", "形成机会点", "关联评测集", "查看方案", "编辑进化方案", "Markdown 方案正文", "提交方案修改", "确认进化", "代码升级过程", "根据方案进行代码升级", "白盒执行", "查看原始执行事件", "execution-transcript", "CI/CD 阶段视图", "代码升级失败", "历史详情", "注册项目", "验证并注册", "Git URL", "Token 环境变量", "/api/v1/evaluation-datasets", "/api/v1/opportunity-drafts", "/api/v1/code-upgrade-runs", "/code-upgrade"]) {
+  for (const label of ["首页", "进化观测图", "项目拓扑", "运行证据", "已接入", "OpenTelemetry", "SkyWalking", "用户反馈", "触发来源", "触发时间", "IP", "证据摘要", "评测集", "Eval Dataset", "Regression Suite", "形成机会点", "关联评测集", "查看方案", "编辑进化方案", "Markdown 方案正文", "提交方案修改", "确认进化", "代码升级过程", "根据方案进行代码升级", "白盒执行", "查看原始执行事件", "execution-transcript", "CI/CD 阶段视图", "代码升级失败", "历史详情", "注册项目", "验证并注册", "Git URL", "Token 环境变量", "使用系统默认 Jenkins", "使用项目独立 Jenkins", "Jenkins Job", "/api/v1/evaluation-datasets", "/api/v1/opportunity-drafts", "/api/v1/code-upgrade-runs", "/code-upgrade"]) {
     assert.match(app, new RegExp(label));
   }
   assert.doesNotMatch(app, /Codex/);
@@ -316,32 +321,49 @@ async function startFakeOpenHands() {
   };
   const server = (await import("node:http")).createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method === "POST" && url.pathname === "/api/v1/conversations") {
+    if (request.method === "POST" && url.pathname === "/api/settings") {
+      await readRequestBody(request);
+      return writeFakeJson(response, { message: "Settings stored" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/add-git-providers") {
+      await readRequestBody(request);
+      return writeFakeJson(response, { status: "ok" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/conversations") {
       const body = JSON.parse(await readRequestBody(request));
       state.body = body;
-      state.prompt = String(body.initialUserMessage ?? "");
+      state.prompt = String(body.initial_user_msg ?? "");
       return writeFakeJson(response, {
-        workspaceId: "workspace-1",
-        conversationId: "conversation-1",
-        status: "RUNNING"
+        conversation_id: "conversation-1",
+        status: "ok",
+        conversation_status: "RUNNING"
       });
     }
-    if (request.method === "GET" && url.pathname === "/api/v1/conversations/conversation-1") {
+    if (request.method === "POST" && url.pathname === "/api/conversations/conversation-1/start") {
+      await readRequestBody(request);
+      return writeFakeJson(response, { conversation_id: "conversation-1", status: "ok", conversation_status: "RUNNING" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1") {
+      return writeFakeJson(response, { conversation_id: "conversation-1", status: "ok", conversation_status: "RUNNING" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1/events") {
       return writeFakeJson(response, {
-        workspaceId: "workspace-1",
-        conversationId: "conversation-1",
-        status: "SUCCEEDED",
-        branchName: "evopilot/upgrade-latency",
-        commitSha: "abc123",
-        pullRequestUrl: "https://git.example.com/agent-prod/pulls/1",
-        diff: "diff --git a/src/runtime-performance.ts b/src/runtime-performance.ts\n+// performance budget\n",
         events: [
-          { id: "oh-1", timestamp: "2026-06-03T10:02:00.000Z", source: "agent", phase: "读取方案", level: "info", message: "读取用户确认的 Markdown 方案" },
-          { id: "oh-2", timestamp: "2026-06-03T10:02:01.000Z", source: "agent", phase: "分析仓库", level: "info", message: "扫描注册仓库并分析影响文件" },
-          { id: "oh-3", timestamp: "2026-06-03T10:02:02.000Z", source: "tool", phase: "生成补丁", level: "info", message: "生成性能预算补丁" },
-          { id: "oh-4", timestamp: "2026-06-03T10:02:03.000Z", source: "tool", phase: "运行验证", level: "info", message: "npm run check 通过" }
-        ]
+          { id: 1, timestamp: "2026-06-03T10:02:00.000Z", source: "agent", action: "message", message: "读取用户确认的 Markdown 方案" },
+          { id: 2, timestamp: "2026-06-03T10:02:01.000Z", source: "agent", action: "message", message: "扫描注册仓库并分析影响文件" },
+          { id: 3, timestamp: "2026-06-03T10:02:02.000Z", source: "tool", action: "message", message: "生成性能预算补丁" },
+          { id: 4, timestamp: "2026-06-03T10:02:03.000Z", source: "tool", action: "message", message: "npm run check 通过" },
+          { id: 5, timestamp: "2026-06-03T10:02:04.000Z", source: "agent", action: "finish", message: JSON.stringify({ branchName: "evopilot/upgrade-latency", commitSha: "abc123", pullRequestUrl: "https://git.example.com/agent-prod/pulls/1", changedFiles: ["docs/evopilot-upgrades/performance.md"], diff: "diff --git a/docs/evopilot-upgrades/performance.md b/docs/evopilot-upgrades/performance.md\n+performance budget\n" }) },
+          { id: 6, timestamp: "2026-06-03T10:02:05.000Z", source: "environment", observation: "agent_state_changed", message: "", extras: { agent_state: "finished", reason: "" } }
+        ],
+        has_more: false
       });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1/git/changes") {
+      return writeFakeJson(response, { files: ["docs/evopilot-upgrades/performance.md"] });
+    }
+    if (request.method === "GET" && url.pathname === "/api/conversations/conversation-1/git/diff") {
+      return writeFakeJson(response, { diff: "diff --git a/docs/evopilot-upgrades/performance.md b/docs/evopilot-upgrades/performance.md\n+performance budget\n" });
     }
     response.writeHead(404);
     response.end("not found");

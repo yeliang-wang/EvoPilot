@@ -14,7 +14,7 @@
 6. EvoPilot 使用真实 GLM 生成 Markdown 进化方案。
 7. 用户查看并编辑方案，确认进化。
 8. EvoPilot 调用真实代码升级执行器，根据方案修改代码。
-9. 代码升级成功后，EvoPilot 触发产品托管 CI/CD。
+9. 代码升级成功后，EvoPilot 通过外部 Jenkins 连接器触发真实 CI/CD。
 10. CI/CD 成功后，EvoPilot 写入历史记录和审计证据。
 
 ## 真实生产链路验收命令
@@ -23,7 +23,7 @@
 npm run test:e2e:production
 ```
 
-该命令不启动模拟执行链路。默认会启动 EvoPilot 内部代码升级执行器和产品托管 CI/CD；如果系统管理员显式设置 `EVOPILOT_START_INTERNAL_RUNTIMES=false`，则必需组件不可达时会直接失败。
+该命令不启动模拟执行链路。生产产品级 E2E 要求代码升级执行器作为 EvoPilot 托管运行时提前启动并通过健康检查；如果使用 Jenkins 执行交付，必须配置真实可达的外部 Jenkins 连接器。必需组件不可达时会直接失败。
 
 该命令按 `EVOPILOT_RUN_MODE=prod` 创建服务；生产默认不开放样例兜底、匿名 admin 或模拟集成链路。
 
@@ -41,15 +41,20 @@ EVOPILOT_REAL_PROJECT_NAME=
 EVOPILOT_REAL_PROJECT_PROVIDER=local-git|gitlab|github
 ```
 
-EvoPilot 内部运行组件默认配置：
+EvoPilot 托管代码升级运行时默认服务发现配置：
 
 ```text
 EVOPILOT_CODE_UPGRADER_BASE_URL=http://127.0.0.1:3000
+```
+
+外部 Jenkins 连接器配置：
+
+```text
 EVOPILOT_PRODUCT_JENKINS_BASE_URL=http://127.0.0.1:8080
 EVOPILOT_PRODUCT_JENKINS_JOB=evopilot-evolution-delivery
 ```
 
-这些不是普通用户接入参数。单机生产验证使用默认值；容器或 K8s 部署由系统管理员按服务发现地址覆盖。
+这些不是普通用户接入参数。代码升级运行时由系统管理员按 EvoPilot 产品套件服务发现地址覆盖；Jenkins 由系统管理员配置为系统默认连接器，或由项目管理员在项目注册阶段配置为项目独立 Jenkins。不能把 fake、mock、stub、simulator 或内部模拟进程作为产品生产级 E2E 的替代。
 
 项目注册配置与 Dashboard 一致：
 
@@ -85,20 +90,25 @@ EVOPILOT_PRODUCT_JENKINS_API_TOKEN=
 EVOPILOT_REAL_VALIDATION_COMMANDS=npm run check
 ```
 
+项目级 Jenkins 覆盖配置建议通过 Dashboard 注册项目时填写；生产 E2E 也可以通过项目注册请求携带 `cicd.provider=jenkins`、`cicd.jenkins.mode=project-override`、`cicd.jenkins.baseUrl` 和 `cicd.jenkins.job`。
+
 ## 代码升级与 CI/CD 验收点
 
 - 代码升级执行器必须调用真实 LLM 生成结构化升级计划。
-- 代码升级执行器必须产生至少一个非 `.evopilot/upgrades/` 的实现文件。
-- 代码升级执行器必须创建升级分支、提交变更、推送远端分支，并返回 MR/PR 地址。
+- 代码升级执行器必须接收当前 Git 基线代码上下文；修改已有文件时必须基于当前文件内容完整改写，不能只根据方案猜测代码。
+- 代码升级执行器必须产生至少一个真实项目实现、测试、脚本或配置文件变更；仅写入 `.evopilot/upgrades/`、`.evopilot/runtime-upgrades/` 或 `docs/evopilot-upgrades/` 不能视为生产代码升级。
+- EvoPilot 会根据项目当前 Git 基线推导代码升级允许路径，并把允许路径和受保护路径一起传给代码升级执行器。
+- 代码升级执行器必须创建升级分支、提交变更、执行本地验证；只有验证通过后才能推送远端分支并返回 MR/PR 地址。
+- 如果本地验证失败，代码升级执行器必须基于失败日志和当前生成文件发起真实 LLM 最小修复回合，修复后重新验证；仍失败才终止，不能依赖人工或 Codex 临时修复。
 - 代码升级执行器必须拒绝修改受保护路径。
-- 产品托管 CI/CD 必须收到 `SOURCE_BRANCH`、`UPGRADE_BRANCH`、`COMMIT_SHA`、`MERGE_REQUEST_URL`。
+- 生成进化方案前必须读取项目当前 Git 基线代码，方案必须包含代码事实和目标可行性判断。
+- 外部 Jenkins CI/CD 必须收到 `SOURCE_BRANCH`、`UPGRADE_BRANCH`、`COMMIT_SHA`、`MERGE_REQUEST_URL`。
 - 只有代码升级成功后才能触发 CI/CD；代码升级失败时流程停止。
 - CI/CD 完成后才生成发布报告、历史记录和审计证据。
 
 ## 当前真实状态
 
-- 真实 GLM：已配置并通过 `npm run test:e2e:real-llm`。
-- 真实 Git 项目：`domainforge-fabric` 已通过 GitLab 注册验证。
-- 代码升级执行器：已通过真实生产 E2E，能够 clone、创建升级分支、写入升级实现文件、提交并推送远端分支。
-- EvoPilot 产品托管 CI/CD：已通过真实生产 E2E，能够接收升级分支、提交 SHA 与 MR/PR 地址，并生成发布报告。
-- 真实生产 E2E 当前期望结果是 `PASSED`；如果外部凭据、网络或必需组件不可达，则应返回 `BLOCKED` 或失败，不允许自动降级。
+- 真实 Git 项目和真实 LLM 需要由生产环境配置提供。
+- 代码升级执行器必须由 EvoPilot 产品套件部署为真实进程。
+- Jenkins 必须是真实可达的外部 CI/CD 系统，或通过项目级配置绑定到具体项目。
+- 当前环境如果没有 Docker、无法拉取镜像、无法生成 SBOM 或无法完成漏洞扫描，应返回 `BLOCKED` 或失败，不允许自动降级。

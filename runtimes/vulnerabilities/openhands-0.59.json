@@ -1,0 +1,16 @@
+{
+  "runtime": "code-upgrader",
+  "upstream": "OpenHands capability asset",
+  "version": "0.59",
+  "scanner": "trivy",
+  "generatedAt": "2026-06-06T07:58:42.165Z",
+  "status": "PASSED",
+  "policy": "HIGH 和 CRITICAL 漏洞数量必须为 0。",
+  "counts": {
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "findings": [],
+  "rawReport": "code-upgrader-current.raw.json"
+}

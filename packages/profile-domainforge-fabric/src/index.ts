@@ -20,7 +20,11 @@ export const domainforgeFabricProfile: ProjectProfile = {
     },
     requireUserConfirmation: true,
     blockReleaseOnCiFailure: true,
-    requirePostReleaseVerification: true
+    requirePostReleaseVerification: true,
+    allowedAutomationLevels: ["diagnose-only", "proposal-only", "manual-design-required"],
+    minimumOpportunityScoreForAutoPr: 88,
+    requireHumanApprovalForRiskLevels: ["MEDIUM", "HIGH"],
+    protectedPathStrategy: "block"
   },
   templates: {
     architectureReview: "templates/architecture-review.md",

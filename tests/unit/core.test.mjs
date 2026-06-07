@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createEvidenceBundle,
+  clusterEvidenceEvents,
+  createEvolutionPlan,
   evidenceEventsFromAgentSignals,
   evidenceEventsFromEvaluationResults,
   evidenceEventsFromFeedback,
@@ -9,6 +11,7 @@ import {
   evidenceEventsFromOtlpTraces,
   evidenceEventsFromSkyWalking,
   createImpactMap,
+  createValidationContract,
   mineOpportunities,
   runEvolutionCycle,
   scoreOpportunity,
@@ -136,6 +139,212 @@ test("trigger rules do not create opportunity for low latency low severity signa
     }]
   });
   assert.equal(mineOpportunities(bundle).length, 0);
+});
+
+test("boolean trigger fields do not match with numeric comparison operators", () => {
+  const bundle = createEvidenceBundle({
+    id: "bundle-rag-boolean",
+    projectId: "p1",
+    from: "now",
+    to: "now",
+    events: [{
+      id: "e1",
+      type: "mcp.call",
+      source: "mcp",
+      timestamp: "now",
+      severity: "LOW",
+      message: "normal rag hit",
+      attributes: { durationMs: 80, ragHit: true }
+    }]
+  });
+  const rules = [{
+    id: "bad-rag-rule",
+    name: "非法 RAG 比较",
+    description: "布尔字段不允许小于等于比较。",
+    enabled: true,
+    opportunityType: "reliability-risk",
+    title: "RAG 命中率下降",
+    affectedArea: "rag",
+    suggestedDirection: "修复 RAG。",
+    riskLevel: "HIGH",
+    anyOf: [{ field: "attributes.ragHit", operator: "<=", value: "false" }],
+    minMatchingEvents: 1
+  }];
+  assert.equal(mineOpportunities(bundle, rules).length, 0);
+});
+
+test("numeric trigger fields do not match empty threshold values", () => {
+  const bundle = createEvidenceBundle({
+    id: "bundle-empty-threshold",
+    projectId: "p1",
+    from: "now",
+    to: "now",
+    events: [{
+      id: "e1",
+      type: "mcp.call",
+      source: "mcp",
+      timestamp: "now",
+      severity: "LOW",
+      message: "normal duration",
+      attributes: { durationMs: 80 }
+    }]
+  });
+  const rules = [{
+    id: "bad-duration-rule",
+    name: "非法耗时阈值",
+    description: "数值字段不能使用空字符串阈值。",
+    enabled: true,
+    opportunityType: "reliability-risk",
+    title: "链路耗时异常",
+    affectedArea: "runtime",
+    suggestedDirection: "优化链路。",
+    riskLevel: "HIGH",
+    allOf: [{ field: "attributes.durationMs", operator: ">", value: "" }],
+    minMatchingEvents: 1
+  }];
+  assert.equal(mineOpportunities(bundle, rules).length, 0);
+});
+
+test("default rules cover cost, rag, eval, feedback, security, release, and context risks", () => {
+  const cases = [
+    {
+      event: { id: "cost", type: "llm.cost", source: "llm", timestamp: "now", severity: "MEDIUM", message: "cost high", attributes: { costUsd: 0.8 } },
+      type: "cost-risk"
+    },
+    {
+      event: { id: "rag", type: "rag.query", source: "agent", timestamp: "now", severity: "MEDIUM", message: "rag miss", attributes: { ragHit: false } },
+      type: "reliability-risk"
+    },
+    {
+      event: { id: "eval", type: "eval.failed", source: "ci", timestamp: "now", severity: "HIGH", message: "regression failed", attributes: { score: 0.4 } },
+      type: "test-gap"
+    },
+    {
+      event: { id: "feedback", type: "user.feedback.negative", source: "user", timestamp: "now", severity: "MEDIUM", message: "bad answer" },
+      type: "product-gap"
+    },
+    {
+      event: { id: "security", type: "security.leak", source: "observability", timestamp: "now", severity: "CRITICAL", message: "secret leaked" },
+      type: "security-risk"
+    },
+    {
+      event: { id: "release", type: "release.failed", source: "release", timestamp: "now", severity: "HIGH", message: "canary failed" },
+      type: "release-process-risk"
+    },
+    {
+      event: { id: "context", type: "context.compression", source: "llm", timestamp: "now", severity: "MEDIUM", message: "truncated", attributes: { contextTruncated: true } },
+      type: "reliability-risk"
+    }
+  ];
+  for (const item of cases) {
+    const bundle = createEvidenceBundle({
+      id: `bundle-${item.event.id}`,
+      projectId: "p1",
+      from: "now",
+      to: "now",
+      events: [item.event]
+    });
+    assert.ok(mineOpportunities(bundle).some((opportunity) => opportunity.type === item.type), `${item.event.id} should create ${item.type}`);
+  }
+});
+
+test("clusters aligned trace, eval, and feedback into one higher confidence opportunity", () => {
+  const bundle = createEvidenceBundle({
+    id: "bundle-clustered",
+    projectId: "p1",
+    from: "now",
+    to: "now",
+    events: [
+      {
+        id: "trace-1",
+        type: "mcp.call",
+        source: "observability",
+        timestamp: "now",
+        severity: "HIGH",
+        message: "链路耗时 3800ms",
+        traceId: "trace-cluster-1",
+        module: "agent-runtime",
+        attributes: { durationMs: 3800 }
+      },
+      {
+        id: "eval-1",
+        type: "eval.failed",
+        source: "ci",
+        timestamp: "now",
+        severity: "HIGH",
+        message: "p95 回归失败",
+        traceId: "trace-cluster-1",
+        module: "latency-suite"
+      },
+      {
+        id: "feedback-1",
+        type: "user.feedback.negative",
+        source: "user",
+        timestamp: "now",
+        severity: "HIGH",
+        message: "响应太慢",
+        traceId: "trace-cluster-1"
+      }
+    ]
+  });
+  const clusters = clusterEvidenceEvents(bundle);
+  assert.equal(clusters.length, 1);
+  assert.equal(clusters[0].attribution, "latency-regression");
+  const [opportunity] = mineOpportunities(bundle);
+  assert.equal(opportunity.type, "performance-hotspot");
+  assert.deepEqual(opportunity.evidenceEventIds.sort(), ["eval-1", "feedback-1", "trace-1"]);
+  assert.equal(opportunity.failureAttribution, "latency-regression");
+  assert.ok(opportunity.confidence >= 0.9);
+  assert.match(opportunity.confidenceReason, /评测或用户反馈/);
+});
+
+test("governance keeps medium and high risk evolution in proposal-only mode", () => {
+  const bundle = createEvidenceBundle({
+    id: "bundle-governance",
+    projectId: "p1",
+    from: "now",
+    to: "now",
+    events: [{ id: "e1", type: "performance.latency", source: "agent", timestamp: "now", severity: "HIGH", message: "slow", attributes: { durationMs: 4200 } }]
+  });
+  const [opportunity] = mineOpportunities(bundle);
+  const impactMap = createImpactMap({
+    opportunity,
+    profile: domainforgeFabricProfile,
+    files: ["src/runtime-performance.ts", "test/runtime-performance.test.ts"]
+  });
+  const validationContract = createValidationContract({ id: "validation-governance", opportunity, impactMap });
+  const score = scoreOpportunity(opportunity, domainforgeFabricProfile.policy);
+  const plan = createEvolutionPlan({
+    id: "plan-governance",
+    projectId: "p1",
+    opportunity,
+    impactMap,
+    validationContract,
+    score,
+    policy: domainforgeFabricProfile.policy
+  });
+  assert.equal(plan.automationLevel, "proposal-only");
+  assert.match(plan.riskAnalysis, /治理等级=proposal-only/);
+});
+
+test("validation contract includes performance and semantic regression suites", () => {
+  const bundle = createEvidenceBundle({
+    id: "bundle-validation",
+    projectId: "p1",
+    from: "now",
+    to: "now",
+    events: [{ id: "e1", type: "mcp.call", source: "mcp", timestamp: "now", severity: "MEDIUM", message: "slow", attributes: { durationMs: 3600 } }]
+  });
+  const [opportunity] = mineOpportunities(bundle);
+  const impactMap = createImpactMap({
+    opportunity,
+    profile: domainforgeFabricProfile,
+    files: ["src/runtime-performance.ts", "test/runtime-performance.test.ts"]
+  });
+  const contract = createValidationContract({ id: "validation-contract", opportunity, impactMap });
+  assert.ok(contract.suites.some((suite) => suite.type === "semantic"));
+  assert.ok(contract.suites.some((suite) => suite.type === "performance"));
+  assert.ok(contract.metrics.some((metric) => metric.name === "p95_latency_ms" && metric.threshold === 3000));
 });
 
 test("impact map excludes protected business assets", () => {

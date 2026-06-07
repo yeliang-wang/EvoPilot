@@ -4,8 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createServer } from "../packages/server/dist/index.js";
-import { startInternalCodeUpgrader } from "./internal-code-upgrader.mjs";
-import { startInternalProductCicd } from "./internal-product-cicd.mjs";
 
 loadEnvFile(process.env.EVOPILOT_LLM_ENV_FILE ?? "data/evopilot/llm.env");
 loadEnvFile(process.env.EVOPILOT_PRODUCTION_E2E_ENV_FILE ?? "data/evopilot/production-e2e.env");
@@ -29,7 +27,7 @@ const projectId = process.env.EVOPILOT_REAL_PROJECT_ID ?? "domainforge-fabric-re
 const projectName = process.env.EVOPILOT_REAL_PROJECT_NAME ?? "真实用户生产项目";
 const projectRepository = projectRepositoryFromEnv();
 assertProjectRegistrationReady(projectRepository);
-const internalRuntimes = await startProductInternalRuntimes();
+assertProductionRuntimesConfigured();
 
 const server = createServer({
   dataRoot,
@@ -135,7 +133,6 @@ try {
   }
 } finally {
   await new Promise((resolve) => server.close(resolve));
-  await closeProductInternalRuntimes(internalRuntimes);
 }
 
 async function assertHealth() {
@@ -156,7 +153,7 @@ async function registerExternalConnectors() {
   }, "admin");
   await post("/api/v1/connectors/jenkins", {
     id: "default",
-    name: "EvoPilot 产品 CI/CD",
+    name: "外部 Jenkins CI/CD",
     baseUrl: productJenkinsBaseUrl(),
     username: envFirst("EVOPILOT_PRODUCT_JENKINS_USERNAME", "EVOPILOT_REAL_JENKINS_USERNAME"),
     apiToken: envFirst("EVOPILOT_PRODUCT_JENKINS_API_TOKEN", "EVOPILOT_REAL_JENKINS_API_TOKEN"),
@@ -390,26 +387,18 @@ function codeUpgraderBaseUrl() {
   return envFirst("EVOPILOT_CODE_UPGRADER_BASE_URL", "EVOPILOT_REAL_OPENHANDS_BASE_URL") ?? "http://127.0.0.1:3000";
 }
 
-async function startProductInternalRuntimes() {
-  if (String(process.env.EVOPILOT_START_INTERNAL_RUNTIMES ?? "true").toLowerCase() === "false") return [];
-  const runtimes = [];
-  runtimes.push(await startInternalCodeUpgrader({ port: portFromUrl(codeUpgraderBaseUrl(), 3000) }));
-  runtimes.push(await startInternalProductCicd({ port: portFromUrl(productJenkinsBaseUrl(), 8080) }));
-  return runtimes;
-}
-
-async function closeProductInternalRuntimes(runtimes) {
-  for (const runtime of runtimes.reverse()) {
-    await runtime.close();
-  }
-}
-
-function portFromUrl(value, fallback) {
-  try {
-    const url = new URL(value);
-    return Number(url.port || (url.protocol === "https:" ? 443 : 80));
-  } catch {
-    return fallback;
+function assertProductionRuntimesConfigured() {
+  const missing = [];
+  if (!configured("EVOPILOT_CODE_UPGRADER_BASE_URL")) missing.push("EVOPILOT_CODE_UPGRADER_BASE_URL");
+  if (!configured("EVOPILOT_PRODUCT_JENKINS_BASE_URL")) missing.push("EVOPILOT_PRODUCT_JENKINS_BASE_URL");
+  if (!configured("EVOPILOT_PRODUCT_JENKINS_JOB")) missing.push("EVOPILOT_PRODUCT_JENKINS_JOB");
+  if (missing.length > 0) {
+    console.error(JSON.stringify({
+      status: "BLOCKED",
+      reason: "产品生产级 E2E 必须连接 EvoPilot 托管代码升级运行时和真实外部 Jenkins CI/CD，不会启动或降级到内部模拟进程。",
+      missing
+    }, null, 2));
+    process.exit(2);
   }
 }
 
@@ -431,7 +420,7 @@ function classifyProductionBlocker(message) {
   if (/\/code-upgrade failed: 500 .*fetch failed/.test(message) || /OPENHANDS|code-upgrade/i.test(message) && /fetch failed/.test(message)) {
     return {
       status: "BLOCKED",
-      reason: "EvoPilot 内置代码升级执行器未启动或不可达；不会降级为 mock。",
+      reason: "EvoPilot 代码升级托管运行时未启动或不可达；不会降级为 mock。",
       component: "code-upgrader",
       expectedBaseUrl: codeUpgraderBaseUrl(),
       detail: message
@@ -440,8 +429,8 @@ function classifyProductionBlocker(message) {
   if (/jenkins|pipeline|CI\/CD/i.test(message) && /fetch failed/.test(message)) {
     return {
       status: "BLOCKED",
-      reason: "EvoPilot 产品托管 CI/CD 运行时未启动或不可达；不会降级为 mock。",
-      component: "product-cicd",
+      reason: "外部 Jenkins CI/CD 不可达；不会降级为 mock。",
+      component: "external-cicd",
       expectedBaseUrl: productJenkinsBaseUrl(),
       expectedJob: productJenkinsJob(),
       detail: message

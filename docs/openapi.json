@@ -159,7 +159,7 @@
     },
     "/api/v1/connectors/jenkins": {
       "get": {
-        "summary": "列出产品托管 CI/CD 配置",
+        "summary": "列出外部 Jenkins CI/CD 连接器配置",
         "security": [
           {
             "bearerAuth": []
@@ -167,12 +167,12 @@
         ],
         "responses": {
           "200": {
-            "description": "产品托管 CI/CD 配置列表"
+            "description": "外部 Jenkins CI/CD 连接器配置列表"
           }
         }
       },
       "post": {
-        "summary": "保存产品托管 CI/CD 配置",
+        "summary": "保存外部 Jenkins CI/CD 连接器配置",
         "security": [
           {
             "bearerAuth": []
@@ -180,7 +180,7 @@
         ],
         "responses": {
           "201": {
-            "description": "产品托管 CI/CD 配置已保存"
+            "description": "外部 Jenkins CI/CD 连接器配置已保存"
           },
           "403": {
             "description": "需要管理员角色"
@@ -575,6 +575,142 @@
           },
           "409": {
             "description": "项目未验证"
+          }
+        }
+      }
+    },
+    "/api/v1/runtimes": {
+      "get": {
+        "summary": "查询 EvoPilot 托管运行时锁定状态",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "运行时列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "implementation": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          },
+                          "image": {
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "READY",
+                              "MISSING",
+                              "INCOMPLETE"
+                            ]
+                          },
+                          "riskLevel": {
+                            "type": "string",
+                            "enum": [
+                              "LOW",
+                              "HIGH"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/supply-chain/reports": {
+      "get": {
+        "summary": "查询 EvoPilot 托管运行时锁定状态",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "运行时列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "implementation": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          },
+                          "image": {
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "READY",
+                              "MISSING",
+                              "INCOMPLETE"
+                            ]
+                          },
+                          "riskLevel": {
+                            "type": "string",
+                            "enum": [
+                              "LOW",
+                              "HIGH"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

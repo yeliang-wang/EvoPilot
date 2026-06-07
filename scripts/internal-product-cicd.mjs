@@ -184,5 +184,5 @@ function writeJson(response, statusCode, body) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.EVOPILOT_PRODUCT_CICD_PORT ?? 8080);
   const runtime = await startInternalProductCicd({ port });
-  console.log(`EvoPilot 产品托管 CI/CD 已监听 ${runtime.baseUrl}`);
+  console.log(`EvoPilot 测试用 Jenkins fixture 已监听 ${runtime.baseUrl}`);
 }

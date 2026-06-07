@@ -1,0 +1,2543 @@
+{
+  "runtime": "openhands",
+  "version": "0.59",
+  "scanner": "trivy",
+  "generatedAt": "2026-06-06T02:40:45.146Z",
+  "status": "RECORDED",
+  "policy": "许可证清单由 Trivy 从镜像真实扫描生成，发布前按组织开源合规策略复核。",
+  "counts": {
+    "packages": 473
+  },
+  "licenses": [
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "adduser",
+      "version": "3.152",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "apt",
+      "version": "3.0.3",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "curl",
+        "BSD-3-Clause",
+        "MIT",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "base-files",
+      "version": "13.8+deb13u5",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "verbatim"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "base-passwd",
+      "version": "3.6.7",
+      "licenses": [
+        "GPL-2.0-only",
+        "public-domain"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "bash",
+      "version": "5.2.37",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "GPL-3+ with Bison exception",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GFDL-1.3-no-invariants-only",
+        "GFDL-1.3-only",
+        "Latex2e",
+        "BSD-4-Clause-UC",
+        "MIT",
+        "permissive"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "bash-completion",
+      "version": "2.16.0",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "bsdutils",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "ca-certificates",
+      "version": "20250419",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "MPL-2.0"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "coreutils",
+      "version": "9.7",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "BSD-4-Clause-UC",
+        "GPL-3.0-only",
+        "ISC",
+        "FSFULLR",
+        "GFDL-1.3-no-invariants-only",
+        "GFDL-1.3-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "curl",
+      "version": "8.14.1",
+      "licenses": [
+        "curl",
+        "OLDAP-2.8",
+        "ISC",
+        "GPL-2+ with Autoconf-data exception",
+        "GPL-3+ with Autoconf-data exception",
+        "GPL-2+ with Libtool exception",
+        "BSD-3-Clause",
+        "BSD-4-Clause-UC",
+        "FSFULLR",
+        "X11",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dash",
+      "version": "0.5.12",
+      "licenses": [
+        "BSD-3-Clause",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dbus",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dbus-bin",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dbus-daemon",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dbus-session-bus-common",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dbus-system-bus-common",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dbus-user-session",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "debconf",
+      "version": "1.5.91",
+      "licenses": [
+        "BSD-2-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "debian-archive-keyring",
+      "version": "2025.1",
+      "licenses": [
+        "GPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "debianutils",
+      "version": "5.23.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "public-domain",
+        "SMAIL-GPL"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "diffutils",
+      "version": "3.10",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "FSFULLR",
+        "LGPL-2.1-or-later",
+        "GPL-3.0-with-autoconf-exception+",
+        "GPL-3.0-only",
+        "GPL-3+ with texinfo exception",
+        "LGPL-2.0-or-later",
+        "GPL-2.0-or-later",
+        "X11",
+        "FSFAP",
+        "GFDL-1.3-no-invariants-only",
+        "LGPL-3.0-or-later",
+        "LGPL-3.0-only",
+        "public-domain",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "GPL-2.0-only",
+        "GFDL-1.3-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dmsetup",
+      "version": "1.02.205",
+      "licenses": [
+        "GPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-2.0-only",
+        "BSD-2-Clause",
+        "GPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "dpkg",
+      "version": "1.22.22",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "public-domain-s-s-d",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "findutils",
+      "version": "4.10.0",
+      "licenses": [
+        "GFDL-1.3-no-invariants-or-later",
+        "GPL-3.0-or-later",
+        "FSFAP",
+        "GPL-2+ with Autoconf-data exception",
+        "GPL-3+ with Autoconf-data exception",
+        "FSFULLR",
+        "GPL-2.0-or-later",
+        "X11",
+        "public-domain",
+        "LGPL-2.1-or-later",
+        "GPL with automake exception",
+        "LGPL-2.0-or-later",
+        "LGPL-3.0-or-later",
+        "BSD-3-Clause",
+        "GPL-3+ with Bison-2.2 exception",
+        "LGPL-3.0-only",
+        "ISC",
+        "GFDL-1.3-only",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "gcc-14-base",
+      "version": "14.2.0",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-3.0-only",
+        "GFDL-1.2-only",
+        "Artistic-2.0",
+        "LGPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "grep",
+      "version": "3.11",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "gzip",
+      "version": "1.13",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GFDL-1.3+-no-invariant",
+        "FSF-manpages",
+        "GPL-3.0-only",
+        "GFDL-3"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "hostname",
+      "version": "3.25",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "init-system-helpers",
+      "version": "1.69~deb13u1",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "krb5-locales",
+      "version": "1.21.3",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libacl1",
+      "version": "2.3.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.0-or-later",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libapparmor1",
+      "version": "4.1.0",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "BSD-3-Clause",
+        "LGPL-2.1-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libapt-pkg7.0",
+      "version": "3.0.3",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "curl",
+        "BSD-3-Clause",
+        "MIT",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libattr1",
+      "version": "2.5.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.0-or-later",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libaudit-common",
+      "version": "4.0.2",
+      "licenses": [
+        "GPL-2.0-only",
+        "LGPL-2.1-only",
+        "GPL-1.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libaudit1",
+      "version": "4.0.2",
+      "licenses": [
+        "GPL-2.0-only",
+        "LGPL-2.1-only",
+        "GPL-1.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libblkid1",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libbrotli1",
+      "version": "1.1.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libbsd0",
+      "version": "0.12.2",
+      "licenses": [
+        "BSD-3-Clause",
+        "BSD-3-clause-Regents",
+        "BSD-2-Clause-NetBSD",
+        "BSD-3-clause-author",
+        "BSD-3-clause-John-Birrell",
+        "BSD-5-clause-Peter-Wemm",
+        "BSD-2-Clause",
+        "BSD-2-clause-verbatim",
+        "BSD-2-clause-author",
+        "ISC",
+        "ISC-Original",
+        "MIT",
+        "public-domain",
+        "Beerware"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libbz2-1.0",
+      "version": "1.0.8",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libc-bin",
+      "version": "2.41",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.0-or-later",
+        "LGPL-2.1+-with-link-exception",
+        "LGPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "GPL-2+-with-link-exception",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "FSFAP",
+        "Carnegie",
+        "Inner-Net",
+        "MIT-like-Lord",
+        "BSD-like-Spencer",
+        "PCRE",
+        "BSD-3-clause-Carnegie",
+        "Unicode-DFS-2016",
+        "BSL-1.0",
+        "SunPro",
+        "CORE-MATH",
+        "BSD-3-clause-Berkeley",
+        "BSD-3-clause-WIDE",
+        "BSD-2-Clause",
+        "BSD-3-clause-Oracle",
+        "DEC",
+        "IBM",
+        "ISC",
+        "Univ-Coimbra",
+        "public-domain",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libc6",
+      "version": "2.41",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.0-or-later",
+        "LGPL-2.1+-with-link-exception",
+        "LGPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "GPL-2+-with-link-exception",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "FSFAP",
+        "Carnegie",
+        "Inner-Net",
+        "MIT-like-Lord",
+        "BSD-like-Spencer",
+        "PCRE",
+        "BSD-3-clause-Carnegie",
+        "Unicode-DFS-2016",
+        "BSL-1.0",
+        "SunPro",
+        "CORE-MATH",
+        "BSD-3-clause-Berkeley",
+        "BSD-3-clause-WIDE",
+        "BSD-2-Clause",
+        "BSD-3-clause-Oracle",
+        "DEC",
+        "IBM",
+        "ISC",
+        "Univ-Coimbra",
+        "public-domain",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libcap-ng0",
+      "version": "0.8.5",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "GPL-2.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.1-only",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libcap2",
+      "version": "2.75",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-only",
+        "GPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libcbor0.10",
+      "version": "0.10.2",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libcom-err2",
+      "version": "1.47.2",
+      "licenses": [
+        "GPL-2.0-only",
+        "GPL-2.0-or-later",
+        "0BSD",
+        "MIT",
+        "BSD-3-Clause-Variant",
+        "BSD-3-Clause",
+        "BSD-4-Clause-CMU",
+        "LGPL-2.0-only",
+        "Apache-2.0",
+        "ISC",
+        "MIT-US-export",
+        "Kazlib",
+        "Latex2e",
+        "GPL-2+ with Texinfo exception"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libcryptsetup12",
+      "version": "2.7.5",
+      "licenses": [
+        "GPL-2+ with OpenSSL exception",
+        "GPL-2.0-or-later",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "LGPL-2.1+ with OpenSSL exception",
+        "CC0-1.0",
+        "Apache-2.0",
+        "public-domain",
+        "CC-BY-SA-4.0",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libcurl4t64",
+      "version": "8.14.1",
+      "licenses": [
+        "curl",
+        "OLDAP-2.8",
+        "ISC",
+        "GPL-2+ with Autoconf-data exception",
+        "GPL-3+ with Autoconf-data exception",
+        "GPL-2+ with Libtool exception",
+        "BSD-3-Clause",
+        "BSD-4-Clause-UC",
+        "FSFULLR",
+        "X11",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libdb5.3t64",
+      "version": "5.3.28+dfsg2",
+      "licenses": [
+        "Sleepycat",
+        "BSD-3-Clause",
+        "MS-PL",
+        "GPL-2.0-or-later",
+        "Artistic-2.0",
+        "X11",
+        "MIT-old",
+        "TCL-like",
+        "BSD-3-clause-fjord",
+        "GPL-3.0-only",
+        "Zlib"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libdbus-1-3",
+      "version": "1.16.2",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "AFL-2.1",
+        "MIT",
+        "Tcl-BSDish",
+        "BSD-3-Clause",
+        "BSD-3-clause-generic",
+        "LGPL-2.1-or-later",
+        "g10-permissive",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libdebconfclient0",
+      "version": "0.280",
+      "licenses": [
+        "BSD-2-Clause",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libdevmapper1.02.1",
+      "version": "1.02.205",
+      "licenses": [
+        "GPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-2.0-only",
+        "BSD-2-Clause",
+        "GPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libedit2",
+      "version": "3.1-20250104",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libexpat1",
+      "version": "2.7.1",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libffi8",
+      "version": "3.4.8",
+      "licenses": [
+        "MIT",
+        "X11",
+        "GPL-2.0-or-later",
+        "GPL-3.0-or-later",
+        "MPL-1.1",
+        "LGPL-2.1-or-later",
+        "public-domain"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libfido2-1",
+      "version": "1.15.0",
+      "licenses": [
+        "BSD-2-Clause",
+        "ISC",
+        "public-domain"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libgdbm6t64",
+      "version": "1.24",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "GFDL-1.3-no-invariants-or-later",
+        "GPL-3.0-only",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libgmp10",
+      "version": "6.3.0+dfsg",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-or-later",
+        "GPL-3+ with Bison exception",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libgnutls30t64",
+      "version": "3.8.9",
+      "licenses": [
+        "LGPL-2.1-only",
+        "LGPL-2.0-or-later",
+        "LGPL-3.0-only",
+        "GPL-2.0-or-later",
+        "GPL-3.0-only",
+        "GFDL-1.3-only",
+        "CC0-1.0",
+        "MIT",
+        "Apache-2.0",
+        "LGPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "GPL-3.0-or-later",
+        "BSD-3-Clause",
+        "FSFAP"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libgssapi-krb5-2",
+      "version": "1.21.3",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libhogweed6t64",
+      "version": "3.10.1",
+      "licenses": [
+        "LGPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only",
+        "MIT",
+        "GPL-3.0-with-autoconf-exception+",
+        "public-domain",
+        "GPL-2.0-only",
+        "GAP"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libidn2-0",
+      "version": "2.3.8",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "LGPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "MIT",
+        "Unicode",
+        "GPL-3.0-only",
+        "GPL-2.0-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libjson-c5",
+      "version": "0.18+ds",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libk5crypto3",
+      "version": "1.21.3",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libkeyutils1",
+      "version": "1.6.3",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "LGPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libkmod2",
+      "version": "34.2",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libkrb5-3",
+      "version": "1.21.3",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libkrb5support0",
+      "version": "1.21.3",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "liblastlog2-2",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libldap-common",
+      "version": "2.6.10+dfsg",
+      "licenses": [
+        "OpenLDAP-2.8",
+        "FSF-unlimited",
+        "GPL-2.0-with-autoconf-exception+",
+        "GPL-3.0-with-autoconf-exception+",
+        "GPL-2+ with Libtool exception",
+        "GPL-3+ with Libtool exception",
+        "GPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "UMich",
+        "F5",
+        "JCG",
+        "MIT-XC",
+        "NeoSoft-permissive",
+        "BSD-3-Clause",
+        "Beerware",
+        "public-domain",
+        "BSD-4-clause-California",
+        "BSD-3-clause-variant",
+        "Expat-ISC",
+        "Expat-UNM",
+        "MIT",
+        "BSD-3-clause-California",
+        "GPL-2.0-only",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libldap2",
+      "version": "2.6.10+dfsg",
+      "licenses": [
+        "OpenLDAP-2.8",
+        "FSF-unlimited",
+        "GPL-2.0-with-autoconf-exception+",
+        "GPL-3.0-with-autoconf-exception+",
+        "GPL-2+ with Libtool exception",
+        "GPL-3+ with Libtool exception",
+        "GPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "UMich",
+        "F5",
+        "JCG",
+        "MIT-XC",
+        "NeoSoft-permissive",
+        "BSD-3-Clause",
+        "Beerware",
+        "public-domain",
+        "BSD-4-clause-California",
+        "BSD-3-clause-variant",
+        "Expat-ISC",
+        "Expat-UNM",
+        "MIT",
+        "BSD-3-clause-California",
+        "GPL-2.0-only",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "liblz4-1",
+      "version": "1.10.0",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "BSD-2-Clause",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "liblzma5",
+      "version": "5.8.1",
+      "licenses": [
+        "0BSD",
+        "GPL-2.0-or-later",
+        "LGPL-2.1-or-later",
+        "FSFULLR",
+        "GPL-3.0-or-later-WITH-Autoconf-exception-macro",
+        "none",
+        "PD",
+        "permissive-nowarranty",
+        "FSFUL",
+        "noderivs",
+        "PD-debian",
+        "LGPL-2.1-only",
+        "GPL-2.0-only",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libmd0",
+      "version": "1.1.0",
+      "licenses": [
+        "BSD-3-Clause",
+        "BSD-3-clause-Aaron-D-Gifford",
+        "BSD-2-Clause",
+        "BSD-2-Clause-NetBSD",
+        "ISC",
+        "Beerware",
+        "public-domain-md4",
+        "public-domain-md5",
+        "public-domain-sha1"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libmount1",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libnettle8t64",
+      "version": "3.10.1",
+      "licenses": [
+        "LGPL-3.0-or-later",
+        "GPL-2.0-or-later",
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only",
+        "MIT",
+        "GPL-3.0-with-autoconf-exception+",
+        "public-domain",
+        "GPL-2.0-only",
+        "GAP"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libnghttp2-14",
+      "version": "1.64.0",
+      "licenses": [
+        "MIT",
+        "all-permissive",
+        "GPL-3.0-with-autoconf-exception+",
+        "BSD-2-Clause",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libnghttp3-9",
+      "version": "1.8.0",
+      "licenses": [
+        "MIT",
+        "FSFULLR",
+        "GPL-3+ with Autoconf generic exception",
+        "FSFUL",
+        "GPL-2+ with Autoconf generic exception",
+        "FSFAP",
+        "GPL-2+ with Libtool Exception",
+        "GPL-3.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libnss-systemd",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libp11-kit0",
+      "version": "0.25.5",
+      "licenses": [
+        "BSD-3-Clause",
+        "FSFULLR",
+        "GPL-2+ with Autoconf-data exception",
+        "GPL-3+ with Autoconf-data exception",
+        "X11",
+        "ISC",
+        "customFSFULLRWD",
+        "LGPL-2.1-or-later",
+        "Apache-2.0",
+        "customFSFUL",
+        "FSFAP",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpam-modules",
+      "version": "1.7.0",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-or-later",
+        "GPL-1.0-only",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "GPL-3+ with Bison exception",
+        "BSD-tcp_wrappers",
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only",
+        "public-domain",
+        "Beerware"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpam-modules-bin",
+      "version": "1.7.0",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-or-later",
+        "GPL-1.0-only",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "GPL-3+ with Bison exception",
+        "BSD-tcp_wrappers",
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only",
+        "public-domain",
+        "Beerware"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpam-runtime",
+      "version": "1.7.0",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-or-later",
+        "GPL-1.0-only",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "GPL-3+ with Bison exception",
+        "BSD-tcp_wrappers",
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only",
+        "public-domain",
+        "Beerware"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpam-systemd",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpam0g",
+      "version": "1.7.0",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-or-later",
+        "GPL-1.0-only",
+        "GPL-2.0-only",
+        "GPL-3.0-only",
+        "GPL-3+ with Bison exception",
+        "BSD-tcp_wrappers",
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only",
+        "public-domain",
+        "Beerware"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpcre2-8-0",
+      "version": "10.46",
+      "licenses": [
+        "BSD-3-clause-Cambridge with BINARY LIBRARY-LIKE PACKAGES exception",
+        "BSD-3-Clause",
+        "X11",
+        "BSD-2-Clause",
+        "public-domain"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libproc2-0",
+      "version": "4.0.4",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.0-or-later",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libpsl5t64",
+      "version": "0.21.2",
+      "licenses": [
+        "MIT",
+        "gnulib",
+        "Chromium"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libreadline8t64",
+      "version": "8.2",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GFDL-1.3-no-invariants-or-later",
+        "GFDL-1.3-or-later",
+        "ISC-no-attribution"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "librtmp1",
+      "version": "2.4+20151223.gitfa8646d.1",
+      "licenses": [
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsasl2-2",
+      "version": "2.1.28+dfsg1",
+      "licenses": [
+        "BSD-3-Clause-Attribution",
+        "BSD-3-Clause",
+        "BSD-2-Clause",
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "BSD-4-Clause-UC",
+        "RSA-MD",
+        "text://BSD-3-Clause-Attribution and IBM-as-is",
+        "BSD-3-clause-JANET",
+        "BSD-3-clause-PADL",
+        "MIT-OpenVision",
+        "OpenLDAP",
+        "FSFULLR",
+        "MIT-CMU",
+        "MIT-Export",
+        "BSD-2.2-clause",
+        "text://IBM-as-is"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsasl2-modules",
+      "version": "2.1.28+dfsg1",
+      "licenses": [
+        "BSD-3-Clause-Attribution",
+        "BSD-3-Clause",
+        "BSD-2-Clause",
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "BSD-4-Clause-UC",
+        "RSA-MD",
+        "text://BSD-3-Clause-Attribution and IBM-as-is",
+        "BSD-3-clause-JANET",
+        "BSD-3-clause-PADL",
+        "MIT-OpenVision",
+        "OpenLDAP",
+        "FSFULLR",
+        "MIT-CMU",
+        "MIT-Export",
+        "BSD-2.2-clause",
+        "text://IBM-as-is"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsasl2-modules-db",
+      "version": "2.1.28+dfsg1",
+      "licenses": [
+        "BSD-3-Clause-Attribution",
+        "BSD-3-Clause",
+        "BSD-2-Clause",
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "BSD-4-Clause-UC",
+        "RSA-MD",
+        "text://BSD-3-Clause-Attribution and IBM-as-is",
+        "BSD-3-clause-JANET",
+        "BSD-3-clause-PADL",
+        "MIT-OpenVision",
+        "OpenLDAP",
+        "FSFULLR",
+        "MIT-CMU",
+        "MIT-Export",
+        "BSD-2.2-clause",
+        "text://IBM-as-is"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libseccomp2",
+      "version": "2.6.0",
+      "licenses": [
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libselinux1",
+      "version": "3.8.1",
+      "licenses": [
+        "public-domain",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsemanage-common",
+      "version": "3.8.1",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.1-only",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsemanage2",
+      "version": "3.8.1",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.1-only",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsepol2",
+      "version": "3.8.1",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.1-only",
+        "Zlib",
+        "GPL-2.0-only",
+        "GPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsmartcols1",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsqlite3-0",
+      "version": "3.46.1",
+      "licenses": [
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libssh2-1t64",
+      "version": "1.11.1",
+      "licenses": [
+        "BSD-3-Clause",
+        "ISC"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libssl3t64",
+      "version": "3.5.6",
+      "licenses": [
+        "Apache-2.0",
+        "Artistic-2.0",
+        "GPL-1.0-or-later",
+        "GPL-1.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsystemd-shared",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libsystemd0",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libtasn1-6",
+      "version": "4.20.0",
+      "licenses": [
+        "LGPL-2.0-or-later",
+        "LGPL-2.1-only",
+        "GPL-3.0-only",
+        "GFDL-1.3-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libtext-charwidth-perl",
+      "version": "0.04",
+      "licenses": [
+        "Artistic-2.0",
+        "GPL-1.0-or-later"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libtext-wrapi18n-perl",
+      "version": "0.06",
+      "licenses": [
+        "Artistic-2.0",
+        "GPL-1.0-or-later",
+        "GPL-1.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libtinfo6",
+      "version": "6.5+20250216",
+      "licenses": [
+        "MIT/X11",
+        "X11",
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libudev1",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libunistring5",
+      "version": "1.3",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "LGPL-3.0-or-later",
+        "LGPL-2.0-or-later",
+        "GFDL-1.3-or-later",
+        "GFDL-1.2-or-later",
+        "LGPL-3.0-only",
+        "LGPL-2.1-or-later",
+        "BSD-3-Clause",
+        "ISC",
+        "Unicode-DFS-2016",
+        "public-domain",
+        "FreeSoftware",
+        "GPL-2.0-or-later",
+        "GPL-2+ with distribution exception",
+        "MIT",
+        "X11",
+        "GPL-3.0-only",
+        "GPL-2.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libuuid1",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libwrap0",
+      "version": "7.6.q",
+      "licenses": [
+        "TCP-wrappers",
+        "BSD-3-Clause",
+        "SSH"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libwtmpdb0",
+      "version": "0.73.0",
+      "licenses": [
+        "BSD-2-Clause",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libxxhash0",
+      "version": "0.8.3",
+      "licenses": [
+        "BSD-2-Clause",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "libzstd1",
+      "version": "1.5.7+dfsg",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-2.0-only",
+        "Zlib",
+        "MIT"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "linux-sysctl-defaults",
+      "version": "4.12.1",
+      "licenses": [
+        "GPL-2.0-only",
+        "LGPL-2.1-or-later",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "login",
+      "version": "4.16.0-2+really2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "login.defs",
+      "version": "4.17.4",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-1.0-only",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "mawk",
+      "version": "1.3.4.20250131",
+      "licenses": [
+        "GPL-2.0-only",
+        "X11",
+        "CC-BY-3.0"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "mount",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "ncurses-base",
+      "version": "6.5+20250216",
+      "licenses": [
+        "MIT/X11",
+        "X11",
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "ncurses-bin",
+      "version": "6.5+20250216",
+      "licenses": [
+        "MIT/X11",
+        "X11",
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "ncurses-term",
+      "version": "6.5+20250216",
+      "licenses": [
+        "MIT/X11",
+        "X11",
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "netbase",
+      "version": "6.5",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "openssh-client",
+      "version": "10.0p1",
+      "licenses": [
+        "OpenSSH",
+        "Mazieres-BSD-style",
+        "public-domain",
+        "BSD-3-Clause",
+        "Powell-BSD-style",
+        "Expat-with-advertising-restriction",
+        "BSD-2-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "openssl",
+      "version": "3.5.6",
+      "licenses": [
+        "Apache-2.0",
+        "Artistic-2.0",
+        "GPL-1.0-or-later",
+        "GPL-1.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "openssl-provider-legacy",
+      "version": "3.5.6",
+      "licenses": [
+        "Apache-2.0",
+        "Artistic-2.0",
+        "GPL-1.0-or-later",
+        "GPL-1.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "passwd",
+      "version": "4.17.4",
+      "licenses": [
+        "BSD-3-Clause",
+        "GPL-1.0-only",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "perl-base",
+      "version": "5.40.1",
+      "licenses": [
+        "GPL-1.0-or-later",
+        "Artistic-2.0",
+        "MIT",
+        "REGCOMP",
+        "GPL-2.0-with-bison-exception+",
+        "Unicode",
+        "BZIP",
+        "Zlib",
+        "GPL-2.0-or-later",
+        "FSFAP",
+        "BSD-3-clause-with-weird-numbering",
+        "CC0-1.0",
+        "TEXT-TABS",
+        "BSD-4-clause-POWERDOG",
+        "BSD-3-clause-GENERIC",
+        "BSD-3-Clause",
+        "SDBM-PUBLIC-DOMAIN",
+        "DONT-CHANGE-THE-GPL",
+        "Artistic-dist",
+        "LGPL-2.1-only",
+        "GPL-1.0-only",
+        "GPL-2.0-only",
+        "Artistic-2"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "procps",
+      "version": "4.0.4",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "LGPL-2.0-or-later",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "psmisc",
+      "version": "23.7",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "publicsuffix",
+      "version": "20250328.1952",
+      "licenses": [
+        "MPL-2.0",
+        "CC0-1.0"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "readline-common",
+      "version": "8.2",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GFDL-1.3-no-invariants-or-later",
+        "GFDL-1.3-or-later",
+        "ISC-no-attribution"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "runit-helper",
+      "version": "2.16.4",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "sed",
+      "version": "4.9",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "X11",
+        "GFDL-1.3-no-invariants-or-later",
+        "GFDL-1.3-only",
+        "ISC",
+        "BSD-4-Clause-UC",
+        "BSL-1",
+        "pcre"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "sensible-utils",
+      "version": "0.0.25",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "All-permissive",
+        "configure",
+        "installsh",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "sqv",
+      "version": "1.3.0",
+      "licenses": [
+        "LGPL-2.0-or-later",
+        "LGPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "ssh",
+      "version": "10.0p1",
+      "licenses": [
+        "OpenSSH",
+        "Mazieres-BSD-style",
+        "public-domain",
+        "BSD-3-Clause",
+        "Powell-BSD-style",
+        "Expat-with-advertising-restriction",
+        "BSD-2-Clause"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "sudo",
+      "version": "1.9.16p2",
+      "licenses": [
+        "ISC",
+        "BSD-2-Clause",
+        "BSD-3-Clause",
+        "Zlib",
+        "other",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "systemd",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "systemd-cryptsetup",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "systemd-sysv",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "systemd-timesyncd",
+      "version": "257.13",
+      "licenses": [
+        "LGPL-2.1-or-later",
+        "CC0-1.0",
+        "GPL-2 with Linux-syscall-note exception",
+        "MIT",
+        "public-domain",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "sysvinit-utils",
+      "version": "3.14",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "LGPL-2.1-or-later",
+        "GPL-3.0-only",
+        "GPL-2.0-only",
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "tar",
+      "version": "1.35+dfsg",
+      "licenses": [
+        "GPL-3.0-or-later",
+        "GPL-3.0-only",
+        "GPL-3+ with Bison exception",
+        "LGPL-2.1-or-later",
+        "LGPL-2.1-only",
+        "LGPL-3.0-or-later",
+        "LGPL-3.0-only",
+        "GPL-2.0-or-later",
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "tzdata",
+      "version": "2026b",
+      "licenses": [
+        "public-domain"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "ucf",
+      "version": "3.0052",
+      "licenses": [
+        "GPL-2.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "util-linux",
+      "version": "2.41",
+      "licenses": [
+        "GPL-2.0-or-later",
+        "GPL-2.0-only",
+        "GPL-3.0-or-later",
+        "LGPL-2.1-or-later",
+        "public-domain",
+        "BSD-4-Clause",
+        "MIT",
+        "ISC",
+        "BSD-3-Clause",
+        "BSLA",
+        "LGPL-2.0-or-later",
+        "BSD-2-Clause",
+        "LGPL-3.0-or-later",
+        "GPL-3.0-only",
+        "LGPL-2.0-only",
+        "LGPL-2.1-only",
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "evopilot/code-upgrader-runtime:0.59 (debian 13.5)",
+      "package": "zlib1g",
+      "version": "1.3.dfsg+really1.3.1",
+      "licenses": [
+        "Zlib"
+      ]
+    },
+    {
+      "target": "Node.js",
+      "package": "@jupyter-widgets/jupyterlab-manager",
+      "version": "5.0.15",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Node.js",
+      "package": "jupyterlab_pygments",
+      "version": "0.3.0",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Node.js",
+      "package": "openhands-vscode",
+      "version": "0.0.1",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Node.js",
+      "package": "playwright-core",
+      "version": "1.55.0-beta-1756314050000",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Authlib",
+      "version": "1.6.0",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "CacheControl",
+      "version": "0.14.3",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Deprecated",
+      "version": "1.2.18",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Farama-Notifications",
+      "version": "0.0.4",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "GitPython",
+      "version": "3.1.44",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Jinja2",
+      "version": "3.1.6",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Levenshtein",
+      "version": "0.27.1",
+      "licenses": [
+        "GPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "MarkupSafe",
+      "version": "3.0.2",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "PyGithub",
+      "version": "2.6.1",
+      "licenses": [
+        "LGPL-2.1-only"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "PyJWT",
+      "version": "2.10.1",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "PyNaCl",
+      "version": "1.5.0",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "PyPDF2",
+      "version": "3.0.1",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "PyYAML",
+      "version": "6.0.2",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Pygments",
+      "version": "2.19.1",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "QtPy",
+      "version": "2.4.3",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "RapidFuzz",
+      "version": "3.13.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "SecretStorage",
+      "version": "3.3.3",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "Send2Trash",
+      "version": "1.8.3",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "SpeechRecognition",
+      "version": "3.14.3",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "aiohappyeyeballs",
+      "version": "2.6.1",
+      "licenses": [
+        "Python Software Foundation License"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "aiohttp",
+      "version": "3.12.14",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "aiosignal",
+      "version": "1.4.0",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "annotated-types",
+      "version": "0.7.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "anthropic",
+      "version": "0.59.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "anyio",
+      "version": "4.9.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "argon2-cffi",
+      "version": "25.1.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "argon2-cffi-bindings",
+      "version": "21.2.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "arrow",
+      "version": "1.3.0",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "asttokens",
+      "version": "3.0.0",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "attrs",
+      "version": "25.3.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "audioop-lts",
+      "version": "0.2.1",
+      "licenses": [
+        "PSF-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "autocommand",
+      "version": "2.2.2",
+      "licenses": [
+        "LGPL-3.0-only"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "backports.tarfile",
+      "version": "1.2.0",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "bashlex",
+      "version": "0.18",
+      "licenses": [
+        "GPL-3.0-or-later"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "beautifulsoup4",
+      "version": "4.13.4",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "bidict",
+      "version": "0.23.1",
+      "licenses": [
+        "MPL-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "binaryornot",
+      "version": "0.4.4",
+      "licenses": [
+        "BSD-3-Clause"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "bleach",
+      "version": "6.2.0",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "boto3",
+      "version": "1.39.13",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "botocore",
+      "version": "1.39.13",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "browsergym-core",
+      "version": "0.13.3",
+      "licenses": [
+        "Apache-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "build",
+      "version": "1.2.2.post1",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "cachetools",
+      "version": "5.5.2",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "certifi",
+      "version": "2025.4.26",
+      "licenses": [
+        "MPL-2.0"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "cffi",
+      "version": "1.17.1",
+      "licenses": [
+        "MIT"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "chardet",
+      "version": "5.2.0",
+      "licenses": [
+        "LGPL-2.0-or-later"
+      ]
+    },
+    {
+      "target": "Python",
+      "package": "charset-normalizer",
+      "version": "3.4.2",
+      "licenses": [
+        "MIT"
+      ]
+    }
+  ],
+  "rawReport": "openhands-0.59.raw.json"
+}

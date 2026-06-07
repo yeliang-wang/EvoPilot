@@ -1,19 +1,50 @@
 services:
-  evopilot:
+  evopilot-server:
     build: .
     ports:
       - "19876:19876"
+    depends_on:
+      evopilot-code-upgrader:
+        condition: service_healthy
     environment:
       EVOPILOT_PORT: "19876"
       EVOPILOT_RUN_MODE: "prod"
       EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
       EVOPILOT_DASHBOARD_ROOT: "/app/apps/dashboard"
       EVOPILOT_CODE_UPGRADER_BASE_URL: "http://evopilot-code-upgrader:3000"
-      EVOPILOT_PRODUCT_JENKINS_BASE_URL: "http://evopilot-jenkins:8080"
-      EVOPILOT_PRODUCT_JENKINS_JOB: "evopilot-evolution-delivery"
       EVOPILOT_TOKENS: "admin:change-me-admin-token:admin,operator:change-me-operator-token:operator,viewer:change-me-viewer-token:viewer"
     volumes:
       - evopilot-data:/var/lib/evopilot
 
+  evopilot-code-upgrader:
+    build:
+      context: .
+      dockerfile: runtimes/code-upgrader/Dockerfile
+    image: evopilot/code-upgrader-runtime:0.59
+    ports:
+      - "3000:3000"
+    env_file:
+      - data/evopilot/llm.env
+    environment:
+      EVOPILOT_RUN_MODE: "prod"
+      EVOPILOT_CODE_UPGRADER_PORT: "3000"
+      EVOPILOT_CODE_UPGRADER_DATA_ROOT: "/var/lib/evopilot-code-upgrader"
+      SANDBOX_RUNTIME_CONTAINER_IMAGE: ghcr.io/all-hands-ai/runtime:0.59-nikolaik
+      LOG_ALL_EVENTS: "true"
+      WORKSPACE_MOUNT_PATH: /opt/workspace_base
+    volumes:
+      - ${EVOPILOT_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      - evopilot-code-upgrader-state:/.openhands-state
+      - evopilot-code-upgrader-data:/var/lib/evopilot-code-upgrader
+      - evopilot-workspaces:/opt/workspace_base
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health', { signal: AbortSignal.timeout(5000) }).then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+
 volumes:
   evopilot-data:
+  evopilot-code-upgrader-state:
+  evopilot-code-upgrader-data:
+  evopilot-workspaces:
