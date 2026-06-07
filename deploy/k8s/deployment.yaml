@@ -31,10 +31,6 @@ spec:
               value: /app/apps/dashboard
             - name: EVOPILOT_CODE_UPGRADER_BASE_URL
               value: http://evopilot-code-upgrader:3000
-            - name: EVOPILOT_PRODUCT_JENKINS_BASE_URL
-              value: http://evopilot-jenkins:8080
-            - name: EVOPILOT_PRODUCT_JENKINS_JOB
-              value: evopilot-evolution-delivery
             - name: EVOPILOT_TOKENS
               valueFrom:
                 secretKeyRef:

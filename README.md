@@ -19,14 +19,32 @@ EvoPilot 为 AI Agent 产品提供从观测到交付的自进化控制能力。
   - Dashboard 首页提供进化观测图，展示接入项目、证据源、评测集、机会点和流水线之间的证据拓扑。
 - 自然语言证据策略
   - 用户在 Dashboard 输入简单 Prompt，例如“所有链路调用小于 3 秒”；系统通过 LLM 编译为可执行规则，并以 Markdown 存储，管理员可审查。
+- 系统默认自进化规则
+  - 用户不定义规则时，系统仍会基于延迟、工具失败、RAG、Eval 回归、用户负反馈、成本、Token、安全、发布回滚和上下文压缩等信号形成机会点。
+- 证据聚类与失败归因
+  - 系统按 traceId、模块、来源和事件类型聚合证据，计算动态基线、失败归因、置信度和判断依据，避免单点噪声直接触发进化。
+- 自学习机会发现
+  - 系统会把运行证据自动沉淀为 Eval Dataset，并结合发布后学习记录形成机会洞察、机会分数和推荐动作。
+- 服务成熟度 Scorecard
+  - 接入项目会按注册验证、证据覆盖、治理闭环、交付闭环和自学习闭环生成成熟度评分，帮助用户识别哪些项目还不具备生产进化条件。
+- SLO 与治理策略
+  - 系统会计算项目 SLO 健康、错误预算和策略评估结果，包括成熟度门禁、错误预算门禁和托管运行时供应链门禁。
+- 供应链与成本治理
+  - 系统会检查代码升级托管运行时是否锁定版本、镜像 Digest、SBOM、许可证报告、漏洞扫描报告和健康端点；Jenkins 作为外部 CI/CD 连接器做可达性、凭据和 Job 校验。
+- 发布就绪度
+  - 系统会把用户确认、代码升级、CI/CD、SLO、成本和运行时供应链合成为发布就绪度，决定是否允许进入灰度、A/B、Canary 或正式发布。
+- 灰度与回滚策略
+  - 系统会基于发布就绪度、SLO 灰度窗口、成本灰度窗口和回滚准备判断是否允许 Canary、是否需要人工确认、或是否必须阻断。
 - Eval Dataset / Regression Suite
   - 线上 Trace、Log、Tool Call、RAG Context、Cost、Latency 和反馈可沉淀为评测集，多个评测集可组合形成一个机会点。
 - 可编辑进化方案
   - 机会点会生成 Markdown 进化方案，用户可在页面中直接修改；确认后才会进入执行链路。
+- 治理门禁与验证契约
+  - 每个机会点会按项目策略进入诊断模式、方案确认、人工设计或自动执行，并生成语义、性能、成本、安全、冒烟和功能闭环验证要求。
 - 白盒代码升级
   - 用户确认方案后，EvoPilot 先调用代码升级执行器，按方案创建升级分支、提交变更并返回 MR/PR 证据。
-- 产品托管 CI/CD
-  - 只有代码升级成功才触发 CI/CD；失败时流程停止并保留失败证据。
+- 外部 CI/CD 连接器
+  - 只有代码升级成功才触发 Jenkins CI/CD；失败时流程停止并保留失败证据。
 - 生产默认安全
   - 默认 `prod` 模式，要求鉴权、真实 LLM、真实执行链路；调试兜底必须显式开启。
 
@@ -35,6 +53,8 @@ EvoPilot 为 AI Agent 产品提供从观测到交付的自进化控制能力。
 ```text
 项目注册
 -> 证据上报
+-> 证据聚类 / 失败归因 / 动态基线
+-> 自学习评测集 / 机会洞察
 -> 证据策略触发
 -> 评测集沉淀
 -> 多评测集形成机会点
@@ -42,7 +62,8 @@ EvoPilot 为 AI Agent 产品提供从观测到交付的自进化控制能力。
 -> 用户查看并修改方案
 -> 用户确认进化
 -> 代码升级执行器创建分支 / 提交 / MR 或 PR
--> EvoPilot 产品托管 CI/CD
+-> 外部 Jenkins CI/CD 连接器
+-> SLO / 成本 / 供应链 / 发布就绪度门禁验证
 -> 历史记录 / 审计 / 规则学习
 ```
 
@@ -76,12 +97,14 @@ Dashboard 位于 `apps/dashboard/`，当前一级菜单包括：
 | 菜单 | 用途 |
 |---|---|
 | 首页 | 展示 APM 风格进化观测图，查看接入项目与证据流拓扑。 |
-| 接入项目 | 注册 GitLab、GitHub 或本地 Git 项目，验证通过后进入下游流程。 |
+| 接入项目 | 注册 GitLab、GitHub 或本地 Git 项目，查看项目成熟度 Scorecard，验证通过后进入下游流程。 |
 | 证据策略 | 用自然语言定义进化触发规则，系统编译并落盘为 Markdown。 |
 | 评测集 | 查看线上证据沉淀出的 Eval Dataset / Regression Suite，并多选形成机会点。 |
-| 机会点 | 查看触发来源、策略、项目、IP、证据摘要和可编辑 Markdown 方案。 |
+| 机会点 | 查看触发来源、策略、项目、IP、证据摘要、置信度、失败归因、治理等级和可编辑 Markdown 方案。 |
 | 流水线 | 查看用户确认后的代码升级白盒过程，以及成功后的 CI/CD 阶段。 |
 | 历史记录 | 查看已完成演进、验证证据、产物和执行链路。 |
+
+首页还会展示平均服务分、SLO 健康、错误预算、失败策略、供应链风险、运行时就绪、成本健康、发布就绪、发布阻断、灰度就绪和灰度阻断。供应链风险和运行时就绪来自 `runtimes/runtime-lock.json`，成本健康来自运行证据中的 `costUsd`、`totalTokens`、`inputTokens`、`outputTokens` 等字段，发布就绪度来自 `/api/v1/release/readiness`，灰度策略来自 `/api/v1/rollout/strategies`。
 
 也可以只打开静态控制台：
 
@@ -148,6 +171,8 @@ data/evopilot/llm.env
 
 生产模式下，LLM 未配置、调用失败或返回格式不合法都会阻断流程；只有 `EVOPILOT_RUN_MODE=debug` 才允许模板兜底。
 
+证据策略编译会做二次语义校验。比如“所有链路调用小于 3 秒”代表目标状态，执行触发条件必须是超过 3000ms 的风险信号；如果 LLM 把它错误编译成 `durationMs <= 3000`，系统会拒绝落盘和执行该规则。
+
 ## 运行模式
 
 EvoPilot 默认以生产模式启动。
@@ -186,8 +211,8 @@ npm run server:debug
 | `EVOPILOT_LLM_BASE_URL` | OpenAI-compatible LLM 服务地址。 |
 | `EVOPILOT_LLM_MODEL_NAME` | 模型名称。 |
 | `EVOPILOT_LLM_API_KEY` | 模型服务密钥。 |
-| `EVOPILOT_CODE_UPGRADER_BASE_URL` | 代码升级执行器地址，默认内部运行时地址。 |
-| `EVOPILOT_PRODUCT_JENKINS_BASE_URL` | EvoPilot 产品托管 CI/CD 地址，默认内部运行时地址。 |
+| `EVOPILOT_CODE_UPGRADER_BASE_URL` | EvoPilot 代码升级托管运行时地址。 |
+| `EVOPILOT_PRODUCT_JENKINS_BASE_URL` | 外部 Jenkins 系统默认连接器地址；项目可在注册时配置独立 Jenkins 覆盖。 |
 
 完整部署说明见 [docs/deployment.md](docs/deployment.md)。
 
@@ -243,7 +268,7 @@ npm run test:e2e:real-llm
 npm run test:e2e:production
 ```
 
-真实生产链路不会降级为模拟执行。缺少真实代码升级执行器、产品托管 CI/CD、真实项目配置或真实 LLM 时，测试会失败或以阻断状态结束。
+真实生产链路不会降级为模拟执行。缺少真实代码升级执行器、外部 Jenkins CI/CD 连接器、真实项目配置或真实 LLM 时，测试会失败或以阻断状态结束。
 
 ## 仓库结构
 
@@ -256,10 +281,11 @@ packages/profile-domainforge-fabric/    domainforge-fabric 项目画像
 packages/adapter-gitlab/                GitLab 适配器
 packages/adapter-github/                GitHub 适配器
 packages/adapter-local-git/             本地 Git 适配器
-packages/adapter-jenkins/               产品托管 CI/CD / Jenkins 边界
+packages/adapter-jenkins/               外部 CI/CD / Jenkins 连接器边界
 docs/                                   用户、API、部署、证据接入和测试文档
 examples/                               最小接入示例
-scripts/                                真实 LLM、生产 E2E 和内部运行时脚本
+scripts/                                真实 LLM、生产 E2E、运行时锁定和发布校验脚本
+runtimes/                               EvoPilot 托管运行时镜像、锁定和供应链材料
 tests/                                  单元、烟测、功能和 E2E 测试
 ```
 
@@ -295,7 +321,7 @@ SkyWalking 更关注服务观测、链路追踪和诊断；EvoPilot 更关注如
 
 ## 当前状态
 
-EvoPilot 已具备可运行的产品闭环代码、中文 Dashboard、真实 LLM 链路、证据接入层、项目注册、代码升级执行边界、产品托管 CI/CD 边界和测试套件。
+EvoPilot 已具备可运行的产品闭环代码、中文 Dashboard、真实 LLM 链路、证据接入层、项目注册、代码升级执行边界、外部 Jenkins CI/CD 连接器边界和测试套件。
 
 发布到生产环境前，至少需要完成：
 
@@ -303,7 +329,7 @@ EvoPilot 已具备可运行的产品闭环代码、中文 Dashboard、真实 LLM
 - 配置真实 LLM。
 - 配置真实项目接入凭据。
 - 配置或启动代码升级执行器。
-- 配置或启动 EvoPilot 产品托管 CI/CD。
+- 配置系统默认 Jenkins，或在项目注册时配置项目独立 Jenkins。
 - 通过 `npm run check` 和 `npm run test:e2e:production`。
 
 ## 许可证

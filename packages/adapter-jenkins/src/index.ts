@@ -44,6 +44,8 @@ export interface JenkinsBuildSnapshot {
 }
 
 export class JenkinsClient {
+  private crumb?: { field: string; value: string; cookie?: string } | null;
+
   constructor(
     private readonly config: JenkinsConnectorConfig,
     private readonly fetchFn: typeof fetch = fetch
@@ -52,10 +54,12 @@ export class JenkinsClient {
   async triggerBuild(request: JenkinsBuildRequest): Promise<JenkinsQueuedBuild> {
     const endpoint = request.parameters && Object.keys(request.parameters).length > 0 ? "buildWithParameters" : "build";
     const url = this.urlForJob(request.jobName, endpoint);
+    const crumbHeaders = await this.crumbHeaders();
     const response = await this.fetchFn(url, {
       method: "POST",
       headers: {
         ...this.authHeaders(),
+        ...crumbHeaders,
         "content-type": "application/x-www-form-urlencoded"
       },
       body: new URLSearchParams(request.parameters ?? {})
@@ -152,6 +156,44 @@ export class JenkinsClient {
       authorization: `Basic ${Buffer.from(`${this.config.username}:${this.config.apiToken}`).toString("base64")}`
     };
   }
+
+  private async crumbHeaders(): Promise<Record<string, string>> {
+    const crumb = await this.readCrumb();
+    if (!crumb) return {};
+    return {
+      [crumb.field]: crumb.value,
+      ...(crumb.cookie ? { cookie: crumb.cookie } : {})
+    };
+  }
+
+  private async readCrumb(): Promise<{ field: string; value: string; cookie?: string } | undefined> {
+    if (this.crumb === null) return undefined;
+    if (this.crumb) return this.crumb;
+    try {
+      const response = await this.fetchFn(this.absolute("/crumbIssuer/api/json"), {
+        headers: this.authHeaders()
+      });
+      if (!response.ok) {
+        this.crumb = null;
+        return undefined;
+      }
+      const body = await response.json();
+      this.crumb = {
+        field: String(body.crumbRequestField ?? "Jenkins-Crumb"),
+        value: String(body.crumb ?? ""),
+        cookie: normalizeSetCookie(response.headers.get("set-cookie"))
+      };
+      return this.crumb.value ? this.crumb : undefined;
+    } catch {
+      this.crumb = null;
+      return undefined;
+    }
+  }
+}
+
+function normalizeSetCookie(value: string | null): string | undefined {
+  if (!value) return undefined;
+  return value.split(",").map((item) => item.split(";")[0]?.trim()).filter(Boolean).join("; ") || undefined;
 }
 
 export function normalizeJenkinsBuildStatus(build: { building?: boolean; result?: string | null }): JenkinsPipelineStatus {

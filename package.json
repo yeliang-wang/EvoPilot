@@ -22,6 +22,8 @@
     "test:e2e:real-llm": "npm run build && node scripts/real-llm-e2e.mjs",
     "test:e2e:production": "npm run build && node scripts/production-e2e.mjs",
     "verify:production-assets": "node scripts/verify-production-assets.mjs",
+    "verify:runtime-lock": "node scripts/verify-runtime-lock.mjs",
+    "verify:runtime-lock:strict": "EVOPILOT_REQUIRE_RUNTIME_LOCK=1 node scripts/verify-runtime-lock.mjs",
     "audit:security": "npm audit --audit-level=high"
   },
   "devDependencies": {

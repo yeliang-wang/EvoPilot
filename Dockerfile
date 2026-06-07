@@ -8,6 +8,7 @@ FROM deps AS build
 COPY apps ./apps
 COPY docs ./docs
 COPY templates ./templates
+COPY runtimes ./runtimes
 RUN npm run build
 
 FROM node:22-alpine AS runtime
@@ -26,5 +27,6 @@ COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps ./apps
 COPY --from=build /app/docs ./docs
 COPY --from=build /app/templates ./templates
+COPY --from=build /app/runtimes ./runtimes
 EXPOSE 19876
 CMD ["npm", "run", "server"]

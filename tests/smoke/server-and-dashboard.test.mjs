@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { createServer } from "../../packages/server/dist/index.js";
 
@@ -39,7 +40,13 @@ test("metrics endpoint and request body limit are enforced", async () => {
       headers: { authorization: "Bearer token" }
     });
     assert.equal(metrics.status, 200);
-    assert.match(await metrics.text(), /evopilot_projects_total/);
+    const metricsText = await metrics.text();
+    assert.match(metricsText, /evopilot_projects_total/);
+    assert.match(metricsText, /evopilot_slo_health/);
+    assert.match(metricsText, /evopilot_cost_health/);
+    assert.match(metricsText, /evopilot_supply_chain_risks_total/);
+    assert.match(metricsText, /evopilot_release_readiness_score/);
+    assert.match(metricsText, /evopilot_release_blocked_total/);
 
     const oversized = await fetch(`${baseUrl}/api/v1/runs`, {
       method: "POST",
@@ -83,6 +90,32 @@ test("server serves dashboard static files", async () => {
     assert.match(app, /触发来源/);
     assert.match(app, /触发时间/);
     assert.match(app, /证据摘要/);
+    assert.match(app, /置信度/);
+    assert.match(app, /归因/);
+    assert.match(app, /治理等级/);
+    assert.match(app, /自学习沉淀/);
+    assert.match(app, /智能机会洞察/);
+    assert.match(app, /智能沉淀/);
+    assert.match(app, /学习方式/);
+    assert.match(app, /成熟度/);
+    assert.match(app, /平均服务分/);
+    assert.match(app, /service-scorecards/);
+    assert.match(app, /SLO健康/);
+    assert.match(app, /错误预算/);
+    assert.match(app, /失败策略/);
+    assert.match(app, /供应链风险/);
+    assert.match(app, /运行时就绪/);
+    assert.match(app, /成本健康/);
+    assert.match(app, /发布就绪/);
+    assert.match(app, /发布阻断/);
+    assert.match(app, /灰度就绪/);
+    assert.match(app, /灰度阻断/);
+    assert.match(app, /supplyChainRiskCount/);
+    assert.match(app, /runtimeReadyCount/);
+    assert.match(app, /costHealth/);
+    assert.match(app, /releaseReadinessScore/);
+    assert.match(app, /canaryReadyCount/);
+    assert.match(app, /rolloutBlockedCount/);
     assert.match(app, /查看方案/);
     assert.match(app, /关联评测集/);
     assert.match(app, /形成机会点/);
@@ -217,6 +250,566 @@ test("evaluation datasets and opportunity draft endpoints support dashboard clos
     assert.match(ruleMarkdown, /evopilot-llm-trace/);
     assert.ok(llmCalls.some((call) => call.intent === "structured.extraction"));
     assert.ok(llmCalls.some((call) => call.intent === "plan.generation"));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("evolution batch scan productizes opportunity trigger orchestration", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-batches-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    allowSampleData: false,
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const run = await fetch(`${baseUrl}/api/v1/runs`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "domainforge-fabric",
+        now: "2026-06-07T00:00:00.000Z",
+        events: [
+          {
+            id: "batch-latency-1",
+            type: "mcp.call",
+            source: "observability",
+            timestamp: "2026-06-07T00:00:00.000Z",
+            severity: "HIGH",
+            message: "链路 p95 超过 3 秒",
+            module: "runtime-performance",
+            attributes: { durationMs: 4100 }
+          }
+        ],
+        files: ["src/runtime-performance.ts"]
+      })
+    });
+    assert.equal(run.status, 201);
+
+    const scan = await fetch(`${baseUrl}/api/v1/evolution-batches/scan`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "domainforge-fabric",
+        maxBatchesPerProject: 1,
+        maxDatasetsPerBatch: 3,
+        cooldownMinutes: 30
+      })
+    });
+    assert.equal(scan.status, 201);
+    const scanBody = await scan.json();
+    assert.equal(scanBody.data.created.length, 1);
+    assert.equal(scanBody.data.created[0].status, "CANDIDATE");
+    assert.equal(scanBody.data.created[0].projectId, "domainforge-fabric");
+    assert.ok(scanBody.data.created[0].datasetIds.length >= 1);
+    assert.match(scanBody.data.created[0].triggerReason, /新增/);
+
+    const duplicateScan = await fetch(`${baseUrl}/api/v1/evolution-batches/scan`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "domainforge-fabric" })
+    });
+    assert.equal(duplicateScan.status, 200);
+    const duplicateBody = await duplicateScan.json();
+    assert.equal(duplicateBody.data.created.length, 0);
+    assert.match(duplicateBody.data.skipped[0].reason, /活跃进化批次|冷却窗口|已被进化批次消费/);
+
+    const batchId = scanBody.data.created[0].id;
+    const status = await fetch(`${baseUrl}/api/v1/evolution-batches/${encodeURIComponent(batchId)}/status`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({ status: "SUCCEEDED", codeUpgradeRunId: "upgrade-1", pipelineRunId: "pipeline-1" })
+    });
+    assert.equal(status.status, 200);
+    const statusBody = await status.json();
+    assert.equal(statusBody.data.status, "SUCCEEDED");
+    assert.equal(statusBody.data.codeUpgradeRunId, "upgrade-1");
+
+    const summary = await fetch(`${baseUrl}/api/v1/summary`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    const summaryBody = await summary.json();
+    assert.equal(summaryBody.data.evolutionBatchCount, 1);
+    assert.equal(summaryBody.data.successfulEvolutionBatchCount, 1);
+    assert.equal(summaryBody.data.activeEvolutionBatchCount, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("evolution trigger orchestration ignores normal evidence and invalid boolean rules", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-normal-trigger-"));
+  fs.mkdirSync(path.join(dataRoot, "rules"), { recursive: true });
+  fs.writeFileSync(path.join(dataRoot, "rules", "bad-rag-rule.md"), [
+    "# 非法 RAG 规则",
+    "",
+    "```json",
+    JSON.stringify({
+      id: "bad-rag-rule",
+      projectId: "domainforge-fabric",
+      name: "非法 RAG 规则",
+      description: "布尔字段不能使用小于等于比较。",
+      userPrompt: "RAG 命中率不能下降",
+      compiledBy: "llm",
+      enabled: true,
+      opportunityType: "reliability-risk",
+      title: "RAG 命中率下降",
+      affectedArea: "rag",
+      suggestedDirection: "优化 RAG。",
+      riskLevel: "HIGH",
+      anyOf: [{ field: "attributes.ragHit", operator: "<=", value: "false" }],
+      minMatchingEvents: 1
+    }, null, 2),
+    "```",
+    ""
+  ].join("\n"), "utf8");
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    allowSampleData: false,
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const run = await fetch(`${baseUrl}/api/v1/runs`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "domainforge-fabric",
+        now: "2026-06-07T00:00:00.000Z",
+        events: [{
+          id: "normal-rag-hit",
+          type: "mcp.call",
+          source: "mcp",
+          timestamp: "2026-06-07T00:00:00.000Z",
+          severity: "LOW",
+          message: "正常链路，RAG 命中",
+          attributes: { durationMs: 80, latencyMs: 80, ragHit: true }
+        }]
+      })
+    });
+    assert.equal(run.status, 201);
+    const runBody = await run.json();
+    assert.equal(runBody.data.opportunities.length, 0);
+
+    const datasets = await fetch(`${baseUrl}/api/v1/evaluation-datasets`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    const datasetsBody = await datasets.json();
+    assert.equal(datasets.status, 503);
+    assert.equal(datasetsBody.error, "EVALUATION_DATASET_SOURCE_NOT_CONFIGURED");
+
+    const scan = await fetch(`${baseUrl}/api/v1/evolution-batches/scan`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "domainforge-fabric" })
+    });
+    assert.equal(scan.status, 200);
+    const scanBody = await scan.json();
+    assert.equal(scanBody.data.created.length, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("compiled user rules are scoped to their registered project", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-rule-scope-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    llmClient: {
+      async generate(request) {
+        const projectId = request.metadata.projectId;
+        return {
+          requestId: request.requestId ?? `llm-${projectId}`,
+          success: true,
+          text: JSON.stringify({
+            id: `${projectId}-latency-rule`,
+            name: `${projectId} 链路延迟规则`,
+            description: "项目级用户规则。",
+            userPrompt: "所有链路调用小于 3 秒",
+            compiledBy: "llm",
+            enabled: true,
+            opportunityType: "performance-hotspot",
+            title: `${projectId} 链路性能超过 3 秒阈值`,
+            affectedArea: "runtime-performance",
+            suggestedDirection: "降低延迟并增加性能回归。",
+            riskLevel: "MEDIUM",
+            anyOf: [{ field: "attributes.durationMs", operator: ">", value: 3000 }],
+            minMatchingEvents: 1
+          }),
+          provider: "mock-llm",
+          model: "mock-model",
+          durationMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "json-extractor"
+        };
+      }
+    },
+    requireLlm: true,
+    tokens: [
+      { name: "admin", token: "admin-token", role: "admin" },
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    for (const projectId of ["order-assistant-agent", "knowledge-cs-agent"]) {
+      const repoRoot = createSmokeRepo(dataRoot, projectId);
+      const registered = await fetch(`${baseUrl}/api/v1/projects`, {
+        method: "POST",
+        headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+        body: JSON.stringify({
+          id: projectId,
+          name: projectId,
+          repository: {
+            provider: "local-git",
+            gitUrl: `file://${repoRoot}`,
+            root: repoRoot
+          }
+        })
+      });
+      assert.equal(registered.status, 201);
+      const compiled = await fetch(`${baseUrl}/api/v1/rules/compile`, {
+        method: "POST",
+        headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+        body: JSON.stringify({ projectId, prompt: "所有链路调用小于 3 秒" })
+      });
+      assert.equal(compiled.status, 201);
+    }
+    const run = await fetch(`${baseUrl}/api/v1/runs`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "order-assistant-agent",
+        now: "2026-06-07T00:00:00.000Z",
+        events: [{
+          id: "scope-latency",
+          type: "mcp.call",
+          source: "observability",
+          timestamp: "2026-06-07T00:00:00.000Z",
+          severity: "HIGH",
+          message: "订单链路超过 3 秒",
+          attributes: { durationMs: 3600 }
+        }],
+        files: ["app.py"]
+      })
+    });
+    assert.equal(run.status, 201);
+    const runBody = await run.json();
+    const triggeredRuleIds = runBody.data.opportunities.flatMap((opportunity) => opportunity.triggeredRuleIds ?? []);
+    assert.ok(triggeredRuleIds.includes("order-assistant-agent-latency-rule"));
+    assert.ok(!triggeredRuleIds.includes("knowledge-cs-agent-latency-rule"));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+function createSmokeRepo(root, name) {
+  const repoRoot = path.join(root, name);
+  fs.mkdirSync(repoRoot, { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, "app.py"), "print('ok')\n");
+  execFileSync("git", ["init"], { cwd: repoRoot, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoRoot, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: repoRoot, stdio: "ignore" });
+  execFileSync("git", ["add", "."], { cwd: repoRoot, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: repoRoot, stdio: "ignore" });
+  return repoRoot;
+}
+
+test("rule compiler asks LLM to repair semantically invalid output before storing", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-invalid-rule-"));
+  const responses = [
+    {
+      id: "bad-cost-rule",
+      name: "错误的成本规则",
+      description: "错误地输出空成本阈值。",
+      userPrompt: "单次调用成本异常时优化模型路由",
+      compiledBy: "llm",
+      enabled: true,
+      opportunityType: "cost-risk",
+      title: "成本异常",
+      affectedArea: "model-routing",
+      suggestedDirection: "优化模型路由。",
+      riskLevel: "MEDIUM",
+      anyOf: [
+        { field: "attributes.costUsd", operator: ">", value: "" }
+      ],
+      minMatchingEvents: 1
+    },
+    {
+      id: "cost-risk-over-budget",
+      name: "成本超过预算触发优化",
+      description: "单次调用成本超过预算时触发成本优化。",
+      userPrompt: "单次调用成本异常时优化模型路由",
+      compiledBy: "llm",
+      enabled: true,
+      opportunityType: "cost-risk",
+      title: "成本超过预算",
+      affectedArea: "model-routing",
+      suggestedDirection: "优化模型选择、上下文压缩和缓存。",
+      riskLevel: "HIGH",
+      anyOf: [
+        { field: "attributes.costUsd", operator: ">", value: 0.02 }
+      ],
+      minMatchingEvents: 1
+    }
+  ];
+  let callCount = 0;
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "prod",
+    requireLlm: true,
+    llmClient: {
+      async generate(request) {
+        const body = responses[Math.min(callCount, responses.length - 1)];
+        callCount += 1;
+        return {
+          requestId: request.requestId ?? `rule-${callCount}`,
+          success: true,
+          text: JSON.stringify(body),
+          provider: "mock-llm",
+          model: "mock-model",
+          durationMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "json-extractor"
+        };
+      }
+    },
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const compiledRule = await fetch(`${baseUrl}/api/v1/rules/compile`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "agent-a",
+        prompt: "单次调用成本异常时优化模型路由"
+      })
+    });
+    assert.equal(compiledRule.status, 201);
+    const payload = await compiledRule.json();
+    assert.equal(callCount, 2);
+    assert.equal(payload.data.llmTrace.mode, "llm-repaired");
+    assert.equal(payload.data.llmTrace.repairAttempts.length, 1);
+    assert.equal(payload.data.llmTrace.repairAttempts[0].repaired, true);
+    assert.equal(fs.existsSync(path.join(dataRoot, "rules", "bad-cost-rule.md")), false);
+    const markdown = fs.readFileSync(path.join(dataRoot, "rules", "cost-risk-over-budget.md"), "utf8");
+    assert.match(markdown, /"field": "attributes.costUsd"/);
+    assert.match(markdown, /"value": 0.02/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("rule compiler rejects invalid LLM output after repair attempts are exhausted", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-invalid-rule-final-"));
+  let callCount = 0;
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "prod",
+    requireLlm: true,
+    llmClient: {
+      async generate(request) {
+        callCount += 1;
+        return {
+          requestId: request.requestId ?? `invalid-rule-${callCount}`,
+          success: true,
+          text: JSON.stringify({
+            id: "bad-under-3s",
+            name: "错误的小于三秒规则",
+            description: "错误地把正常状态当成触发条件。",
+            userPrompt: "所有链路调用小于 3 秒",
+            compiledBy: "llm",
+            enabled: true,
+            opportunityType: "performance-hotspot",
+            title: "错误规则",
+            affectedArea: "runtime-performance",
+            suggestedDirection: "错误方向",
+            riskLevel: "MEDIUM",
+            anyOf: [
+              { field: "attributes.costUsd", operator: ">", value: "" }
+            ],
+            minMatchingEvents: 1
+          }),
+          provider: "mock-llm",
+          model: "mock-model",
+          durationMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "json-extractor"
+        };
+      }
+    },
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const compiledRule = await fetch(`${baseUrl}/api/v1/rules/compile`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "agent-a",
+        prompt: "所有链路调用小于 3 秒"
+      })
+    });
+    assert.equal(compiledRule.status, 500);
+    assert.equal(callCount, 3);
+    assert.match(await compiledRule.text(), /attributes.costUsd 必须使用数值阈值/);
+    assert.equal(fs.existsSync(path.join(dataRoot, "rules", "bad-under-3s.md")), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("rule compiler applies production guardrails for empty latency threshold", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-empty-threshold-rule-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "prod",
+    requireLlm: true,
+    llmClient: {
+      async generate(request) {
+        return {
+          requestId: request.requestId ?? "empty-threshold-rule",
+          success: true,
+          text: JSON.stringify({
+            id: "chain-latency-empty-threshold",
+            name: "链路耗时规则",
+            description: "空阈值输出需要生产护栏规整。",
+            userPrompt: "所有链路调用小于 3 秒",
+            compiledBy: "llm",
+            enabled: true,
+            opportunityType: "performance-hotspot",
+            title: "链路性能超过 3 秒阈值",
+            affectedArea: "runtime-performance",
+            suggestedDirection: "优化慢链路。",
+            riskLevel: "HIGH",
+            anyOf: [
+              { field: "attributes.durationMs", operator: ">", value: "" }
+            ],
+            minMatchingEvents: 1
+          }),
+          provider: "mock-llm",
+          model: "mock-model",
+          durationMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "json-extractor"
+        };
+      }
+    },
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const compiledRule = await fetch(`${baseUrl}/api/v1/rules/compile`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "agent-a",
+        prompt: "所有链路调用小于 3 秒"
+      })
+    });
+    assert.equal(compiledRule.status, 201);
+    const markdown = fs.readFileSync(path.join(dataRoot, "rules", "chain-latency-empty-threshold.md"), "utf8");
+    assert.match(markdown, /"field": "attributes.durationMs"/);
+    assert.match(markdown, /"operator": ">"/);
+    assert.match(markdown, /"value": 3000/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("rule compiler normalizes Chinese boolean condition values", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-bool-rule-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "prod",
+    requireLlm: true,
+    llmClient: {
+      async generate(request) {
+        return {
+          requestId: request.requestId ?? "bool-rule",
+          success: true,
+          text: JSON.stringify({
+            id: "rag-miss-rule",
+            name: "RAG 未命中规则",
+            description: "RAG 未命中时触发可靠性演进。",
+            userPrompt: "RAG 未命中时优化召回质量",
+            compiledBy: "llm",
+            enabled: true,
+            opportunityType: "reliability-risk",
+            title: "RAG 未命中",
+            affectedArea: "rag-quality",
+            suggestedDirection: "优化召回、重排和引用质量。",
+            riskLevel: "HIGH",
+            anyOf: [
+              { field: "attributes.ragHit", operator: "==", value: "未命中" }
+            ],
+            minMatchingEvents: 1
+          }),
+          provider: "mock-llm",
+          model: "mock-model",
+          durationMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "json-extractor"
+        };
+      }
+    },
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const compiledRule = await fetch(`${baseUrl}/api/v1/rules/compile`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "agent-a",
+        prompt: "RAG 未命中时优化召回质量"
+      })
+    });
+    assert.equal(compiledRule.status, 201);
+    const markdown = fs.readFileSync(path.join(dataRoot, "rules", "rag-miss-rule.md"), "utf8");
+    assert.match(markdown, /"field": "attributes.ragHit"/);
+    assert.match(markdown, /"value": "false"/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

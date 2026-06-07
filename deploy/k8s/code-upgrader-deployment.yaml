@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evopilot-code-upgrader
+  labels:
+    app: evopilot-code-upgrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evopilot-code-upgrader
+  template:
+    metadata:
+      labels:
+        app: evopilot-code-upgrader
+    spec:
+      containers:
+        - name: openhands
+          image: evopilot/code-upgrader-runtime:0.59
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: SANDBOX_RUNTIME_CONTAINER_IMAGE
+              value: ghcr.io/all-hands-ai/runtime:0.59-nikolaik
+            - name: LOG_ALL_EVENTS
+              value: "true"
+            - name: WORKSPACE_MOUNT_PATH
+              value: /opt/workspace_base
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 20

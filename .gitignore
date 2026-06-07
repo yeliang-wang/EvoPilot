@@ -2,5 +2,7 @@ node_modules/
 dist/
 data/
 tmp/
+.tmp/
+.codex/
 .DS_Store
 npm-debug.log*
