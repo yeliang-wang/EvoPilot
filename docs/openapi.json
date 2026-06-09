@@ -714,6 +714,104 @@
           }
         }
       }
+    },
+    "/api/v1/soak-reports": {
+      "get": {
+        "summary": "列出生产级持续验证报告",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "持续验证报告列表"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      },
+      "post": {
+        "summary": "写入生产级持续验证报告",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "持续验证报告已写入"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/release/evidence": {
+      "get": {
+        "summary": "列出发布候选证据包",
+        "description": "返回可由发布门禁消费的机器可读 release evidence bundle，包含持续验证报告、服务清单、接入项目、场景矩阵、风险登记和产物索引。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "发布证据包列表"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      },
+      "post": {
+        "summary": "生成发布候选证据包",
+        "description": "聚合真实运行数据、代码升级、CI/CD、持续验证报告和场景矩阵，生成 GO / CONDITIONAL-GO / NO-GO 证据包；不会返回连接器密钥或项目凭据。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "发布证据包已生成"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/release/evidence/{evidenceId}": {
+      "get": {
+        "summary": "获取单个发布候选证据包",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "evidenceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "发布证据包详情"
+          },
+          "404": {
+            "description": "发布证据包不存在"
+          }
+        }
+      }
     }
   },
   "components": {

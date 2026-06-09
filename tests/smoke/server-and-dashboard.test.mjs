@@ -106,14 +106,21 @@ test("server serves dashboard static files", async () => {
     assert.match(app, /供应链风险/);
     assert.match(app, /运行时就绪/);
     assert.match(app, /成本健康/);
+    assert.match(app, /冻结项目/);
+    assert.match(app, /成本优化待执行/);
+    assert.match(app, /成本优化/);
     assert.match(app, /发布就绪/);
     assert.match(app, /发布阻断/);
+    assert.match(app, /发布证据包/);
     assert.match(app, /灰度就绪/);
     assert.match(app, /灰度阻断/);
     assert.match(app, /supplyChainRiskCount/);
     assert.match(app, /runtimeReadyCount/);
     assert.match(app, /costHealth/);
+    assert.match(app, /frozenProjectCount/);
+    assert.match(app, /costOptimizationReadyCount/);
     assert.match(app, /releaseReadinessScore/);
+    assert.match(app, /releaseEvidenceCount/);
     assert.match(app, /canaryReadyCount/);
     assert.match(app, /rolloutBlockedCount/);
     assert.match(app, /查看方案/);
@@ -309,6 +316,7 @@ test("evolution batch scan productizes opportunity trigger orchestration", async
     assert.equal(scanBody.data.created.length, 1);
     assert.equal(scanBody.data.created[0].status, "CANDIDATE");
     assert.equal(scanBody.data.created[0].projectId, "domainforge-fabric");
+    assert.equal(scanBody.data.created[0].intent, "standard-evolution");
     assert.ok(scanBody.data.created[0].datasetIds.length >= 1);
     assert.match(scanBody.data.created[0].triggerReason, /新增/);
 
@@ -340,6 +348,82 @@ test("evolution batch scan productizes opportunity trigger orchestration", async
     assert.equal(summaryBody.data.evolutionBatchCount, 1);
     assert.equal(summaryBody.data.successfulEvolutionBatchCount, 1);
     assert.equal(summaryBody.data.activeEvolutionBatchCount, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("evolution batch scan fails stale active batches and releases the project queue", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-stale-batch-"));
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    allowSampleData: false,
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const run = await fetch(`${baseUrl}/api/v1/runs`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "domainforge-fabric",
+        now: "2026-06-07T00:00:00.000Z",
+        events: [
+          {
+            id: "stale-batch-latency-1",
+            type: "mcp.call",
+            source: "observability",
+            timestamp: "2026-06-07T00:00:00.000Z",
+            severity: "HIGH",
+            message: "链路 p95 超过 3 秒",
+            module: "runtime-performance",
+            attributes: { durationMs: 4100 }
+          }
+        ],
+        files: ["src/runtime-performance.ts"]
+      })
+    });
+    assert.equal(run.status, 201);
+
+    const scan = await fetch(`${baseUrl}/api/v1/evolution-batches/scan`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "domainforge-fabric", cooldownMinutes: 0 })
+    });
+    assert.equal(scan.status, 201);
+    const scanBody = await scan.json();
+    const batchId = scanBody.data.created[0].id;
+    const batchFile = path.join(dataRoot, "evolution-batches", `${batchId}.json`);
+    const batch = JSON.parse(fs.readFileSync(batchFile, "utf8"));
+    fs.writeFileSync(batchFile, `${JSON.stringify({ ...batch, updatedAt: "2026-06-06T00:00:00.000Z" }, null, 2)}\n`);
+
+    const staleScan = await fetch(`${baseUrl}/api/v1/evolution-batches/scan`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "domainforge-fabric", cooldownMinutes: 0, activeBatchTimeoutMinutes: 1 })
+    });
+    assert.equal(staleScan.status, 200);
+    const staleBody = await staleScan.json();
+    assert.match(staleBody.data.skipped[0].reason, /活跃进化批次超过 1 分钟未推进/);
+
+    const failedBatch = await (await fetch(`${baseUrl}/api/v1/evolution-batches/${encodeURIComponent(batchId)}`, {
+      headers: { authorization: "Bearer viewer-token" }
+    })).json();
+    assert.equal(failedBatch.data.status, "FAILED");
+    assert.match(failedBatch.data.failureReason, /自动失败/);
+
+    const summary = await (await fetch(`${baseUrl}/api/v1/summary`, {
+      headers: { authorization: "Bearer viewer-token" }
+    })).json();
+    assert.equal(summary.data.activeEvolutionBatchCount, 0);
+    assert.equal(summary.data.failedEvolutionBatchCount, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -896,6 +980,152 @@ test("pipeline list endpoint is viewer protected and initially empty", async () 
     });
     assert.equal(pipelines.status, 200);
     assert.deepEqual((await pipelines.json()).data, []);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("release evidence endpoint persists release candidate evidence without leaking secrets", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-release-evidence-"));
+  const repoRoot = path.join(dataRoot, "connected-project");
+  fs.mkdirSync(repoRoot, { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, "package.json"), `${JSON.stringify({ name: "connected-project", scripts: { test: "node --version" } }, null, 2)}\n`);
+  execFileSync("git", ["init"], { cwd: repoRoot, stdio: "ignore" });
+  execFileSync("git", ["add", "package.json"], { cwd: repoRoot, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], {
+    cwd: repoRoot,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "EvoPilot Test",
+      GIT_AUTHOR_EMAIL: "evopilot@example.test",
+      GIT_COMMITTER_NAME: "EvoPilot Test",
+      GIT_COMMITTER_EMAIL: "evopilot@example.test"
+    }
+  });
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    allowSampleData: false,
+    tokens: [
+      { name: "viewer", token: "viewer-token", role: "viewer" },
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const project = await fetch(`${baseUrl}/api/v1/projects`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "connected-project",
+        name: "Connected Project",
+        repository: {
+          provider: "local-git",
+          root: repoRoot,
+          defaultBranch: "main",
+          token: "secret-project-token"
+        },
+        cicd: {
+          provider: "jenkins",
+          jenkins: {
+            mode: "project-override",
+            baseUrl: "http://jenkins.internal",
+            username: "ci-user",
+            apiToken: "secret-jenkins-token",
+            job: "connected-project-release"
+          }
+        }
+      })
+    });
+    assert.equal(project.status, 201);
+
+    const codeUpgrader = await fetch(`${baseUrl}/api/v1/connectors/openhands`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "default",
+        name: "Real Code Upgrader",
+        baseUrl: "http://code-upgrader.internal",
+        apiKey: "secret-openhands-token"
+      })
+    });
+    assert.equal(codeUpgrader.status, 201);
+
+    const run = await fetch(`${baseUrl}/api/v1/runs`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: "connected-project",
+        events: [{
+          id: "release-evidence-latency",
+          type: "mcp.call",
+          source: "observability",
+          timestamp: "2026-06-09T00:00:00.000Z",
+          severity: "HIGH",
+          message: "真实链路 p95 超过 3 秒",
+          attributes: { durationMs: 3900 }
+        }],
+        files: ["package.json"]
+      })
+    });
+    assert.equal(run.status, 201);
+
+    const soak = await fetch(`${baseUrl}/api/v1/soak-reports`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "release-candidate-soak",
+        name: "Release Candidate Soak",
+        durationSeconds: 10800,
+        status: "SUCCEEDED",
+        startedAt: "2026-06-09T00:00:00.000Z",
+        finishedAt: "2026-06-09T03:00:00.000Z",
+        summary: { runCount: 1 }
+      })
+    });
+    assert.equal(soak.status, 201);
+
+    const evidence = await fetch(`${baseUrl}/api/v1/release/evidence`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "rc-1",
+        candidate: "v0.1.0-rc.1",
+        artifactPaths: ["/tmp/evopilot-dashboard.png"],
+        scenarioMatrix: [
+          { id: "llm-failure-containment", name: "LLM 失败隔离", status: "PASS", evidence: ["真实 LLM 超时被阻断"], required: true },
+          { id: "scm-failure-containment", name: "SCM 失败隔离", status: "PASS", evidence: ["真实 push 失败未泄露 token"], required: true }
+        ]
+      })
+    });
+    assert.equal(evidence.status, 201);
+    const body = await evidence.json();
+    assert.equal(body.data.id, "rc-1");
+    assert.equal(body.data.candidate, "v0.1.0-rc.1");
+    assert.ok(body.data.sourceSoakReportIds.includes("release-candidate-soak"));
+    assert.ok(body.data.serviceInventory.some((item) => item.type === "code-upgrader" && item.status === "READY"));
+    assert.ok(body.data.connectedProjects.some((item) => item.repository.credentialsConfigured === true));
+    assert.ok(body.data.scenarioMatrix.some((item) => item.id === "llm-failure-containment" && item.status === "PASS"));
+    assert.ok(body.data.riskRegister.some((item) => item.source === "scenario-matrix"));
+    assert.ok(body.data.artifacts.some((item) => item.type === "dashboard"));
+    assert.doesNotMatch(JSON.stringify(body.data), /secret-project-token|secret-jenkins-token|secret-openhands-token/);
+
+    const fetched = await fetch(`${baseUrl}/api/v1/release/evidence/rc-1`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    assert.equal(fetched.status, 200);
+    assert.equal((await fetched.json()).data.id, "rc-1");
+
+    const summary = await fetch(`${baseUrl}/api/v1/summary`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    assert.equal(summary.status, 200);
+    assert.equal((await summary.json()).data.recentReleaseEvidence[0].id, "rc-1");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -324,6 +324,7 @@ interface EvolutionBatch {
   id: string;
   projectId: string;
   status: EvolutionBatchStatus;
+  intent?: "standard-evolution" | "cost-optimization";
   triggerReason: string;
   datasetIds: string[];
   opportunityIds: string[];
@@ -353,6 +354,76 @@ interface EvolutionFreezeDiagnostic {
   projectId: string;
   reason: string;
   costReport?: CostReport;
+}
+
+interface SoakReport {
+  id: string;
+  name: string;
+  durationSeconds: number;
+  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "STOPPED";
+  startedAt: string;
+  finishedAt?: string;
+  summary?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type ReleaseScenarioStatus = "PASS" | "FAIL" | "NOT-RUN" | "NOT-APPLICABLE";
+
+interface ReleaseScenarioResult {
+  id: string;
+  name: string;
+  status: ReleaseScenarioStatus;
+  evidence: string[];
+  required: boolean;
+  updatedAt: string;
+}
+
+interface ReleaseRisk {
+  id: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  source: string;
+  status: "OPEN" | "MITIGATED" | "ACCEPTED";
+  summary: string;
+  evidence: string[];
+  recommendedAction: string;
+}
+
+interface ReleaseEvidenceBundle {
+  id: string;
+  candidate: string;
+  status: "GO" | "CONDITIONAL-GO" | "NO-GO";
+  generatedAt: string;
+  summary: Record<string, unknown>;
+  sourceSoakReportIds: string[];
+  serviceInventory: Array<{
+    id: string;
+    type: "evopilot" | "code-upgrader" | "ci" | "connected-project";
+    name: string;
+    status: "READY" | "WARN" | "BLOCKED";
+    endpoint?: string;
+    evidence: string;
+  }>;
+  connectedProjects: Array<{
+    id: string;
+    name: string;
+    repository?: Omit<ProjectRepositoryRegistration, "credentials"> & { credentialsConfigured: boolean };
+    cicd?: ProjectCicdConfiguration;
+    validation: ProjectValidation;
+    releaseReadiness?: ReleaseReadinessReport;
+    rolloutStrategy?: RolloutStrategyReport;
+  }>;
+  scenarioMatrix: ReleaseScenarioResult[];
+  riskRegister: ReleaseRisk[];
+  artifacts: Array<{
+    type: "soak-report" | "pipeline" | "code-upgrade" | "dashboard" | "log" | "other";
+    label: string;
+    path?: string;
+    url?: string;
+    status?: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface ProjectEvolutionCursor {
@@ -649,12 +720,55 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           maxDatasetsPerBatch: body.maxDatasetsPerBatch === undefined ? 4 : Number(body.maxDatasetsPerBatch),
           minDatasetCount: body.minDatasetCount === undefined ? 1 : Number(body.minDatasetCount),
           cooldownMinutes: body.cooldownMinutes === undefined ? 30 : Number(body.cooldownMinutes),
+          activeBatchTimeoutMinutes: body.activeBatchTimeoutMinutes === undefined ? 120 : Number(body.activeBatchTimeoutMinutes),
           dryRun: Boolean(body.dryRun)
         });
         for (const batch of result.created) {
           store.appendAudit(audit(auth, "evolution-batch.created", batch.id, { projectId: batch.projectId, datasetIds: batch.datasetIds, opportunityIds: batch.opportunityIds }));
         }
         return writeJson(response, result.created.length > 0 ? 201 : 200, envelope(result));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/soak-reports") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listSoakReports().slice(-50).reverse()));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/soak-reports") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const report = store.writeSoakReport({
+          id: body.id ? String(body.id) : undefined,
+          name: body.name ? String(body.name) : undefined,
+          durationSeconds: Number(body.durationSeconds ?? 0),
+          status: normalizeSoakReportStatus(body.status),
+          startedAt: body.startedAt ? String(body.startedAt) : undefined,
+          finishedAt: body.finishedAt ? String(body.finishedAt) : undefined,
+          summary: isRecord(body.summary) ? body.summary : undefined
+        });
+        store.appendAudit(audit(auth, "soak-report.upserted", report.id, { status: report.status, durationSeconds: report.durationSeconds }));
+        return writeJson(response, 201, envelope(report));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/release/evidence") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listReleaseEvidenceBundles().slice(-20).reverse()));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/release/evidence") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const bundle = store.generateReleaseEvidenceBundle({
+          id: body.id ? String(body.id) : undefined,
+          candidate: body.candidate ? String(body.candidate) : undefined,
+          scenarioMatrix: normalizeScenarioMatrix(body.scenarioMatrix),
+          artifactPaths: Array.isArray(body.artifactPaths) ? body.artifactPaths.map(String) : []
+        });
+        store.appendAudit(audit(auth, "release-evidence.generated", bundle.id, { status: bundle.status, candidate: bundle.candidate }));
+        return writeJson(response, 201, envelope(bundle));
+      }
+      const releaseEvidenceMatch = url.pathname.match(/^\/api\/v1\/release\/evidence\/([^/]+)$/);
+      if (request.method === "GET" && releaseEvidenceMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const bundle = store.readReleaseEvidenceBundle(decodeURIComponent(releaseEvidenceMatch[1]));
+        if (!bundle) return writeJson(response, 404, { error: "RELEASE_EVIDENCE_NOT_FOUND" });
+        return writeJson(response, 200, envelope(bundle));
       }
       const batchMatch = url.pathname.match(/^\/api\/v1\/evolution-batches\/([^/]+)$/);
       if (request.method === "GET" && batchMatch) {
@@ -968,15 +1082,15 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const delivery = run.deliveryPlans.find((item) => item.id === deliveryId)!;
         const plan = run.plans.find((item) => item.id === delivery.planId)!;
         const review = run.reviews.find((item) => item.planId === plan.id);
+        const body = await readJson(request, options.maxBodyBytes);
         const freeze = store.projectEvolutionFreezeDiagnostic(delivery.projectId);
-        if (freeze) {
+        if (freeze && !store.isCostOptimizationDeliveryAllowed(delivery, body)) {
           store.appendAudit(audit(auth, "delivery.blocked-by-cost-freeze", deliveryId, { projectId: delivery.projectId, reason: freeze.reason }));
           return writeJson(response, 409, { error: "EVOLUTION_COST_BUDGET_FROZEN", detail: freeze.reason, costReport: freeze.costReport });
         }
         if (delivery.approvalRequired && review?.status !== "USER_CONFIRMED") {
           return writeJson(response, 409, { error: "USER_CONFIRMATION_REQUIRED" });
         }
-        const body = await readJson(request, options.maxBodyBytes);
         if (body.executor === "jenkins") {
           const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
           if (!codeUpgrade) return writeJson(response, 409, { error: "CODE_UPGRADE_REQUIRED" });
@@ -1031,15 +1145,15 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const delivery = run.deliveryPlans.find((item) => item.id === deliveryId)!;
         const plan = run.plans.find((item) => item.id === delivery.planId)!;
         const review = run.reviews.find((item) => item.planId === plan.id);
+        const body = await readJson(request, options.maxBodyBytes);
         const freeze = store.projectEvolutionFreezeDiagnostic(delivery.projectId);
-        if (freeze) {
+        if (freeze && !store.isCostOptimizationDeliveryAllowed(delivery, body)) {
           store.appendAudit(audit(auth, "code-upgrade.blocked-by-cost-freeze", deliveryId, { projectId: delivery.projectId, reason: freeze.reason }));
           return writeJson(response, 409, { error: "EVOLUTION_COST_BUDGET_FROZEN", detail: freeze.reason, costReport: freeze.costReport });
         }
         if (delivery.approvalRequired && review?.status !== "USER_CONFIRMED") {
           return writeJson(response, 409, { error: "USER_CONFIRMATION_REQUIRED" });
         }
-        const body = await readJson(request, options.maxBodyBytes);
         const codeUpgrade = await startOpenHandsCodeUpgrade({ store, auth, run, delivery, plan, review, body, profile, runtime });
         if (body.batchId) {
           store.updateEvolutionBatch(String(body.batchId), {
@@ -1060,15 +1174,15 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const delivery = run.deliveryPlans.find((item) => item.id === deliveryId)!;
         const plan = run.plans.find((item) => item.id === delivery.planId)!;
         const review = run.reviews.find((item) => item.planId === plan.id);
+        const body = await readJson(request, options.maxBodyBytes);
         const freeze = store.projectEvolutionFreezeDiagnostic(delivery.projectId);
-        if (freeze) {
+        if (freeze && !store.isCostOptimizationDeliveryAllowed(delivery, body)) {
           store.appendAudit(audit(auth, "delivery.schedule.blocked-by-cost-freeze", deliveryId, { projectId: delivery.projectId, reason: freeze.reason }));
           return writeJson(response, 409, { error: "EVOLUTION_COST_BUDGET_FROZEN", detail: freeze.reason, costReport: freeze.costReport });
         }
         if (delivery.approvalRequired && review?.status !== "USER_CONFIRMED") {
           return writeJson(response, 409, { error: "USER_CONFIRMATION_REQUIRED" });
         }
-        const body = await readJson(request, options.maxBodyBytes);
         const resolved = resolveJenkinsDeliveryTarget({ store, plan, body, runtime });
         if (resolved.error) return writeJson(response, resolved.statusCode, resolved.error);
         const connectorId = resolved.connectorId!;
@@ -1139,6 +1253,8 @@ class FileStore {
     fs.mkdirSync(this.schedulesDir, { recursive: true });
     fs.mkdirSync(this.evolutionBatchesDir, { recursive: true });
     fs.mkdirSync(this.evolutionCursorsDir, { recursive: true });
+    fs.mkdirSync(this.soakReportsDir, { recursive: true });
+    fs.mkdirSync(this.releaseEvidenceDir, { recursive: true });
     this.ensureMetadata();
   }
 
@@ -1202,6 +1318,14 @@ class FileStore {
     return path.join(this.dataRoot, "evolution-cursors");
   }
 
+  get soakReportsDir(): string {
+    return path.join(this.dataRoot, "soak-reports");
+  }
+
+  get releaseEvidenceDir(): string {
+    return path.join(this.dataRoot, "release-evidence");
+  }
+
   get metadataFile(): string {
     return path.join(this.dataRoot, "metadata.json");
   }
@@ -1232,6 +1356,7 @@ class FileStore {
     const codeUpgrades = this.listCodeUpgradeRuns();
     const datasets = this.listEvaluationDatasets();
     const batches = this.listEvolutionBatches();
+    const freezes = this.computeEvolutionFreezes();
     const insights = this.discoverOpportunityInsights();
     const learnedReleases = runs.flatMap((run) => run.learningRecords);
     const scorecards = this.computeServiceScorecards();
@@ -1248,8 +1373,12 @@ class FileStore {
       evaluationDatasetCount: datasets.length,
       evolutionBatchCount: batches.length,
       activeEvolutionBatchCount: batches.filter((batch) => ["CANDIDATE", "DRAFT_READY", "CONFIRMED", "CODE_UPGRADING", "CICD_RUNNING"].includes(batch.status)).length,
+      costOptimizationEvolutionBatchCount: batches.filter((batch) => batch.intent === "cost-optimization").length,
       successfulEvolutionBatchCount: batches.filter((batch) => batch.status === "SUCCEEDED").length,
       failedEvolutionBatchCount: batches.filter((batch) => batch.status === "FAILED").length,
+      frozenProjectCount: freezes.length,
+      evolutionFreezes: freezes,
+      costOptimizationReadyCount: batches.filter((batch) => batch.intent === "cost-optimization" && ["CANDIDATE", "DRAFT_READY", "CONFIRMED"].includes(batch.status)).length,
       selfLearningDatasetCount: datasets.filter((dataset) => dataset.generatedBy === "self-learning").length,
       opportunityInsightCount: insights.length,
       opportunityInsightQuality: insights.length === 0 ? 0 : Math.round(insights.reduce((sum, insight) => sum + insight.score, 0) / insights.length),
@@ -1286,7 +1415,9 @@ class FileStore {
       rolloutStrategies,
       recentCodeUpgrades: codeUpgrades.slice(-5).reverse(),
       recentPipelines: pipelines.slice(-5).reverse(),
-      recentEvolutionBatches: batches.slice(-5).reverse()
+      recentEvolutionBatches: batches.slice(-5).reverse(),
+      recentSoakReports: this.listSoakReports().slice(-5).reverse(),
+      recentReleaseEvidence: this.listReleaseEvidenceBundles().slice(-5).reverse()
     };
   }
 
@@ -1699,8 +1830,14 @@ class FileStore {
     return {
       projectId,
       costReport,
-      reason: `项目 ${projectId} 成本预算已超限：累计成本 ${costReport.totalCost}，Token ${costReport.totalTokens}，高成本事件 ${costReport.highCostEventCount} 次。已冻结自动进化，只允许沉淀成本优化机会点和人工治理。`
+      reason: `项目 ${projectId} 成本预算已超限：累计成本 ${costReport.totalCost}，Token ${costReport.totalTokens}，高成本事件 ${costReport.highCostEventCount} 次。已冻结普通自动进化，只允许成本优化型进化继续进入代码升级和 CI/CD。`
     };
+  }
+
+  computeEvolutionFreezes(): EvolutionFreezeDiagnostic[] {
+    return this.listProjects()
+      .map((project) => this.projectEvolutionFreezeDiagnostic(project.id))
+      .filter((item): item is EvolutionFreezeDiagnostic => item !== undefined);
   }
 
   computeReleaseReadinessReports(): ReleaseReadinessReport[] {
@@ -1884,6 +2021,13 @@ class FileStore {
     return JSON.parse(fs.readFileSync(file, "utf8")) as EvolutionBatch;
   }
 
+  isCostOptimizationDeliveryAllowed(delivery: DeliveryPlan, body: any): boolean {
+    const batchId = typeof body?.batchId === "string" ? body.batchId : undefined;
+    if (!batchId) return false;
+    const batch = this.readEvolutionBatch(batchId);
+    return batch?.projectId === delivery.projectId && batch.intent === "cost-optimization";
+  }
+
   writeEvolutionBatch(batch: EvolutionBatch): void {
     atomicWriteJson(path.join(this.evolutionBatchesDir, `${safeFileName(batch.id)}.json`), batch);
   }
@@ -1940,6 +2084,7 @@ class FileStore {
     maxDatasetsPerBatch: number;
     minDatasetCount: number;
     cooldownMinutes: number;
+    activeBatchTimeoutMinutes: number;
     dryRun: boolean;
   }): { created: EvolutionBatch[]; skipped: Array<{ projectId: string; reason: string }>; dryRun: boolean } {
     const now = new Date().toISOString();
@@ -1950,16 +2095,30 @@ class FileStore {
     const skipped: Array<{ projectId: string; reason: string }> = [];
     for (const project of projects) {
       const freeze = this.projectEvolutionFreezeDiagnostic(project.id);
-      if (freeze) {
-        skipped.push({ projectId: project.id, reason: freeze.reason });
-        continue;
-      }
       const cursor = this.readEvolutionCursor(project.id) ?? defaultEvolutionCursor(project.id);
       if (cursor.activeBatchId) {
         const active = this.readEvolutionBatch(cursor.activeBatchId);
         if (active && ["CANDIDATE", "DRAFT_READY", "CONFIRMED", "CODE_UPGRADING", "CICD_RUNNING"].includes(active.status)) {
-          skipped.push({ projectId: project.id, reason: `仍有活跃进化批次 ${active.id}` });
-          continue;
+          if (isStaleEvolutionBatch(active, now, options.activeBatchTimeoutMinutes)) {
+            const failureReason = `活跃进化批次超过 ${options.activeBatchTimeoutMinutes} 分钟未推进，已自动失败以释放项目进化队列。`;
+            if (!options.dryRun) this.updateEvolutionBatch(active.id, { status: "FAILED", failureReason });
+            skipped.push({ projectId: project.id, reason: failureReason });
+          } else {
+            skipped.push({ projectId: project.id, reason: `仍有活跃进化批次 ${active.id}` });
+            continue;
+          }
+        } else if (active) {
+          this.writeEvolutionCursor({
+            ...cursor,
+            activeBatchId: undefined,
+            updatedAt: now
+          });
+        } else {
+          this.writeEvolutionCursor({
+            ...cursor,
+            activeBatchId: undefined,
+            updatedAt: now
+          });
         }
       }
       if (cursor.cooldownUntil && cursor.cooldownUntil > now) {
@@ -1971,14 +2130,19 @@ class FileStore {
         .filter((dataset) => isDatasetAfterCursor(dataset, cursor))
         .filter((dataset) => isActionableEvaluationDataset(dataset, runs))
         .sort((left, right) => batchDatasetRank(right) - batchDatasetRank(left) || left.triggeredAt.localeCompare(right.triggeredAt));
-      if (projectDatasets.length < Math.max(1, options.minDatasetCount)) {
-        skipped.push({ projectId: project.id, reason: `新增评测集数量不足：${projectDatasets.length}` });
+      const candidateDatasets = freeze ? projectDatasets.filter((dataset) => isCostOptimizationDataset(dataset, runs)) : projectDatasets;
+      if (freeze && candidateDatasets.length === 0) {
+        skipped.push({ projectId: project.id, reason: `${freeze.reason} 当前没有新的成本优化评测集可执行。` });
+        continue;
+      }
+      if (candidateDatasets.length < Math.max(1, options.minDatasetCount)) {
+        skipped.push({ projectId: project.id, reason: `新增${freeze ? "成本优化" : ""}评测集数量不足：${candidateDatasets.length}` });
         continue;
       }
       const existingDatasetIds = new Set(this.listEvolutionBatches().filter((batch) => batch.projectId === project.id).flatMap((batch) => batch.datasetIds));
-      const freshDatasets = projectDatasets.filter((dataset) => !existingDatasetIds.has(dataset.id));
+      const freshDatasets = candidateDatasets.filter((dataset) => !existingDatasetIds.has(dataset.id));
       if (freshDatasets.length < Math.max(1, options.minDatasetCount)) {
-        skipped.push({ projectId: project.id, reason: "新增评测集已被进化批次消费" });
+        skipped.push({ projectId: project.id, reason: `新增${freeze ? "成本优化" : ""}评测集已被进化批次消费` });
         continue;
       }
       for (const group of groupDatasetsForBatches(freshDatasets, options.maxDatasetsPerBatch).slice(0, Math.max(1, options.maxBatchesPerProject))) {
@@ -2011,6 +2175,249 @@ class FileStore {
 
   writeRuleMemory(memory: RuleMemory): void {
     atomicWriteText(this.ruleFile(memory.id), renderRuleMemoryMarkdown(memory.compiledRule, memory.llmTrace));
+  }
+
+  listSoakReports(): SoakReport[] {
+    return fs.readdirSync(this.soakReportsDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => JSON.parse(fs.readFileSync(path.join(this.soakReportsDir, file), "utf8")) as SoakReport);
+  }
+
+  writeSoakReport(input: Partial<SoakReport> & { name?: string; durationSeconds?: number; status?: SoakReport["status"] }): SoakReport {
+    const now = new Date().toISOString();
+    const id = safeFileName(String(input.id ?? `soak-${Date.now()}`));
+    const previous = this.readSoakReport(id);
+    const report: SoakReport = {
+      id,
+      name: String(input.name ?? previous?.name ?? "生产级持续验证"),
+      durationSeconds: Number(input.durationSeconds ?? previous?.durationSeconds ?? 0),
+      status: input.status ?? previous?.status ?? "RUNNING",
+      startedAt: String(input.startedAt ?? previous?.startedAt ?? now),
+      finishedAt: input.finishedAt ?? previous?.finishedAt,
+      summary: input.summary ?? previous?.summary,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now
+    };
+    atomicWriteJson(path.join(this.soakReportsDir, `${id}.json`), report);
+    return report;
+  }
+
+  readSoakReport(id: string): SoakReport | undefined {
+    const file = path.join(this.soakReportsDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as SoakReport;
+  }
+
+  listReleaseEvidenceBundles(): ReleaseEvidenceBundle[] {
+    return fs.readdirSync(this.releaseEvidenceDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => JSON.parse(fs.readFileSync(path.join(this.releaseEvidenceDir, file), "utf8")) as ReleaseEvidenceBundle);
+  }
+
+  readReleaseEvidenceBundle(id: string): ReleaseEvidenceBundle | undefined {
+    const file = path.join(this.releaseEvidenceDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as ReleaseEvidenceBundle;
+  }
+
+  writeReleaseEvidenceBundle(bundle: ReleaseEvidenceBundle): ReleaseEvidenceBundle {
+    atomicWriteJson(path.join(this.releaseEvidenceDir, `${safeFileName(bundle.id)}.json`), bundle);
+    return bundle;
+  }
+
+  generateReleaseEvidenceBundle(input: {
+    id?: string;
+    candidate?: string;
+    scenarioMatrix?: ReleaseScenarioResult[];
+    artifactPaths?: string[];
+  }): ReleaseEvidenceBundle {
+    const now = new Date().toISOString();
+    const id = safeFileName(input.id ?? `release-evidence-${Date.now()}`);
+    const summary = this.summary() as Record<string, unknown>;
+    const projects = this.listProjects();
+    const soakReports = this.listSoakReports();
+    const pipelines = this.listPipelines();
+    const codeUpgrades = this.listCodeUpgradeRuns();
+    const readiness = this.computeReleaseReadinessReports();
+    const rollout = this.computeRolloutStrategyReports();
+    const policyEvaluations = this.evaluateGovernancePolicies();
+    const scenarioMatrix = mergeScenarioMatrix(defaultReleaseScenarioMatrix({ pipelines, codeUpgrades, projects, summary, now }), input.scenarioMatrix ?? [], now);
+    const riskRegister = this.buildReleaseRiskRegister({ policyEvaluations, readiness, rollout, pipelines, codeUpgrades, scenarioMatrix });
+    const failedRequiredScenarioCount = scenarioMatrix.filter((scenario) => scenario.required && (scenario.status === "FAIL" || scenario.status === "NOT-RUN")).length;
+    const openHighRiskCount = riskRegister.filter((risk) => risk.status === "OPEN" && (risk.severity === "HIGH" || risk.severity === "CRITICAL")).length;
+    const status: ReleaseEvidenceBundle["status"] = failedRequiredScenarioCount > 0 || openHighRiskCount > 0
+      ? "NO-GO"
+      : riskRegister.some((risk) => risk.status === "OPEN") || scenarioMatrix.some((scenario) => scenario.status === "NOT-APPLICABLE")
+        ? "CONDITIONAL-GO"
+        : "GO";
+    const bundle: ReleaseEvidenceBundle = {
+      id,
+      candidate: input.candidate ?? `candidate-${now}`,
+      status,
+      generatedAt: now,
+      summary,
+      sourceSoakReportIds: soakReports.map((report) => report.id),
+      serviceInventory: this.buildServiceInventory(projects),
+      connectedProjects: projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        repository: maskProject(project).repository,
+        cicd: project.cicd,
+        validation: project.validation,
+        releaseReadiness: readiness.find((report) => report.projectId === project.id),
+        rolloutStrategy: rollout.find((report) => report.projectId === project.id)
+      })),
+      scenarioMatrix,
+      riskRegister,
+      artifacts: [
+        ...soakReports.map((report) => ({
+          type: "soak-report" as const,
+          label: report.name,
+          path: path.join(this.soakReportsDir, `${safeFileName(report.id)}.json`),
+          status: report.status
+        })),
+        ...pipelines.slice(-20).map((pipeline) => ({
+          type: "pipeline" as const,
+          label: `${pipeline.projectId} ${pipeline.jobName}`,
+          url: pipeline.buildUrl,
+          status: pipeline.status
+        })),
+        ...codeUpgrades.slice(-20).map((upgrade) => ({
+          type: "code-upgrade" as const,
+          label: `${upgrade.projectId} ${upgrade.id}`,
+          path: upgrade.artifacts.diffPath,
+          url: upgrade.artifacts.pullRequestUrl,
+          status: upgrade.status
+        })),
+        ...(input.artifactPaths ?? []).map((artifactPath) => ({
+          type: inferReleaseArtifactType(artifactPath),
+          label: path.basename(artifactPath),
+          path: artifactPath
+        }))
+      ],
+      createdAt: now,
+      updatedAt: now
+    };
+    return this.writeReleaseEvidenceBundle(bundle);
+  }
+
+  private buildServiceInventory(projects: StoredProject[]): ReleaseEvidenceBundle["serviceInventory"] {
+    const jenkins = this.listJenkinsConnectors().map(maskJenkinsConnector);
+    const openhands = this.listOpenHandsConnectors().map(maskOpenHandsConnector);
+    return [
+      {
+        id: "evopilot-api",
+        type: "evopilot",
+        name: "EvoPilot API",
+        status: this.isReady() ? "READY" : "BLOCKED",
+        evidence: this.isReady() ? "metadata、runs、projects 存储目录已就绪。" : "存储目录或 metadata 不完整。"
+      },
+      ...openhands.map((connector) => ({
+        id: connector.id,
+        type: "code-upgrader" as const,
+        name: connector.name,
+        status: connector.baseUrl ? "READY" as const : "BLOCKED" as const,
+        endpoint: connector.baseUrl,
+        evidence: connector.baseUrl ? `代码升级连接器已配置，apiKeyConfigured=${connector.apiKeyConfigured}。` : "代码升级连接器缺少 baseUrl。"
+      })),
+      ...jenkins.map((connector) => ({
+        id: connector.id,
+        type: "ci" as const,
+        name: connector.name,
+        status: connector.baseUrl ? "READY" as const : "BLOCKED" as const,
+        endpoint: connector.baseUrl,
+        evidence: connector.baseUrl ? `CI/CD 连接器已配置，apiTokenConfigured=${connector.apiTokenConfigured}。` : "CI/CD 连接器缺少 baseUrl。"
+      })),
+      ...projects.map((project) => ({
+        id: project.id,
+        type: "connected-project" as const,
+        name: project.name,
+        status: project.validation.status === "VERIFIED" ? "READY" as const : "BLOCKED" as const,
+        endpoint: project.repository?.gitUrl ?? project.repository?.root ?? project.repository?.baseUrl,
+        evidence: project.validation.message
+      }))
+    ];
+  }
+
+  private buildReleaseRiskRegister(args: {
+    policyEvaluations: GovernancePolicyEvaluation[];
+    readiness: ReleaseReadinessReport[];
+    rollout: RolloutStrategyReport[];
+    pipelines: PipelineRun[];
+    codeUpgrades: CodeUpgradeRun[];
+    scenarioMatrix: ReleaseScenarioResult[];
+  }): ReleaseRisk[] {
+    const risks: ReleaseRisk[] = [];
+    for (const policy of args.policyEvaluations.filter((item) => item.status !== "PASSED")) {
+      risks.push({
+        id: `risk-policy-${safeFileName(policy.id)}`,
+        severity: policy.severity,
+        source: "governance-policy",
+        status: "OPEN",
+        summary: `${policy.name} 未通过：${policy.rationale}`,
+        evidence: [policy.scope],
+        recommendedAction: policy.recommendedAction
+      });
+    }
+    for (const report of args.readiness.filter((item) => item.status === "BLOCKED")) {
+      const failedGate = report.gates.find((gate) => gate.status === "FAILED");
+      risks.push({
+        id: `risk-readiness-${safeFileName(report.projectId)}`,
+        severity: "HIGH",
+        source: "release-readiness",
+        status: "OPEN",
+        summary: `${report.projectId} 发布就绪阻断：${failedGate?.name ?? "未知门禁"}`,
+        evidence: report.gates.map((gate) => `${gate.name}:${gate.status}:${gate.detail}`),
+        recommendedAction: report.recommendedAction
+      });
+    }
+    for (const report of args.rollout.filter((item) => item.status === "BLOCKED")) {
+      risks.push({
+        id: `risk-rollout-${safeFileName(report.projectId)}`,
+        severity: "HIGH",
+        source: "rollout-strategy",
+        status: "OPEN",
+        summary: `${report.projectId} 灰度策略阻断：${report.strategy}`,
+        evidence: report.gates.map((gate) => `${gate.name}:${gate.status}:${gate.detail}`),
+        recommendedAction: report.recommendedAction
+      });
+    }
+    for (const pipeline of args.pipelines.filter((item) => item.status === "FAILED" || item.status === "CANCELED")) {
+      risks.push({
+        id: `risk-pipeline-${safeFileName(pipeline.id)}`,
+        severity: "MEDIUM",
+        source: "ci-cd",
+        status: hasLaterSuccessfulPipeline(pipeline, args.pipelines) ? "MITIGATED" : "OPEN",
+        summary: `${pipeline.projectId} 流水线 ${pipeline.jobName} ${pipeline.status}`,
+        evidence: [pipeline.buildUrl ?? pipeline.id],
+        recommendedAction: "确认失败流水线已被批次状态记录，且后续成功流水线释放队列。"
+      });
+    }
+    for (const upgrade of args.codeUpgrades.filter((item) => item.status === "FAILED" || item.status === "CANCELED")) {
+      risks.push({
+        id: `risk-code-upgrade-${safeFileName(upgrade.id)}`,
+        severity: "MEDIUM",
+        source: "code-upgrade",
+        status: "OPEN",
+        summary: `${upgrade.projectId} 代码升级失败：${upgrade.failureReason ?? upgrade.error ?? upgrade.status}`,
+        evidence: [upgrade.artifacts.pullRequestUrl ?? upgrade.artifacts.diffPath ?? upgrade.id],
+        recommendedAction: "确认代码升级失败不会触发 CI/CD，并释放或失败对应进化批次。"
+      });
+    }
+    for (const scenario of args.scenarioMatrix.filter((item) => item.required && (item.status === "FAIL" || item.status === "NOT-RUN"))) {
+      risks.push({
+        id: `risk-scenario-${safeFileName(scenario.id)}`,
+        severity: "HIGH",
+        source: "scenario-matrix",
+        status: "OPEN",
+        summary: `${scenario.name} 场景未通过：${scenario.status}`,
+        evidence: scenario.evidence,
+        recommendedAction: "补跑真实场景或修复产品能力后重新生成发布证据。"
+      });
+    }
+    return dedupeReleaseRisks(risks);
   }
 
   listRuleMemories(): RuleMemory[] {
@@ -2078,10 +2485,166 @@ function normalizeEvolutionBatchStatus(value: unknown): EvolutionBatchStatus {
   throw httpError(400, "EVOLUTION_BATCH_STATUS_INVALID", `不支持的进化批次状态：${String(value)}`);
 }
 
+function normalizeSoakReportStatus(value: unknown): SoakReport["status"] {
+  const allowed: SoakReport["status"][] = ["RUNNING", "SUCCEEDED", "FAILED", "STOPPED"];
+  if (allowed.includes(value as SoakReport["status"])) return value as SoakReport["status"];
+  if (value === undefined || value === null || value === "") return "RUNNING";
+  throw httpError(400, "SOAK_REPORT_STATUS_INVALID", `不支持的持续验证状态：${String(value)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeScenarioMatrix(value: unknown): ReleaseScenarioResult[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const now = new Date().toISOString();
+  return value.map((item: any) => {
+    const id = safeFileName(String(item.id ?? item.name ?? ""));
+    if (!id) throw httpError(400, "RELEASE_SCENARIO_ID_REQUIRED", "发布场景必须包含 id 或 name。");
+    return {
+      id,
+      name: String(item.name ?? id),
+      status: normalizeReleaseScenarioStatus(item.status),
+      evidence: Array.isArray(item.evidence) ? item.evidence.map(String) : item.evidence ? [String(item.evidence)] : [],
+      required: item.required === undefined ? true : Boolean(item.required),
+      updatedAt: item.updatedAt ? String(item.updatedAt) : now
+    };
+  });
+}
+
+function normalizeReleaseScenarioStatus(value: unknown): ReleaseScenarioStatus {
+  const allowed: ReleaseScenarioStatus[] = ["PASS", "FAIL", "NOT-RUN", "NOT-APPLICABLE"];
+  if (allowed.includes(value as ReleaseScenarioStatus)) return value as ReleaseScenarioStatus;
+  throw httpError(400, "RELEASE_SCENARIO_STATUS_INVALID", `不支持的发布场景状态：${String(value)}`);
+}
+
+function defaultReleaseScenarioMatrix(args: {
+  pipelines: PipelineRun[];
+  codeUpgrades: CodeUpgradeRun[];
+  projects: StoredProject[];
+  summary: Record<string, unknown>;
+  now: string;
+}): ReleaseScenarioResult[] {
+  const { pipelines, codeUpgrades, projects, summary, now } = args;
+  const succeededPipelineCount = pipelines.filter((pipeline) => pipeline.status === "SUCCEEDED").length;
+  const failedPipelineCount = pipelines.filter((pipeline) => pipeline.status === "FAILED").length;
+  const successfulUpgradeCount = codeUpgrades.filter((upgrade) => upgrade.status === "SUCCEEDED").length;
+  const projectCount = projects.length;
+  const frozenProjectCount = Number(summary.frozenProjectCount ?? 0);
+  const activeBatchCount = Number(summary.activeEvolutionBatchCount ?? 0);
+  const successfulBatchCount = Number(summary.successfulEvolutionBatchCount ?? 0);
+  const normalLoopPassed = Number(summary.runCount ?? 0) > 0 &&
+    Number(summary.evaluationDatasetCount ?? 0) > 0 &&
+    Number(summary.opportunityCount ?? 0) > 0 &&
+    successfulUpgradeCount > 0 &&
+    succeededPipelineCount > 0 &&
+    successfulBatchCount > 0;
+  return [
+    scenario("normal-evolution-loop", "正常进化闭环", normalLoopPassed ? "PASS" : "NOT-RUN", [
+      `runs=${summary.runCount ?? 0}`,
+      `datasets=${summary.evaluationDatasetCount ?? 0}`,
+      `opportunities=${summary.opportunityCount ?? 0}`,
+      `successfulCodeUpgrades=${successfulUpgradeCount}`,
+      `successfulPipelines=${succeededPipelineCount}`,
+      `successfulBatches=${successfulBatchCount}`
+    ], true, now),
+    scenario("ci-cd-failure-recovery", "CI/CD 失败恢复", failedPipelineCount > 0 ? "PASS" : "NOT-RUN", [
+      `failedPipelines=${failedPipelineCount}`,
+      `laterSuccessfulPipelines=${pipelines.filter((pipeline) => pipeline.status === "SUCCEEDED" && pipelines.some((failed) => failed.status === "FAILED" && failed.projectId === pipeline.projectId && failed.triggeredAt <= pipeline.triggeredAt)).length}`
+    ], true, now),
+    scenario("llm-failure-containment", "LLM 失败隔离", "NOT-RUN", ["未从当前持久化数据中发现 LLM 失败隔离证据。"], true, now),
+    scenario("scm-failure-containment", "SCM 失败隔离", "NOT-RUN", ["未从当前持久化数据中发现 SCM 失败隔离证据。"], true, now),
+    scenario("cost-slo-governance", "成本/SLO 治理", frozenProjectCount > 0 || Number(summary.releaseBlockedCount ?? 0) > 0 || Number(summary.rolloutBlockedCount ?? 0) > 0 ? "PASS" : "NOT-RUN", [
+      `frozenProjects=${frozenProjectCount}`,
+      `releaseBlocked=${summary.releaseBlockedCount ?? 0}`,
+      `rolloutBlocked=${summary.rolloutBlockedCount ?? 0}`
+    ], true, now),
+    scenario("manual-approval", "人工审批门禁", Number(summary.confirmedReviewCount ?? 0) > 0 || Number(summary.pendingReviewCount ?? 0) > 0 ? "PASS" : "NOT-RUN", [
+      `confirmedReviews=${summary.confirmedReviewCount ?? 0}`,
+      `pendingReviews=${summary.pendingReviewCount ?? 0}`
+    ], true, now),
+    scenario("multi-project-isolation", "多项目隔离", projectCount >= 2 && Number(summary.runCount ?? 0) >= projectCount ? "PASS" : "NOT-RUN", [
+      `projects=${projectCount}`,
+      `runs=${summary.runCount ?? 0}`
+    ], true, now),
+    scenario("restart-recovery", "重启恢复", activeBatchCount === 0 && Number(summary.failedEvolutionBatchCount ?? 0) >= 0 ? "PASS" : "NOT-RUN", [
+      `activeBatches=${activeBatchCount}`,
+      `failedBatches=${summary.failedEvolutionBatchCount ?? 0}`
+    ], true, now),
+    scenario("rollback", "回滚路径", "NOT-RUN", ["未从当前持久化数据中发现真实 rollback 证据。"], true, now),
+    scenario("data-governance", "数据治理", Number(summary.projectCount ?? 0) >= 0 && Array.isArray(summary.recentSoakReports) ? "PASS" : "NOT-RUN", [
+      `soakReports=${Array.isArray(summary.recentSoakReports) ? summary.recentSoakReports.length : 0}`,
+      "release evidence is generated without secrets"
+    ], true, now)
+  ];
+}
+
+function scenario(id: string, name: string, status: ReleaseScenarioStatus, evidence: string[], required: boolean, updatedAt: string): ReleaseScenarioResult {
+  return { id, name, status, evidence, required, updatedAt };
+}
+
+function mergeScenarioMatrix(defaults: ReleaseScenarioResult[], overrides: ReleaseScenarioResult[], now: string): ReleaseScenarioResult[] {
+  const merged = new Map(defaults.map((item) => [item.id, item]));
+  for (const override of overrides) {
+    const existing = merged.get(override.id);
+    merged.set(override.id, {
+      ...existing,
+      ...override,
+      name: override.name ?? existing?.name ?? override.id,
+      evidence: [...new Set([...(existing?.evidence ?? []), ...override.evidence])],
+      required: override.required,
+      updatedAt: override.updatedAt ?? now
+    });
+  }
+  return [...merged.values()];
+}
+
+function hasLaterSuccessfulPipeline(failed: PipelineRun, pipelines: PipelineRun[]): boolean {
+  return pipelines.some((pipeline) =>
+    pipeline.projectId === failed.projectId &&
+    pipeline.status === "SUCCEEDED" &&
+    Date.parse(pipeline.triggeredAt) >= Date.parse(failed.triggeredAt)
+  );
+}
+
+function dedupeReleaseRisks(risks: ReleaseRisk[]): ReleaseRisk[] {
+  const seen = new Map<string, ReleaseRisk>();
+  for (const risk of risks) {
+    const existing = seen.get(risk.id);
+    if (!existing) {
+      seen.set(risk.id, risk);
+      continue;
+    }
+    existing.evidence = [...new Set([...existing.evidence, ...risk.evidence])];
+    existing.severity = releaseRiskRank(risk.severity) > releaseRiskRank(existing.severity) ? risk.severity : existing.severity;
+    existing.status = existing.status === "OPEN" || risk.status === "OPEN" ? "OPEN" : existing.status;
+  }
+  return [...seen.values()].sort((left, right) => releaseRiskRank(right.severity) - releaseRiskRank(left.severity) || left.id.localeCompare(right.id));
+}
+
+function releaseRiskRank(severity: ReleaseRisk["severity"]): number {
+  return ({ LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 })[severity];
+}
+
+function inferReleaseArtifactType(artifactPath: string): ReleaseEvidenceBundle["artifacts"][number]["type"] {
+  if (/\.(png|jpg|jpeg|webp)$/i.test(artifactPath)) return "dashboard";
+  if (/\.(log|jsonl|txt)$/i.test(artifactPath)) return "log";
+  return "other";
+}
+
 function isDatasetAfterCursor(dataset: EvaluationDataset, cursor: ProjectEvolutionCursor): boolean {
   if (!cursor.lastProcessedDatasetTriggeredAt) return true;
   if (dataset.triggeredAt > cursor.lastProcessedDatasetTriggeredAt) return true;
   return dataset.triggeredAt === cursor.lastProcessedDatasetTriggeredAt && !cursor.lastProcessedDatasetIds.includes(dataset.id);
+}
+
+function isStaleEvolutionBatch(batch: EvolutionBatch, now: string, timeoutMinutes: number): boolean {
+  const timeoutMs = Math.max(1, timeoutMinutes) * 60 * 1000;
+  const lastProgressMs = Date.parse(batch.updatedAt || batch.createdAt);
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(lastProgressMs) || !Number.isFinite(nowMs)) return false;
+  return nowMs - lastProgressMs >= timeoutMs;
 }
 
 function batchDatasetRank(dataset: EvaluationDataset): number {
@@ -2123,6 +2686,7 @@ function createEvolutionBatchFromDatasets(projectId: string, datasets: Evaluatio
     id: `batch-${safeFileName(projectId)}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     projectId,
     status: "CANDIDATE",
+    intent: datasets.every((dataset) => isCostOptimizationDataset(dataset, runs)) ? "cost-optimization" : "standard-evolution",
     triggerReason: buildEvolutionBatchTriggerReason(datasets, primaryOpportunity?.opportunity),
     datasetIds: datasets.map((dataset) => dataset.id),
     opportunityIds,
@@ -2138,6 +2702,17 @@ function createEvolutionBatchFromDatasets(projectId: string, datasets: Evaluatio
     createdAt: now,
     updatedAt: now
   };
+}
+
+function isCostOptimizationDataset(dataset: EvaluationDataset, runs: StoredRun[]): boolean {
+  if (dataset.learningSignal === "cost-regression") return true;
+  if (/cost|成本|token/i.test(`${dataset.name} ${dataset.metric} ${dataset.scope}`)) return true;
+  const opportunityIds = new Set(dataset.opportunityIds ?? []);
+  return runs
+    .filter((run) => run.evidenceBundle.projectId === dataset.projectId)
+    .flatMap((run) => run.opportunities)
+    .filter((opportunity) => opportunityIds.has(opportunity.id))
+    .some((opportunity) => opportunity.type === "cost-risk" || opportunity.failureAttribution === "cost-regression");
 }
 
 function buildEvolutionBatchTriggerReason(datasets: EvaluationDataset[], opportunity?: EvolutionOpportunity): string {

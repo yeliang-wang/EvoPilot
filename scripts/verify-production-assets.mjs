@@ -31,6 +31,9 @@ assert.ok(openapi.paths["/api/v1/runs"]);
 assert.ok(openapi.paths["/api/v1/evidence/events"]);
 assert.ok(openapi.paths["/api/v1/evidence/otlp/v1/traces"]);
 assert.ok(openapi.paths["/api/v1/evidence/skywalking"]);
+assert.ok(openapi.paths["/api/v1/soak-reports"]);
+assert.ok(openapi.paths["/api/v1/release/evidence"]);
+assert.ok(openapi.paths["/api/v1/release/evidence/{evidenceId}"]);
 assert.ok(openapi.components.securitySchemes.bearerAuth);
 
 const deployment = fs.readFileSync("deploy/k8s/deployment.yaml", "utf8");

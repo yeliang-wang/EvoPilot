@@ -542,7 +542,9 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
   }
 });
 
-test("cost over budget freezes automatic evolution and delivery execution gates", async () => {
+test("cost over budget freezes standard evolution but allows cost optimization delivery", async () => {
+  const openhands = await startFakeOpenHands();
+  const jenkins = await startFakeJenkins();
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-cost-freeze-"));
   const server = createServer({
     dataRoot,
@@ -558,6 +560,32 @@ test("cost over budget freezes automatic evolution and delivery execution gates"
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const repoRoot = createLocalProjectRepo(dataRoot, "domainforge-fabric-cost-repo");
+    await postWithToken(`${baseUrl}/api/v1/projects`, {
+      id: "domainforge-fabric",
+      name: "DomainForge Fabric",
+      repository: {
+        provider: "local-git",
+        root: repoRoot,
+        defaultBranch: "main"
+      },
+      cicd: {
+        provider: "jenkins",
+        jenkins: {
+          mode: "project-override",
+          baseUrl: jenkins.baseUrl,
+          username: "tester",
+          apiToken: "secret",
+          job: "domainforge-fabric-evolution"
+        }
+      }
+    }, "admin-token");
+    await postWithToken(`${baseUrl}/api/v1/connectors/openhands`, {
+      id: "default",
+      name: "成本优化代码升级执行器",
+      baseUrl: openhands.baseUrl
+    }, "admin-token");
+
     const run = await postWithToken(`${baseUrl}/api/v1/runs`, {
       projectId: "domainforge-fabric",
       now: "2026-06-07T00:00:00.000Z",
@@ -584,17 +612,14 @@ test("cost over budget freezes automatic evolution and delivery execution gates"
       minDatasetCount: 1,
       cooldownMinutes: 0
     }, "operator-token");
-    assert.deepEqual(scan.data.created, []);
-    assert.ok(scan.data.skipped.some((item) =>
-      item.projectId === "domainforge-fabric" &&
-      item.reason.includes("成本预算已超限") &&
-      item.reason.includes("已冻结自动进化")
-    ));
+    assert.equal(scan.data.created.length, 1);
+    assert.equal(scan.data.created[0].intent, "cost-optimization");
+    assert.ok(scan.data.created[0].datasetIds.length >= 1);
 
     await postWithToken(`${baseUrl}/api/v1/reviews/${encodeURIComponent(run.data.reviews[0].id)}/decision`, {
       action: "accept",
       actor: "tester",
-      note: "即使用户确认，超预算也不能进入代码升级。"
+      note: "超预算后只允许成本优化批次进入代码升级。"
     }, "operator-token");
 
     const blockedUpgrade = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/code-upgrade`, {
@@ -607,6 +632,15 @@ test("cost over budget freezes automatic evolution and delivery execution gates"
     assert.equal(blockedUpgradeBody.error, "EVOLUTION_COST_BUDGET_FROZEN");
     assert.equal(blockedUpgradeBody.costReport.status, "OVER_BUDGET");
 
+    const costOptimizationUpgrade = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/code-upgrade`, {
+      connectorId: "default",
+      proposalMarkdown: "# 成本优化方案\n\n优化模型路由、上下文压缩和工具调用次数。",
+      validationCommands: ["npm test"],
+      batchId: scan.data.created[0].id
+    }, "admin-token");
+    assert.equal(costOptimizationUpgrade.data.codeUpgradeRun.status, "SUCCEEDED");
+    assert.match(openhands.prompt, /成本优化方案/);
+
     const blockedDelivery = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
@@ -615,8 +649,23 @@ test("cost over budget freezes automatic evolution and delivery execution gates"
     assert.equal(blockedDelivery.status, 409);
     const blockedDeliveryBody = await blockedDelivery.json();
     assert.equal(blockedDeliveryBody.error, "EVOLUTION_COST_BUDGET_FROZEN");
+
+    const costOptimizationDelivery = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
+      executor: "jenkins",
+      parameters: { VERSION: "cost-optimization-e2e" },
+      batchId: scan.data.created[0].id
+    }, "admin-token");
+    assert.equal(costOptimizationDelivery.data.pipelineRun.status, "QUEUED");
+    const pipeline = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(costOptimizationDelivery.data.pipelineRun.id)}`, "viewer-token");
+    assert.equal(pipeline.data.status, "SUCCEEDED");
+
+    const summary = await getWithToken(`${baseUrl}/api/v1/summary`, "viewer-token");
+    assert.equal(summary.data.frozenProjectCount, 1);
+    assert.equal(summary.data.costOptimizationEvolutionBatchCount, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
+    await openhands.close();
+    await jenkins.close();
   }
 });
 

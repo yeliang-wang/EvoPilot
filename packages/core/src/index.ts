@@ -1207,9 +1207,13 @@ function evidenceSummaryFor(events: RuntimeEvidenceEvent[], clusters: EvidenceCl
 }
 
 function inferFailureAttribution(events: RuntimeEvidenceEvent[]): FailureAttribution {
-  const text = events.map((event) => `${event.type} ${event.source} ${event.message} ${JSON.stringify(event.attributes ?? {})}`).join(" ").toLowerCase();
+  const text = events.map((event) => `${event.type} ${event.source} ${event.message}`).join(" ").toLowerCase();
   if (/security|auth|permission|secret|vulnerability|漏洞|权限|密钥/.test(text)) return "security-risk";
-  if (/cost|token|quota|billing|费用|成本/.test(text)) return "cost-regression";
+  if (events.some((event) => isCostRiskEvidenceEvent(event))) return "cost-regression";
+  if (events.some((event) => {
+    const latency = metricLatencyMs(event);
+    return latency !== undefined && latency > 3000;
+  })) return "latency-regression";
   if (/latency|performance|duration|timeout|p95|耗时|延迟|超时|慢/.test(text)) return "latency-regression";
   if (/tool|工具|function/.test(text)) return "tool-recovery";
   if (/rag|retrieval|context|引用|检索/.test(text)) return "rag-quality";
@@ -1217,6 +1221,14 @@ function inferFailureAttribution(events: RuntimeEvidenceEvent[]): FailureAttribu
   if (events.some((event) => event.source === "user")) return "user-experience";
   if (/error|exception|log\.error|apm|trace|span/.test(text) || events.some((event) => event.source === "observability")) return "observability-error";
   return "unknown";
+}
+
+function isCostRiskEvidenceEvent(event: RuntimeEvidenceEvent): boolean {
+  const text = `${event.type} ${event.message}`.toLowerCase();
+  if (/cost|token|quota|billing|费用|成本/.test(text)) return true;
+  const cost = numberValue(event.attributes?.costUsd ?? event.attributes?.cost ?? event.attributes?.llmCost ?? event.attributes?.estimatedCostUsd ?? event.attributes?.costDelta);
+  const tokens = numberValue(event.attributes?.totalTokens ?? event.attributes?.tokenCount ?? event.attributes?.tokens ?? event.attributes?.inputTokens);
+  return (cost !== undefined && cost >= 0.5) || (tokens !== undefined && tokens >= 8000);
 }
 
 function buildEvidenceBaseline(events: RuntimeEvidenceEvent[]): EvidenceBaseline {

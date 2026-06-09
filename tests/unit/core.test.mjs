@@ -114,12 +114,13 @@ test("trigger rules create performance opportunity when duration exceeds 3 secon
       timestamp: "now",
       severity: "MEDIUM",
       message: "slow call",
-      attributes: { durationMs: 3500 }
+      attributes: { durationMs: 3500, costUsd: 0.002, totalTokens: 533 }
     }]
   });
   const [opportunity] = mineOpportunities(bundle);
   assert.equal(opportunity.type, "performance-hotspot");
   assert.equal(opportunity.title, "链路性能超过 3 秒阈值");
+  assert.equal(opportunity.failureAttribution, "latency-regression");
 });
 
 test("trigger rules do not create opportunity for low latency low severity signal", () => {
