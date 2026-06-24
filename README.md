@@ -1,52 +1,95 @@
 # EvoPilot
 
-> EvoPilot（进化领航）是面向 AI Agent 产品的进化证据控制面，负责把线上运行证据、评测结果和用户反馈转化为可确认、可执行、可审计的代码升级与交付闭环。
+> Evidence-driven self-evolution control plane for AI agent products: runtime signals, human-approved code upgrades, CI/CD, and product-native GA release decisions.
 
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6%2B-3178c6)](https://www.typescriptlang.org/)
 [![Runtime](https://img.shields.io/badge/runtime-prod%20by%20default-1f7a8c)](#运行模式)
 [![Dashboard](https://img.shields.io/badge/dashboard-中文控制台-1f7a8c)](#控制台)
+[![Release](https://img.shields.io/badge/GA%20target-product--native%20GO-2ea043)](#ga-release-target)
 
-EvoPilot 不是 AI Agent 运行时，也不是单纯的代码生成工具。Agent 负责完成业务任务，EvoPilot 负责持续观察 Agent 产品的真实运行质量，在用户确认后驱动代码升级、CI/CD、发布验证、历史归档和规则学习。
+EvoPilot observes real AI-agent product behavior, turns evidence into reviewable evolution opportunities, waits for human approval, then drives code upgrades, Jenkins/GitLab delivery, release evidence, and auditable `GO` / `NO-GO` decisions.
 
-## 摘要
+It is not an agent runtime, a prompt playground, or a generic code generator. Agent runtimes do the work; EvoPilot governs whether the product is ready to evolve and release.
 
-EvoPilot 为 AI Agent 产品提供从观测到交付的自进化控制能力。
+## Status
 
-- 进化证据采集
-  - 支持通用事件、OpenTelemetry Trace、OpenTelemetry Log、SkyWalking 转换数据、外部评测结果和用户反馈接入。
-- APM 风格进化观测
-  - Dashboard 首页提供进化观测图，展示接入项目、证据源、评测集、机会点和流水线之间的证据拓扑。
-- 自然语言证据策略
-  - 用户在 Dashboard 输入简单 Prompt，例如“所有链路调用小于 3 秒”；系统通过 LLM 编译为可执行规则，并以 Markdown 存储，管理员可审查。
-- 系统默认自进化规则
-  - 用户不定义规则时，系统仍会基于延迟、工具失败、RAG、Eval 回归、用户负反馈、成本、Token、安全、发布回滚和上下文压缩等信号形成机会点。
-- 证据聚类与失败归因
-  - 系统按 traceId、模块、来源和事件类型聚合证据，计算动态基线、失败归因、置信度和判断依据，避免单点噪声直接触发进化。
-- 自学习机会发现
-  - 系统会把运行证据自动沉淀为 Eval Dataset，并结合发布后学习记录形成机会洞察、机会分数和推荐动作。
-- 服务成熟度 Scorecard
-  - 接入项目会按注册验证、证据覆盖、治理闭环、交付闭环和自学习闭环生成成熟度评分，帮助用户识别哪些项目还不具备生产进化条件。
-- SLO 与治理策略
-  - 系统会计算项目 SLO 健康、错误预算和策略评估结果，包括成熟度门禁、错误预算门禁和托管运行时供应链门禁。
-- 供应链与成本治理
-  - 系统会检查代码升级托管运行时是否锁定版本、镜像 Digest、SBOM、许可证报告、漏洞扫描报告和健康端点；Jenkins 作为外部 CI/CD 连接器做可达性、凭据和 Job 校验。
-- 发布就绪度
-  - 系统会把用户确认、代码升级、CI/CD、SLO、成本和运行时供应链合成为发布就绪度，决定是否允许进入灰度、A/B、Canary 或正式发布。
-- 灰度与回滚策略
-  - 系统会基于发布就绪度、SLO 灰度窗口、成本灰度窗口和回滚准备判断是否允许 Canary、是否需要人工确认、或是否必须阻断。
-- Eval Dataset / Regression Suite
-  - 线上 Trace、Log、Tool Call、RAG Context、Cost、Latency 和反馈可沉淀为评测集，多个评测集可组合形成一个机会点。
-- 可编辑进化方案
-  - 机会点会生成 Markdown 进化方案，用户可在页面中直接修改；确认后才会进入执行链路。
-- 治理门禁与验证契约
-  - 每个机会点会按项目策略进入诊断模式、方案确认、人工设计或自动执行，并生成语义、性能、成本、安全、冒烟和功能闭环验证要求。
-- 白盒代码升级
-  - 用户确认方案后，EvoPilot 先调用代码升级执行器，按方案创建升级分支、提交变更并返回 MR/PR 证据。
-- 外部 CI/CD 连接器
-  - 只有代码升级成功才触发 Jenkins CI/CD；失败时流程停止并保留失败证据。
-- 生产默认安全
-  - 默认 `prod` 模式，要求鉴权、真实 LLM、真实执行链路；调试兜底必须显式开启。
+EvoPilot has a product-native GA release target and release decision API. The current GA standard is not a health-only soak: the release target requires production-representative projects, successful evolution loops, code-upgrader changes, Jenkins/GitLab delivery, residual scenarios, and active workload stability.
+
+The authoritative release verdict lives in:
+
+```http
+GET /api/v1/release/decisions
+```
+
+## Core Capabilities
+
+| Capability | What EvoPilot provides |
+|---|---|
+| Evidence ingestion | Runtime events, OpenTelemetry traces/logs, SkyWalking data, evaluation results, and user feedback. |
+| Opportunity discovery | Evidence clustering, failure attribution, dynamic baselines, scorecards, SLOs, and governance rules. |
+| Human approval | Markdown evolution proposals that users can review and edit before execution. |
+| Code upgrades | A code-upgrader runtime that creates branches, commits implementation changes, and returns review evidence. |
+| CI/CD delivery | Jenkins-backed delivery after successful code upgrades, with pipeline status and artifacts retained. |
+| Release governance | Product-native release targets, evidence bundles, scenario matrices, risk registers, and release decisions. |
+
+## Quick Start
+
+```bash
+npm install
+npm run build
+npm run server:debug
+```
+
+Open the dashboard:
+
+```text
+http://127.0.0.1:19876/
+```
+
+Debug mode is for local development and UI validation. Production mode is the default for real operation and requires authentication plus real LLM/runtime boundaries.
+
+## GA Release Target
+
+The built-in `ga` release target requires:
+
+| Criterion | Default |
+|---|---:|
+| Connected production-representative projects | 5 |
+| Active successful soak duration | 5400 seconds |
+| Active workload run delta | 5 |
+| Active code-upgrade delta | 5 |
+| Active CI/CD pipeline delta | 5 |
+| Successful runs, evolution batches, code upgrades, and pipelines | 5 each |
+| Required release scenarios | 10 |
+
+Run the active stability proof:
+
+```bash
+npm run release:soak:ga:active
+```
+
+Generate release evidence:
+
+```http
+POST /api/v1/release/evidence
+```
+
+The latest decision can return `GO`, `CONDITIONAL-GO`, or `NO-GO`, with per-criterion evidence.
+
+## GitHub About
+
+Suggested repository description:
+
+```text
+Evidence-driven self-evolution control plane for AI agent products: runtime signals, human-approved code upgrades, CI/CD, and product-native GA release decisions.
+```
+
+Suggested topics:
+
+```text
+ai-agents, agentops, release-governance, evidence, cicd, llmops, self-evolution, typescript
+```
 
 ## 产品闭环
 
