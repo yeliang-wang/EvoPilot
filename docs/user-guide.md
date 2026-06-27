@@ -195,7 +195,7 @@ GET /api/v1/loops/{loopId}/artifacts
 
 Loop Runtime 负责长任务连续性：durable run state、heartbeat lease、watchdog、retry/stop policy、timeline 和 artifacts。EvoPilot 的产品控制面负责证据、决策、治理和发布判断。
 
-Dashboard 的“闭环编排”会调用 `POST /api/v1/loop-orchestration/instantiate`，从标准预设创建 source-to-production target loop。该 loop 会自动带上 typed executor graph、Docker sandbox enforcement、sourceClosure、worker/watchdog 语义、deploy connector 和 health-ready rollback。创建后，用户可以在同一页启动、继续、批准、watchdog、执行源码闭环，并查看 Source Closure Workbench 和 Release Artifacts。
+Dashboard 的“闭环编排”会调用 `POST /api/v1/loop-orchestration/instantiate`，从标准预设创建 source-to-production target loop。该 loop 会自动带上 typed executor graph、Docker sandbox enforcement、sourceClosure、worker/watchdog 语义、deploy connector 和 health-ready rollback。创建后，用户可以在同一页启动、继续、批准、watchdog、执行源码闭环，并查看 Source Closure Workbench、Release Closure Runtime 和 Release Artifacts。
 
 同一页面的 Target Loop Backlog 对应 `GET /api/v1/loop-orchestration/targets` 和 `POST /api/v1/loop-orchestration/advance`。它把后续产品进化目标按 Sandbox、Context、Harness、Loop 四层排队，记录 acceptance criteria、next action、stop condition 和证据摘要；点击“推进下一 Target”时，EvoPilot 会创建或推进 Codex-backed target loop，而不是要求用户每次手工复制命令或重新描述上下文。
 
@@ -251,7 +251,7 @@ EVOPILOT_SELF_GITLAB_TOKEN_REF=GITLAB_TOKEN \
 npm run self-loop
 ```
 
-接入后，Dashboard 的 Loop Runtime 表格和详情工作台会显示 `sourceClosure.closureState`、required gates、branch、commit、PR/MR、tag、deployment、health/ready、rollback、typed graph、sandbox enforcement、checkpoint、replay diff 和 worker/watchdog 证据。管理员可以点击“执行闭环”，或调用 `POST /api/v1/loops/{loopId}/source-closure/execute`，由 EvoPilot 对 GitHub/GitLab 执行分支、提交、PR/MR、Tag、deploy connector 和 health/ready gate 探测。
+接入后，Dashboard 的 Loop Runtime 表格和详情工作台会显示 `sourceClosure.closureState`、required gates、branch、commit、PR/MR、tag、deployment、health/ready、rollback、typed graph、sandbox enforcement、checkpoint、replay diff 和 worker/watchdog 证据。管理员可以点击“执行闭环”，或调用 `POST /api/v1/loops/{loopId}/source-closure/execute`，由 EvoPilot 对 GitHub/GitLab 执行分支、提交、PR/MR、Tag、deploy connector 和 health/ready gate 探测；对本地目录项目则在注册的 `repository.root` 中创建或切换 release branch、写文件、提交并打 tag。每次执行都会生成 `sourceReleaseRun`，可通过 `GET /api/v1/source-release-runs`、`GET /api/v1/loops/{loopId}/source-release-runs` 或 Dashboard 的“刷新 Release Run”查看阶段、next action、capabilities、source ref 和 artifacts。
 
 自动部署应先注册部署连接器：
 

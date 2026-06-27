@@ -490,7 +490,7 @@ Dashboard 的 Streaming Trace Workbench 使用 `GET /api/v1/loops/{loopId}/trace
 
 该契约会进入 `LoopRun.sourceClosure`、每个 executor step 的 `input/output.sourceClosure`、独立 `LoopEvidenceSet.evidence` 和 Dashboard Loop 表格。这样任何项目的 target loop 都能追溯“控制面在哪里执行、源码在哪里、目标版本是什么、是否需要 push/tag/deploy/health-ready”，避免只把 loop 状态推进为成功却没有代码回写和生产部署闭环。
 
-GitHub 与 GitLab 项目还支持执行源码闭环：
+GitHub、GitLab 与本地目录项目还支持执行源码闭环：
 
 ```http
 POST /api/v1/loops/{loopId}/source-closure/execute
@@ -520,11 +520,21 @@ POST /api/v1/loops/{loopId}/source-closure/execute
 }
 ```
 
-GitHub 路径会读取 base ref、创建 release branch、通过 Contents API 写入文件、创建 PR，并在需要 `tag` gate 时创建 tag。GitLab 路径会创建 branch、提交 commit actions、创建 MR，并在需要 `tag` gate 时创建 tag。如果传入 `deployConnectorId`，EvoPilot 会调用部署连接器并把连接器返回的部署结果写入 deploy gate。执行后 `LoopRun.sourceClosure` 会包含：
+GitHub 路径会读取 base ref、创建 release branch、通过 Contents API 写入文件、创建 PR，并在需要 `tag` gate 时创建 tag。GitLab 路径会创建 branch、提交 commit actions、创建 MR，并在需要 `tag` gate 时创建 tag。本地目录路径会在注册的 `repository.root` 内创建或切换 release branch、写入文件、提交并在需要时打 tag；默认要求干净工作树，除非请求显式传入 `allowDirtyWorktree=true`。如果传入 `deployConnectorId`，EvoPilot 会调用部署连接器并把连接器返回的部署结果写入 deploy gate。执行后 `LoopRun.sourceClosure` 会包含：
 
 - `closureState`: `PLANNED`、`CODE_CHANGED`、`PUSHED`、`TAGGED`、`DEPLOYED`、`HEALTH_READY`、`HEALTH_FAILED`、`ROLLED_BACK`、`PROMOTED` 或 `FAILED`。
 - `gateEvidence`: 每个 required gate 的 `PENDING`、`PASSED`、`FAILED` 或 `SKIPPED` 状态和证据。
 - `artifacts`: branch、commitSha、pullRequestUrl、mergeRequestUrl、tag、deploymentConnectorId、deploymentId、deploymentUrl、deployStatusUrl、healthUrl、readyUrl、executedAt、executedBy。
+
+响应体还会附带 `sourceReleaseRun`，schema 为 `evopilot-source-release-closure-run/v1`。该运行记录把源码发布闭环提升为可查询的产品资源，包含 provider、releaseStrategy、sourceRef、targetVersion、stages、artifacts、capabilities、nextAction 和 status。查询接口：
+
+```http
+GET /api/v1/source-release-runs
+GET /api/v1/loops/{loopId}/source-release-runs
+GET /api/v1/loops/{loopId}/source-closure/plan
+```
+
+`source-closure/plan` 会返回该 loop 最新的 release run；如果还没有执行过，则根据当前 `sourceClosure` 生成计划视图。Dashboard 的 Release Closure Runtime 工作台使用这些接口展示阶段、next action、capabilities、source ref 和 artifacts。
 
 没有配置 `deployConnectorId` 时，部署 gate 仍兼容旧行为：只记录 `deploymentUrl` 并探测 health/ready URL。配置部署连接器后，deploy gate 必须由连接器真实返回成功才会 `PASSED`。内置连接器类型包括：
 

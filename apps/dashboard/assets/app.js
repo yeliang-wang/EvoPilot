@@ -12,6 +12,7 @@ const state = {
     status: ""
   },
   deployConnectors: [],
+  sourceReleaseRuns: [],
   loopOrchestrationPresets: [],
   loopOrchestrationTargets: [],
   loopWorkerQueue: [],
@@ -1201,6 +1202,18 @@ function renderLoopDetail(loop) {
   const closure = loop.sourceClosure ?? {};
   const artifacts = closure.artifacts ?? {};
   const gateEvidence = closure.gateEvidence ?? {};
+  const releaseRun = latestSourceReleaseRun(loop.id) ?? {
+    status: closure.closureState ?? "PLANNED",
+    stages: (closure.requiredGates ?? []).map((gate) => ({
+      gate,
+      label: gate,
+      status: gateEvidence[gate]?.status ?? "PENDING",
+      evidence: gateEvidence[gate]?.evidence ?? []
+    })),
+    capabilities: [closure.repositoryProvider, closure.releaseStrategy].filter(Boolean),
+    nextAction: closure.closureState === "PROMOTED" ? "promoted" : "write-source",
+    artifacts
+  };
   return `
     <section class="card loop-detail">
       <div class="section-title">
@@ -1245,6 +1258,47 @@ function renderLoopDetail(loop) {
                 <small>source-to-production evidence</small>
               </div>
             `).join("") || `<div class="empty">等待执行闭环后生成分支、提交、PR/MR、部署和探测证据。</div>`}
+          </div>
+        </div>
+      </div>
+      <div class="loop-columns">
+        <div>
+          <h3>Release Closure Runtime</h3>
+          <div class="timeline">
+            <div class="timeline-item">
+              <span>${escapeHtml(releaseRun.status ?? "PLANNED")}</span>
+              <strong>${escapeHtml(releaseRun.provider ?? closure.repositoryProvider ?? "unknown")} / ${escapeHtml(releaseRun.releaseStrategy ?? closure.releaseStrategy ?? "none")}</strong>
+              <small>next ${escapeHtml(releaseRun.nextAction ?? "write-source")} / ${(releaseRun.capabilities ?? []).map(escapeHtml).join(", ")}</small>
+            </div>
+            ${(releaseRun.stages ?? []).map((stage) => `
+              <div class="timeline-item">
+                <span>${escapeHtml(stage.status ?? "PENDING")}</span>
+                <strong>${escapeHtml(stage.label ?? stage.gate)}</strong>
+                <small>${escapeHtml((stage.evidence ?? []).at(-1) ?? "waiting")}</small>
+              </div>
+            `).join("")}
+          </div>
+          <div class="table-actions">
+            <button data-action="load-source-release-run" data-id="${escapeHtml(loop.id)}">刷新 Release Run</button>
+          </div>
+        </div>
+        <div>
+          <h3>Source Release Artifacts</h3>
+          <div class="timeline">
+            ${[
+              ["Release Run", releaseRun.id],
+              ["Source", releaseRun.sourceRef?.sourceUrl ?? releaseRun.sourceRef?.sourceRoot],
+              ["Branch", releaseRun.sourceRef?.releaseBranch ?? artifacts.branch],
+              ["Commit", releaseRun.artifacts?.commitSha ?? artifacts.commitSha],
+              ["Review", releaseRun.artifacts?.pullRequestUrl ?? releaseRun.artifacts?.mergeRequestUrl ?? artifacts.pullRequestUrl ?? artifacts.mergeRequestUrl],
+              ["Deployment", releaseRun.artifacts?.deploymentUrl ?? artifacts.deploymentUrl]
+            ].filter((row) => row[1]).map(([label, value]) => `
+              <div class="timeline-item">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(String(value))}</strong>
+                <small>source-release-closure-runtime</small>
+              </div>
+            `).join("") || `<div class="empty">等待发布运行记录。</div>`}
           </div>
         </div>
       </div>
@@ -1374,6 +1428,12 @@ function renderGateEvidence(gate, row) {
       <small>${escapeHtml(rollback ?? lastEvidence)}</small>
     </div>
   `;
+}
+
+function latestSourceReleaseRun(loopId) {
+  return (state.sourceReleaseRuns ?? [])
+    .filter((run) => run.loopId === loopId)
+    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
 }
 
 function renderHistoryDetailModal(item) {
@@ -1817,7 +1877,7 @@ function bindLoopActions() {
       }
     });
   }
-  for (const button of content.querySelectorAll('[data-action="verify-sandbox-proof"], [data-action="load-trace-tree"], [data-action="load-loop-events"]')) {
+  for (const button of content.querySelectorAll('[data-action="verify-sandbox-proof"], [data-action="load-trace-tree"], [data-action="load-loop-events"], [data-action="load-source-release-run"]')) {
     button.addEventListener("click", async () => {
       const id = button.dataset.id;
       const action = button.dataset.action;
@@ -1840,6 +1900,16 @@ function bindLoopActions() {
           if (!response.ok) throw new Error(`Loop Events 接口状态 ${response.status}`);
           const { data } = await response.json();
           state.authNotice = `Streaming Events 已读取：${Array.isArray(data) ? data.length : 0} 条事件。`;
+        }
+        if (action === "load-source-release-run") {
+          const response = await apiFetch(`/api/v1/loops/${encodeURIComponent(id)}/source-closure/plan`);
+          if (!response.ok) throw new Error(`Release Run 接口状态 ${response.status}`);
+          const { data } = await response.json();
+          state.sourceReleaseRuns = [
+            ...(state.sourceReleaseRuns ?? []).filter((run) => run.id !== data?.id),
+            data
+          ].filter(Boolean);
+          state.authNotice = `Release Run 已刷新：${data?.status ?? "UNKNOWN"} / next ${data?.nextAction ?? "unknown"}。`;
         }
         await loadLoops();
       } catch (error) {
@@ -1873,7 +1943,7 @@ function bindLoopActions() {
           const loop = state.loops.find((item) => item.id === id);
           const version = loop?.sourceClosure?.targetVersion;
           const deployConnectorId = loop?.sourceClosure?.deploymentConnectorId ?? (state.deployConnectors.length === 1 ? state.deployConnectors[0].id : undefined);
-          await postJson(`/api/v1/loops/${encodeURIComponent(id)}/source-closure/execute`, {
+          const result = await postJson(`/api/v1/loops/${encodeURIComponent(id)}/source-closure/execute`, {
             tagName: version ? `v${String(version).replace(/^v/, "")}` : undefined,
             deployConnectorId,
             files: [{
@@ -1890,6 +1960,13 @@ function bindLoopActions() {
               ].join("\n")
             }]
           });
+          if (result.data?.sourceReleaseRun) {
+            state.sourceReleaseRuns = [
+              ...(state.sourceReleaseRuns ?? []).filter((run) => run.id !== result.data.sourceReleaseRun.id),
+              result.data.sourceReleaseRun
+            ];
+            state.authNotice = `源码发布闭环完成：${result.data.sourceReleaseRun.status} / ${result.data.sourceReleaseRun.id}`;
+          }
         }
         await loadLoops();
         await loadSummary();
@@ -2373,6 +2450,11 @@ async function loadLoops() {
       const { data: queueData } = await queueResponse.json();
       state.loopWorkerQueue = Array.isArray(queueData) ? queueData : [];
     }
+    const releaseRunsResponse = await apiFetch("/api/v1/source-release-runs");
+    if (releaseRunsResponse.ok) {
+      const { data: releaseRunData } = await releaseRunsResponse.json();
+      state.sourceReleaseRuns = Array.isArray(releaseRunData) ? releaseRunData : [];
+    }
     const response = await apiFetch("/api/v1/loops");
     if (!response.ok) throw new Error(`Loop 接口状态 ${response.status}`);
     const { data } = await response.json();
@@ -2381,6 +2463,7 @@ async function loadLoops() {
     state.loops = [];
     state.loopTraces = [];
     state.loopWorkerQueue = [];
+    state.sourceReleaseRuns = [];
     state.loopOrchestrationPresets = [];
     state.loopOrchestrationTargets = [];
     state.authNotice = `Loop 数据读取失败：${error.message}`;

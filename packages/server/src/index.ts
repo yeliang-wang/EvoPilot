@@ -687,6 +687,38 @@ type LoopSandboxRuntimeType = "host" | "docker" | "k8s";
 type LoopSourceClosureState = "PLANNED" | "CODE_CHANGED" | "PUSHED" | "TAGGED" | "DEPLOYED" | "HEALTH_READY" | "HEALTH_FAILED" | "ROLLED_BACK" | "PROMOTED" | "FAILED";
 type LoopSourceClosureGate = "code-change" | "push" | "tag" | "deploy" | "health-ready";
 
+interface SourceReleaseClosureRun {
+  schema: "evopilot-source-release-closure-run/v1";
+  id: string;
+  loopId: string;
+  projectId: string;
+  sourceProjectId: string;
+  provider: LoopSourceClosure["repositoryProvider"];
+  releaseStrategy: LoopSourceClosure["releaseStrategy"];
+  sourceRef: {
+    sourceUrl?: string;
+    sourceRoot?: string;
+    sourceBranch: string;
+    releaseBranch?: string;
+  };
+  targetVersion?: string;
+  deploymentEnvironment?: string;
+  status: LoopSourceClosureState;
+  stages: Array<{
+    gate: LoopSourceClosureGate;
+    label: string;
+    status: "PENDING" | "PASSED" | "FAILED" | "SKIPPED";
+    evidence: string[];
+    checkedAt?: string;
+  }>;
+  artifacts: LoopSourceClosure["artifacts"];
+  capabilities: string[];
+  nextAction: "write-source" | "open-review" | "tag" | "deploy" | "probe-health" | "rollback" | "promoted" | "failed";
+  createdAt: string;
+  updatedAt: string;
+  actor?: string;
+}
+
 interface LoopStopPolicy {
   maxIterations: number;
   maxDurationSeconds: number;
@@ -1796,15 +1828,33 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       if (request.method === "POST" && loopSourceClosureExecuteMatch) {
         if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
         const body = await readJson(request, options.maxBodyBytes);
-        const loop = await executeLoopSourceClosure(store, decodeURIComponent(loopSourceClosureExecuteMatch[1]), auth.actor, body);
-        if (!loop) return writeJson(response, 404, { error: "LOOP_NOT_FOUND" });
-        store.appendAudit(audit(auth, "loop.source-closure-executed", loop.id, {
-          provider: loop.sourceClosure.repositoryProvider,
-          closureState: loop.sourceClosure.closureState,
-          branch: loop.sourceClosure.artifacts.branch,
-          tag: loop.sourceClosure.artifacts.tag
+        const result = await executeLoopSourceClosure(store, decodeURIComponent(loopSourceClosureExecuteMatch[1]), auth.actor, body);
+        if (!result) return writeJson(response, 404, { error: "LOOP_NOT_FOUND" });
+        store.appendAudit(audit(auth, "loop.source-closure-executed", result.loop.id, {
+          provider: result.loop.sourceClosure.repositoryProvider,
+          closureState: result.loop.sourceClosure.closureState,
+          branch: result.loop.sourceClosure.artifacts.branch,
+          tag: result.loop.sourceClosure.artifacts.tag,
+          releaseRunId: result.releaseRun.id
         }));
-        return writeJson(response, 200, envelope(loop));
+        return writeJson(response, 200, envelope({ ...result.loop, sourceReleaseRun: result.releaseRun }));
+      }
+      const loopSourceClosurePlanMatch = url.pathname.match(/^\/api\/v1\/loops\/([^/]+)\/source-closure\/plan$/);
+      if (request.method === "GET" && loopSourceClosurePlanMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const loop = store.readLoop(decodeURIComponent(loopSourceClosurePlanMatch[1]));
+        if (!loop) return writeJson(response, 404, { error: "LOOP_NOT_FOUND" });
+        const latestRun = store.listSourceReleaseClosureRuns(loop.id).at(-1);
+        return writeJson(response, 200, envelope(latestRun ?? buildSourceReleaseClosureRun(loop)));
+      }
+      const loopSourceReleaseRunsMatch = url.pathname.match(/^\/api\/v1\/loops\/([^/]+)\/source-release-runs$/);
+      if (request.method === "GET" && loopSourceReleaseRunsMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listSourceReleaseClosureRuns(decodeURIComponent(loopSourceReleaseRunsMatch[1]))));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/source-release-runs") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listSourceReleaseClosureRuns()));
       }
       const loopMatch = url.pathname.match(/^\/api\/v1\/loops\/([^/]+)$/);
       if (request.method === "GET" && loopMatch) {
@@ -2578,6 +2628,7 @@ class FileStore {
     fs.mkdirSync(this.releaseEvidenceDir, { recursive: true });
     fs.mkdirSync(this.releaseTargetsDir, { recursive: true });
     fs.mkdirSync(this.releaseDecisionsDir, { recursive: true });
+    fs.mkdirSync(this.sourceReleaseRunsDir, { recursive: true });
     fs.mkdirSync(this.targetLoopsDir, { recursive: true });
     fs.mkdirSync(this.loopsDir, { recursive: true });
     fs.mkdirSync(this.loopWorkspacesDir, { recursive: true });
@@ -2663,6 +2714,10 @@ class FileStore {
 
   get releaseDecisionsDir(): string {
     return path.join(this.dataRoot, "release-decisions");
+  }
+
+  get sourceReleaseRunsDir(): string {
+    return path.join(this.dataRoot, "source-release-runs");
   }
 
   get targetLoopsDir(): string {
@@ -3696,6 +3751,26 @@ class FileStore {
   writeReleaseDecision(decision: ReleaseDecision): ReleaseDecision {
     atomicWriteJson(path.join(this.releaseDecisionsDir, `${safeFileName(decision.id)}.json`), decision);
     return decision;
+  }
+
+  listSourceReleaseClosureRuns(loopId?: string): SourceReleaseClosureRun[] {
+    const runs = fs.readdirSync(this.sourceReleaseRunsDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => JSON.parse(fs.readFileSync(path.join(this.sourceReleaseRunsDir, file), "utf8")) as SourceReleaseClosureRun)
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+    return loopId ? runs.filter((run) => run.loopId === loopId) : runs;
+  }
+
+  readSourceReleaseClosureRun(id: string): SourceReleaseClosureRun | undefined {
+    const file = path.join(this.sourceReleaseRunsDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as SourceReleaseClosureRun;
+  }
+
+  writeSourceReleaseClosureRun(run: SourceReleaseClosureRun): SourceReleaseClosureRun {
+    atomicWriteJson(path.join(this.sourceReleaseRunsDir, `${safeFileName(run.id)}.json`), run);
+    return run;
   }
 
   listTargetLoops(): TargetLoopRun[] {
@@ -6137,7 +6212,7 @@ function executeLoopNode(args: {
   };
 }
 
-async function executeLoopSourceClosure(store: FileStore, loopId: string, actor: string, body: unknown): Promise<LoopRun | undefined> {
+async function executeLoopSourceClosure(store: FileStore, loopId: string, actor: string, body: unknown): Promise<{ loop: LoopRun; releaseRun: SourceReleaseClosureRun } | undefined> {
   const loop = store.readLoop(loopId);
   if (!loop) return undefined;
   const project = store.readProject(loop.sourceClosure.sourceProjectId) ?? store.readProject(loop.projectId);
@@ -6168,6 +6243,15 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
     `sourceClosure.branch=${loop.sourceClosure.sourceBranch}`,
     `sourceClosure.releaseBranch=${branch}`
   ];
+  let releaseRun = store.writeSourceReleaseClosureRun(buildSourceReleaseClosureRun({
+    ...loop,
+    sourceClosure: normalizeLoopSourceClosure({
+      ...loop.sourceClosure,
+      deploymentConnectorId: deployConnectorId,
+      gateEvidence,
+      artifacts
+    }, project, loop.controlPlaneUrl)
+  }, actor));
 
   try {
     if (loop.sourceClosure.repositoryProvider === "github") {
@@ -6251,8 +6335,32 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
         closureState = "TAGGED";
         markGate(gateEvidence, "tag", "PASSED", [`tag=${tagName}`, `target=${tag?.target ?? branch}`], now);
       }
+    } else if (loop.sourceClosure.repositoryProvider === "local-git") {
+      if (!project?.repository || project.repository.provider !== "local-git") throw httpError(409, "SOURCE_CLOSURE_PROJECT_NOT_LOCAL_GIT", "Loop source project is not a local Git repository.");
+      const localResult = await executeLocalGitSourceClosure(project.repository, {
+        loop,
+        files,
+        branch,
+        commitMessage,
+        tagName,
+        allowDirtyWorktree: request.allowDirtyWorktree === true
+      });
+      artifacts.branch = branch;
+      artifacts.commitSha = localResult.commitSha;
+      artifacts.pullRequestUrl = localResult.reviewUrl;
+      markGate(gateEvidence, "push", "PASSED", localResult.branchEvidence, now);
+      evidence.push(...localResult.evidence);
+      if (files.length > 0) {
+        closureState = "CODE_CHANGED";
+        markGate(gateEvidence, "code-change", "PASSED", files.map((file) => `file=${file.path}`), now);
+      }
+      if (tagName && loop.sourceClosure.requiredGates.includes("tag")) {
+        artifacts.tag = tagName;
+        closureState = "TAGGED";
+        markGate(gateEvidence, "tag", "PASSED", [`tag=${tagName}`, `target=${localResult.commitSha}`], now);
+      }
     } else {
-      throw httpError(409, "SOURCE_CLOSURE_PROVIDER_UNSUPPORTED", "Automatic source closure currently supports GitHub and GitLab repositories.");
+      throw httpError(409, "SOURCE_CLOSURE_PROVIDER_UNSUPPORTED", "Automatic source closure supports GitHub, GitLab, and local-git repositories.");
     }
 
     if (loop.sourceClosure.requiredGates.includes("deploy")) {
@@ -6328,7 +6436,7 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
     gateEvidence,
     artifacts
   }, project, loop.controlPlaneUrl);
-  return store.writeLoop({
+  const updatedLoop = store.writeLoop({
     ...loop,
     sourceClosure: updatedClosure,
     evidenceSets: [
@@ -6361,6 +6469,8 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
     ],
     updatedAt: new Date().toISOString()
   });
+  releaseRun = store.writeSourceReleaseClosureRun(buildSourceReleaseClosureRun(updatedLoop, actor, releaseRun.id, releaseRun.createdAt));
+  return { loop: updatedLoop, releaseRun };
 }
 
 function normalizeSourceClosureFiles(value: unknown): Array<{ path: string; content: string }> {
@@ -6372,6 +6482,143 @@ function normalizeSourceClosureFiles(value: unknown): Array<{ path: string; cont
       content: String(file.content ?? "")
     }))
     .filter((file) => file.path && !file.path.startsWith("/") && !file.path.includes(".."));
+}
+
+function buildSourceReleaseClosureRun(loop: LoopRun, actor?: string, id?: string, createdAt?: string): SourceReleaseClosureRun {
+  const now = new Date().toISOString();
+  const closure = loop.sourceClosure;
+  const runId = id ?? `${loop.id}-source-release-${Date.now()}`;
+  return {
+    schema: "evopilot-source-release-closure-run/v1",
+    id: runId,
+    loopId: loop.id,
+    projectId: loop.projectId,
+    sourceProjectId: closure.sourceProjectId,
+    provider: closure.repositoryProvider,
+    releaseStrategy: closure.releaseStrategy,
+    sourceRef: {
+      sourceUrl: closure.sourceUrl,
+      sourceRoot: closure.sourceRoot,
+      sourceBranch: closure.sourceBranch,
+      releaseBranch: closure.artifacts.branch
+    },
+    targetVersion: closure.targetVersion,
+    deploymentEnvironment: closure.deploymentEnvironment ?? "production",
+    status: closure.closureState,
+    stages: closure.requiredGates.map((gate) => {
+      const row = closure.gateEvidence[gate];
+      return {
+        gate,
+        label: sourceClosureGateLabel(gate),
+        status: row?.status ?? "PENDING",
+        evidence: row?.evidence ?? [],
+        checkedAt: row?.checkedAt
+      };
+    }),
+    artifacts: closure.artifacts,
+    capabilities: sourceReleaseClosureCapabilities(closure),
+    nextAction: sourceReleaseClosureNextAction(closure),
+    createdAt: createdAt ?? now,
+    updatedAt: now,
+    actor
+  };
+}
+
+function sourceClosureGateLabel(gate: LoopSourceClosureGate): string {
+  return {
+    "code-change": "Write source change",
+    push: "Create release branch",
+    tag: "Create release tag",
+    deploy: "Deploy to environment",
+    "health-ready": "Probe health and ready"
+  }[gate];
+}
+
+function sourceReleaseClosureCapabilities(closure: LoopSourceClosure): string[] {
+  return [
+    `${closure.repositoryProvider}-source`,
+    closure.releaseStrategy,
+    "branch-commit-review",
+    ...(closure.requiredGates.includes("tag") ? ["version-tag"] : []),
+    ...(closure.requiredGates.includes("deploy") ? ["deploy-connector"] : []),
+    ...(closure.requiredGates.includes("health-ready") ? ["health-ready-probe"] : []),
+    "auditable-release-run"
+  ];
+}
+
+function sourceReleaseClosureNextAction(closure: LoopSourceClosure): SourceReleaseClosureRun["nextAction"] {
+  if (closure.closureState === "PROMOTED") return "promoted";
+  if (closure.closureState === "FAILED" || closure.closureState === "HEALTH_FAILED") return "failed";
+  if (closure.closureState === "ROLLED_BACK") return "rollback";
+  const gate = nextPendingGate(closure.requiredGates, closure.gateEvidence);
+  if (gate === "code-change") return "write-source";
+  if (gate === "push") return "open-review";
+  if (gate === "tag") return "tag";
+  if (gate === "deploy") return "deploy";
+  return "probe-health";
+}
+
+async function executeLocalGitSourceClosure(repository: ProjectRepositoryRegistration, input: {
+  loop: LoopRun;
+  files: Array<{ path: string; content: string }>;
+  branch: string;
+  commitMessage: string;
+  tagName?: string;
+  allowDirtyWorktree: boolean;
+}): Promise<{ commitSha: string; reviewUrl: string; branchEvidence: string[]; evidence: string[] }> {
+  if (!repository.root) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_ROOT_REQUIRED", "local-git source closure requires repository.root.");
+  const root = path.resolve(repository.root);
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_ROOT_NOT_FOUND", `local-git root not found: ${root}`);
+  const commandResults: Array<{ name: string; exitCode: number; output: string }> = [];
+  const status = await runBoundedCommand({ command: "git", args: ["status", "--porcelain"], cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git status", exitCode: status.exitCode, output: status.output });
+  if (status.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_STATUS_FAILED", status.output);
+  if (!input.allowDirtyWorktree && status.output.trim()) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_DIRTY", "local-git source closure requires a clean worktree unless allowDirtyWorktree=true.");
+  const branchExists = await runBoundedCommand({ command: "git", args: ["rev-parse", "--verify", input.branch], cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git rev-parse branch", exitCode: branchExists.exitCode, output: branchExists.output });
+  const switchArgs = branchExists.exitCode === 0 ? ["switch", input.branch] : ["switch", "-c", input.branch];
+  const switched = await runBoundedCommand({ command: "git", args: switchArgs, cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git switch", exitCode: switched.exitCode, output: switched.output });
+  if (switched.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_SWITCH_FAILED", switched.output);
+  for (const file of input.files) {
+    const target = path.resolve(root, file.path);
+    if (!isUnderPath(target, root)) throw httpError(400, "SOURCE_CLOSURE_FILE_OUTSIDE_ROOT", `Refusing to write outside repository root: ${file.path}`);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, file.content);
+  }
+  if (input.files.length > 0) {
+    const add = await runBoundedCommand({ command: "git", args: ["add", "--", ...input.files.map((file) => file.path)], cwd: root, timeoutSeconds: 30 });
+    commandResults.push({ name: "git add", exitCode: add.exitCode, output: add.output });
+    if (add.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_ADD_FAILED", add.output);
+    const commit = await runBoundedCommand({
+      command: "git",
+      args: ["-c", "user.name=EvoPilot", "-c", "user.email=evopilot@local", "commit", "-m", input.commitMessage],
+      cwd: root,
+      timeoutSeconds: 60
+    });
+    commandResults.push({ name: "git commit", exitCode: commit.exitCode, output: commit.output });
+    if (commit.exitCode !== 0 && !commit.output.includes("nothing to commit")) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_COMMIT_FAILED", commit.output);
+  }
+  const head = await runBoundedCommand({ command: "git", args: ["rev-parse", "--short", "HEAD"], cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git rev-parse head", exitCode: head.exitCode, output: head.output });
+  if (head.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_HEAD_FAILED", head.output);
+  const commitSha = head.output.trim().split(/\s+/)[0];
+  if (input.tagName) {
+    const tag = await runBoundedCommand({ command: "git", args: ["tag", input.tagName, commitSha], cwd: root, timeoutSeconds: 30 });
+    commandResults.push({ name: "git tag", exitCode: tag.exitCode, output: tag.output });
+    if (tag.exitCode !== 0 && !tag.output.includes("already exists")) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_TAG_FAILED", tag.output);
+  }
+  return {
+    commitSha,
+    reviewUrl: `${pathToFileURL(root).href}#${encodeURIComponent(input.branch)}`,
+    branchEvidence: [`branch=${input.branch}`, `localRoot=${root}`, `commitSha=${commitSha}`],
+    evidence: [
+      `localGit.root=${root}`,
+      `localGit.branch=${input.branch}`,
+      `localGit.commit=${commitSha}`,
+      ...commandEvidence(commandResults)
+    ]
+  };
 }
 
 function defaultClosureBranch(loop: LoopRun): string {

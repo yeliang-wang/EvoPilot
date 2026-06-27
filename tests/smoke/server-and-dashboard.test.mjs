@@ -192,6 +192,9 @@ test("server serves dashboard static files", async () => {
     assert.match(app, /\/sandbox-proof\/verify/);
     assert.match(app, /Streaming Trace Workbench/);
     assert.match(app, /\/trace-tree/);
+    assert.match(app, /Release Closure Runtime/);
+    assert.match(app, /\/source-closure\/plan/);
+    assert.match(app, /\/api\/v1\/source-release-runs/);
     assert.doesNotMatch(app, /OpenHands 白盒执行/);
     assert.doesNotMatch(app, /Jenkins Stage View/);
     assert.doesNotMatch(app, /进化方案 Review/);

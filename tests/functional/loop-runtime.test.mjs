@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { createServer } from "../../packages/server/dist/index.js";
 
@@ -586,7 +587,16 @@ test("Loop source closure executes GitHub source writeback gates", async () => {
     assert.equal(executed.body.data.sourceClosure.gateEvidence.deploy.status, "PASSED");
     assert.ok(executed.body.data.sourceClosure.gateEvidence.deploy.evidence.some((item) => item === "deployConnector=prod-webhook"));
     assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
+    assert.equal(executed.body.data.sourceReleaseRun.schema, "evopilot-source-release-closure-run/v1");
+    assert.equal(executed.body.data.sourceReleaseRun.status, "PROMOTED");
+    assert.equal(executed.body.data.sourceReleaseRun.nextAction, "promoted");
+    assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("auditable-release-run"));
     assert.ok(executed.body.data.evidenceSets.some((set) => set.validator === "evopilot-source-closure"));
+    const runs = await jsonFetch(`${baseUrl}/api/v1/loops/github-source-loop/source-release-runs`, {
+      token: "operator-token"
+    });
+    assert.equal(runs.status, 200);
+    assert.equal(runs.body.data.at(-1).id, executed.body.data.sourceReleaseRun.id);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await close(github);
@@ -1112,11 +1122,102 @@ test("Loop source closure executes GitLab source writeback gates", async () => {
     assert.equal(executed.body.data.sourceClosure.artifacts.mergeRequestUrl, "http://gitlab/mr/7");
     assert.equal(executed.body.data.sourceClosure.artifacts.tag, "v2.1.0");
     assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
+    assert.equal(executed.body.data.sourceReleaseRun.provider, "gitlab");
+    assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("gitlab-merge-request"));
+    const plan = await jsonFetch(`${baseUrl}/api/v1/loops/gitlab-source-loop/source-closure/plan`, {
+      token: "operator-token"
+    });
+    assert.equal(plan.status, 200);
+    assert.equal(plan.body.data.status, "PROMOTED");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await close(gitlab);
   }
 });
+
+test("Loop source closure executes local-git source writeback gates", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-local-source-closure-"));
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-local-source-repo-"));
+  git(repoRoot, ["init"]);
+  git(repoRoot, ["config", "user.name", "Fixture"]);
+  git(repoRoot, ["config", "user.email", "fixture@example.com"]);
+  fs.writeFileSync(path.join(repoRoot, "README.md"), "# fixture\n");
+  git(repoRoot, ["add", "README.md"]);
+  git(repoRoot, ["commit", "-m", "initial"]);
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const project = await jsonFetch(`${baseUrl}/api/v1/projects`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        id: "local-source",
+        name: "Local Source",
+        repository: {
+          provider: "local-git",
+          root: repoRoot,
+          defaultBranch: "master"
+        }
+      }
+    });
+    assert.equal(project.status, 201);
+    assert.equal(project.body.data.validation.status, "VERIFIED");
+
+    const created = await jsonFetch(`${baseUrl}/api/v1/loops`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        id: "local-source-loop",
+        projectId: "local-source",
+        objective: "Close local source release evidence.",
+        controlPlaneUrl: baseUrl,
+        sourceClosure: {
+          sourceProjectId: "local-source",
+          repositoryProvider: "local-git",
+          sourceBranch: "master",
+          targetVersion: "2.2.0",
+          requiredGates: ["code-change", "push", "tag"]
+        }
+      }
+    });
+    assert.equal(created.status, 201);
+
+    const executed = await jsonFetch(`${baseUrl}/api/v1/loops/local-source-loop/source-closure/execute`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        files: [{ path: "docs/source-closure.md", content: "closed by local EvoPilot" }],
+        tagName: "v2.2.0"
+      }
+    });
+    assert.equal(executed.status, 200);
+    assert.equal(executed.body.data.sourceClosure.closureState, "PROMOTED");
+    assert.equal(executed.body.data.sourceClosure.artifacts.branch, "evopilot/local-source-loop-2.2.0");
+    assert.equal(executed.body.data.sourceClosure.artifacts.tag, "v2.2.0");
+    assert.equal(executed.body.data.sourceClosure.gateEvidence.push.status, "PASSED");
+    assert.equal(executed.body.data.sourceReleaseRun.provider, "local-git");
+    assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("local-git-commit"));
+    assert.equal(fs.readFileSync(path.join(repoRoot, "docs", "source-closure.md"), "utf8"), "closed by local EvoPilot");
+    assert.equal(git(repoRoot, ["tag", "--list", "v2.2.0"]).trim(), "v2.2.0");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+function git(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr || result.stdout);
+  return result.stdout;
+}
 
 async function jsonFetch(url, options = {}) {
   const response = await fetch(url, {
