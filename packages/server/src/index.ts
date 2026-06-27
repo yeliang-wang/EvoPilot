@@ -241,6 +241,22 @@ interface StoredOpenHandsConnector extends OpenHandsConnectorConfig {
   updatedAt: string;
 }
 
+interface StoredDeployConnector {
+  id: string;
+  name: string;
+  type: "http-webhook";
+  url: string;
+  method: "POST";
+  token?: string;
+  tokenRef?: string;
+  headers?: Record<string, string>;
+  timeoutSeconds: number;
+  healthPath?: string;
+  readyPath?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface CodeUpgradeRun {
   id: string;
   projectId: string;
@@ -727,6 +743,7 @@ interface LoopSourceClosure {
   releaseStrategy: "none" | "github-push" | "gitlab-merge-request" | "local-git-commit";
   requiredGates: LoopSourceClosureGate[];
   deploymentEnvironment?: string;
+  deploymentConnectorId?: string;
   closureState: LoopSourceClosureState;
   gateEvidence: Partial<Record<LoopSourceClosureGate, {
     status: "PENDING" | "PASSED" | "FAILED" | "SKIPPED";
@@ -739,7 +756,10 @@ interface LoopSourceClosure {
     pullRequestUrl?: string;
     mergeRequestUrl?: string;
     tag?: string;
+    deploymentConnectorId?: string;
+    deploymentId?: string;
     deploymentUrl?: string;
+    deployStatusUrl?: string;
     healthUrl?: string;
     readyUrl?: string;
     executedAt?: string;
@@ -1721,6 +1741,10 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listOpenHandsConnectors().map(maskOpenHandsConnector)));
       }
+      if (request.method === "GET" && url.pathname === "/api/v1/connectors/deploy") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listDeployConnectors().map(maskDeployConnector)));
+      }
       if (request.method === "GET" && url.pathname === "/api/v1/schedules") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listSchedules().slice(-20).reverse()));
@@ -1743,6 +1767,30 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         store.writeJenkinsConnector(connector);
         store.appendAudit(audit(auth, "jenkins.connector.saved", connector.id, { baseUrl: connector.baseUrl }));
         return writeJson(response, 201, envelope(maskJenkinsConnector(connector)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/connectors/deploy") {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const now = new Date().toISOString();
+        const connector: StoredDeployConnector = {
+          id: requireBodyString(body.id, "DEPLOY_CONNECTOR_ID_REQUIRED", runtime, "default"),
+          name: String(body.name ?? body.id ?? "生产部署连接器").trim(),
+          type: "http-webhook",
+          url: String(body.url ?? body.webhookUrl ?? "").trim(),
+          method: "POST",
+          token: body.token ? String(body.token) : undefined,
+          tokenRef: body.tokenRef ? String(body.tokenRef) : undefined,
+          headers: body.headers && typeof body.headers === "object" ? normalizeStringMap(body.headers) : undefined,
+          timeoutSeconds: Math.max(1, Math.min(300, Number(body.timeoutSeconds ?? 30))),
+          healthPath: body.healthPath ? String(body.healthPath) : undefined,
+          readyPath: body.readyPath ? String(body.readyPath) : undefined,
+          createdAt: now,
+          updatedAt: now
+        };
+        if (!connector.id || !connector.url) return writeJson(response, 400, { error: "DEPLOY_CONNECTOR_REQUIRED" });
+        store.writeDeployConnector(connector);
+        store.appendAudit(audit(auth, "deploy.connector.saved", connector.id, { type: connector.type, url: connector.url }));
+        return writeJson(response, 201, envelope(maskDeployConnector(connector)));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/connectors/openhands") {
         if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -2144,6 +2192,7 @@ class FileStore {
     fs.mkdirSync(this.rulesDir, { recursive: true });
     fs.mkdirSync(this.jenkinsConnectorsDir, { recursive: true });
     fs.mkdirSync(this.openHandsConnectorsDir, { recursive: true });
+    fs.mkdirSync(this.deployConnectorsDir, { recursive: true });
     fs.mkdirSync(this.pipelinesDir, { recursive: true });
     fs.mkdirSync(this.evaluationDatasetsDir, { recursive: true });
     fs.mkdirSync(this.codeUpgradeRunsDir, { recursive: true });
@@ -2189,6 +2238,10 @@ class FileStore {
 
   get openHandsConnectorsDir(): string {
     return path.join(this.dataRoot, "connectors", "openhands");
+  }
+
+  get deployConnectorsDir(): string {
+    return path.join(this.dataRoot, "connectors", "deploy");
   }
 
   get pipelinesDir(): string {
@@ -2484,6 +2537,28 @@ class FileStore {
   writeOpenHandsConnector(connector: StoredOpenHandsConnector): void {
     const existing = this.readOpenHandsConnector(connector.id);
     atomicWriteJson(path.join(this.openHandsConnectorsDir, `${safeFileName(connector.id)}.json`), {
+      ...connector,
+      createdAt: existing?.createdAt ?? connector.createdAt,
+      updatedAt: connector.updatedAt
+    });
+  }
+
+  listDeployConnectors(): StoredDeployConnector[] {
+    return fs.readdirSync(this.deployConnectorsDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => JSON.parse(fs.readFileSync(path.join(this.deployConnectorsDir, file), "utf8")) as StoredDeployConnector);
+  }
+
+  readDeployConnector(id: string): StoredDeployConnector | undefined {
+    const file = path.join(this.deployConnectorsDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as StoredDeployConnector;
+  }
+
+  writeDeployConnector(connector: StoredDeployConnector): void {
+    const existing = this.readDeployConnector(connector.id);
+    atomicWriteJson(path.join(this.deployConnectorsDir, `${safeFileName(connector.id)}.json`), {
       ...connector,
       createdAt: existing?.createdAt ?? connector.createdAt,
       updatedAt: connector.updatedAt
@@ -4249,6 +4324,7 @@ function normalizeLoopSourceClosure(input: unknown, project?: StoredProject, con
     releaseStrategy: normalizeSourceClosureReleaseStrategy(value.releaseStrategy, provider),
     requiredGates: normalizeSourceClosureGates(value.requiredGates),
     deploymentEnvironment: value.deploymentEnvironment ? String(value.deploymentEnvironment).trim() : "production",
+    deploymentConnectorId: optionalTrimmedString(value.deploymentConnectorId),
     closureState: normalizeSourceClosureState(value.closureState),
     gateEvidence: normalizeSourceClosureGateEvidence(value.gateEvidence),
     artifacts: normalizeSourceClosureArtifacts(value.artifacts)
@@ -4308,7 +4384,10 @@ function normalizeSourceClosureArtifacts(value: unknown): LoopSourceClosure["art
     pullRequestUrl: optionalTrimmedString(value.pullRequestUrl),
     mergeRequestUrl: optionalTrimmedString(value.mergeRequestUrl),
     tag: optionalTrimmedString(value.tag),
+    deploymentConnectorId: optionalTrimmedString(value.deploymentConnectorId),
+    deploymentId: optionalTrimmedString(value.deploymentId),
     deploymentUrl: optionalTrimmedString(value.deploymentUrl),
+    deployStatusUrl: optionalTrimmedString(value.deployStatusUrl),
     healthUrl: optionalTrimmedString(value.healthUrl),
     readyUrl: optionalTrimmedString(value.readyUrl),
     executedAt: optionalTrimmedString(value.executedAt),
@@ -4680,13 +4759,15 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
   const branch = optionalTrimmedString(request.branchName) ?? optionalTrimmedString(request.branch) ?? defaultClosureBranch(loop);
   const commitMessage = optionalTrimmedString(request.commitMessage) ?? `EvoPilot source closure for ${loop.id}`;
   const tagName = optionalTrimmedString(request.tagName) ?? (loop.sourceClosure.targetVersion ? `v${loop.sourceClosure.targetVersion.replace(/^v/, "")}` : undefined);
-  const deploymentUrl = optionalTrimmedString(request.deploymentUrl) ?? loop.sourceClosure.controlPlaneUrl;
-  const healthUrl = optionalTrimmedString(request.healthUrl) ?? (deploymentUrl ? `${deploymentUrl.replace(/\/+$/, "")}/health` : undefined);
-  const readyUrl = optionalTrimmedString(request.readyUrl) ?? (deploymentUrl ? `${deploymentUrl.replace(/\/+$/, "")}/ready` : undefined);
+  const deployConnectorId = optionalTrimmedString(request.deployConnectorId) ?? optionalTrimmedString(request.deploymentConnectorId) ?? loop.sourceClosure.deploymentConnectorId;
+  let deploymentUrl = optionalTrimmedString(request.deploymentUrl) ?? loop.sourceClosure.controlPlaneUrl;
+  let healthUrl = optionalTrimmedString(request.healthUrl) ?? (deploymentUrl ? `${deploymentUrl.replace(/\/+$/, "")}/health` : undefined);
+  let readyUrl = optionalTrimmedString(request.readyUrl) ?? (deploymentUrl ? `${deploymentUrl.replace(/\/+$/, "")}/ready` : undefined);
   const gateEvidence: LoopSourceClosure["gateEvidence"] = { ...loop.sourceClosure.gateEvidence };
   const artifacts: LoopSourceClosure["artifacts"] = {
     ...loop.sourceClosure.artifacts,
     branch,
+    deploymentConnectorId: deployConnectorId,
     deploymentUrl,
     healthUrl,
     readyUrl,
@@ -4787,8 +4868,26 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
     }
 
     if (loop.sourceClosure.requiredGates.includes("deploy")) {
-      if (deploymentUrl) {
-        markGate(gateEvidence, "deploy", "PASSED", [`deploymentUrl=${deploymentUrl}`], now);
+      if (deployConnectorId) {
+        const deployResult = await executeDeployConnector(store, deployConnectorId, {
+          loop,
+          actor,
+          artifacts,
+          parameters: isRecord(request.deployParameters) ? request.deployParameters : {}
+        });
+        artifacts.deploymentConnectorId = deployConnectorId;
+        artifacts.deploymentId = deployResult.deploymentId;
+        artifacts.deploymentUrl = deployResult.deploymentUrl ?? artifacts.deploymentUrl;
+        artifacts.deployStatusUrl = deployResult.statusUrl;
+        artifacts.healthUrl = deployResult.healthUrl ?? artifacts.healthUrl;
+        artifacts.readyUrl = deployResult.readyUrl ?? artifacts.readyUrl;
+        deploymentUrl = artifacts.deploymentUrl;
+        healthUrl = artifacts.healthUrl;
+        readyUrl = artifacts.readyUrl;
+        markGate(gateEvidence, "deploy", deployResult.status === "SUCCEEDED" ? "PASSED" : "FAILED", deployResult.evidence, new Date().toISOString());
+        closureState = deployResult.status === "SUCCEEDED" ? "DEPLOYED" : "FAILED";
+      } else if (deploymentUrl) {
+        markGate(gateEvidence, "deploy", "PASSED", [`deploymentUrl=${deploymentUrl}`, "deployConnector=not-configured"], now);
         closureState = closureState === "TAGGED" ? "DEPLOYED" : closureState;
       } else {
         markGate(gateEvidence, "deploy", "PENDING", ["deploymentUrl missing"], now);
@@ -4812,6 +4911,7 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
 
   const updatedClosure = normalizeLoopSourceClosure({
     ...loop.sourceClosure,
+    deploymentConnectorId: deployConnectorId,
     closureState,
     gateEvidence,
     artifacts
@@ -4872,6 +4972,111 @@ function repositoryToken(repository: ProjectRepositoryRegistration): string | un
   if (repository.credentials?.password) return repository.credentials.password;
   if (repository.credentials?.tokenRef) return process.env[repository.credentials.tokenRef];
   return undefined;
+}
+
+async function executeDeployConnector(store: FileStore, connectorId: string, input: {
+  loop: LoopRun;
+  actor: string;
+  artifacts: LoopSourceClosure["artifacts"];
+  parameters: Record<string, unknown>;
+}): Promise<{
+  status: "SUCCEEDED" | "FAILED";
+  deploymentId?: string;
+  deploymentUrl?: string;
+  statusUrl?: string;
+  healthUrl?: string;
+  readyUrl?: string;
+  evidence: string[];
+}> {
+  const connector = store.readDeployConnector(connectorId);
+  if (!connector) throw httpError(409, "DEPLOY_CONNECTOR_NOT_FOUND", `Deploy connector ${connectorId} is not configured.`);
+  const token = connector.token ?? (connector.tokenRef ? process.env[connector.tokenRef] : undefined);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, connector.timeoutSeconds) * 1000);
+  const payload = {
+    schema: "evopilot-deploy-request/v1",
+    loopId: input.loop.id,
+    projectId: input.loop.projectId,
+    actor: input.actor,
+    objective: input.loop.objective,
+    targetVersion: input.loop.sourceClosure.targetVersion,
+    deploymentEnvironment: input.loop.sourceClosure.deploymentEnvironment ?? "production",
+    sourceClosure: {
+      sourceProjectId: input.loop.sourceClosure.sourceProjectId,
+      repositoryProvider: input.loop.sourceClosure.repositoryProvider,
+      sourceUrl: input.loop.sourceClosure.sourceUrl,
+      sourceRoot: input.loop.sourceClosure.sourceRoot,
+      sourceBranch: input.loop.sourceClosure.sourceBranch,
+      releaseStrategy: input.loop.sourceClosure.releaseStrategy
+    },
+    artifacts: {
+      branch: input.artifacts.branch,
+      commitSha: input.artifacts.commitSha,
+      tag: input.artifacts.tag,
+      pullRequestUrl: input.artifacts.pullRequestUrl,
+      mergeRequestUrl: input.artifacts.mergeRequestUrl
+    },
+    parameters: input.parameters
+  };
+  try {
+    const response = await fetch(connector.url, {
+      method: connector.method,
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(connector.headers ?? {})
+      },
+      body: JSON.stringify(payload)
+    });
+    const text = await response.text();
+    const body = parseOptionalJson(text);
+    const deploymentUrl = optionalTrimmedString(body?.deploymentUrl) ?? optionalTrimmedString(body?.url);
+    const healthUrl = optionalTrimmedString(body?.healthUrl) ?? joinUrlPath(deploymentUrl, connector.healthPath);
+    const readyUrl = optionalTrimmedString(body?.readyUrl) ?? joinUrlPath(deploymentUrl, connector.readyPath);
+    const deploymentId = optionalTrimmedString(body?.deploymentId) ?? optionalTrimmedString(body?.id);
+    const statusUrl = optionalTrimmedString(body?.statusUrl);
+    return {
+      status: response.ok ? "SUCCEEDED" : "FAILED",
+      deploymentId,
+      deploymentUrl,
+      statusUrl,
+      healthUrl,
+      readyUrl,
+      evidence: [
+        `deployConnector=${connector.id}`,
+        `deployConnectorType=${connector.type}`,
+        `deployStatus=${response.status}`,
+        ...(deploymentId ? [`deploymentId=${deploymentId}`] : []),
+        ...(deploymentUrl ? [`deploymentUrl=${deploymentUrl}`] : []),
+        ...(statusUrl ? [`deployStatusUrl=${statusUrl}`] : []),
+        ...(healthUrl ? [`healthUrl=${healthUrl}`] : []),
+        ...(readyUrl ? [`readyUrl=${readyUrl}`] : [])
+      ]
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: "FAILED",
+      evidence: [`deployConnector=${connector.id}`, `deployError=${message}`]
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function parseOptionalJson(text: string): any | undefined {
+  if (!text.trim()) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function joinUrlPath(baseUrl: string | undefined, suffix: string | undefined): string | undefined {
+  if (!baseUrl || !suffix) return undefined;
+  return `${baseUrl.replace(/\/+$/, "")}/${suffix.replace(/^\/+/, "")}`;
 }
 
 async function ignoreAlreadyExists<T>(operation: () => Promise<T>): Promise<T | undefined> {
@@ -6127,6 +6332,11 @@ function maskJenkinsConnector(connector: StoredJenkinsConnector): Omit<StoredJen
 function maskOpenHandsConnector(connector: StoredOpenHandsConnector): Omit<StoredOpenHandsConnector, "apiKey" | "llmApiKey"> & { apiKeyConfigured: boolean; llmApiKeyConfigured: boolean } {
   const { apiKey, llmApiKey, ...safe } = connector;
   return { ...safe, apiKeyConfigured: Boolean(apiKey), llmApiKeyConfigured: Boolean(llmApiKey) };
+}
+
+function maskDeployConnector(connector: StoredDeployConnector): Omit<StoredDeployConnector, "token"> & { tokenConfigured: boolean } {
+  const { token, ...safe } = connector;
+  return { ...safe, tokenConfigured: Boolean(token || connector.tokenRef) };
 }
 
 function normalizeEvaluationDataset(value: any, defaultProjectId: string): EvaluationDataset {

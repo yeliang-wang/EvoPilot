@@ -11,6 +11,7 @@ const state = {
     message: "",
     status: ""
   },
+  deployConnectors: [],
   serviceScorecards: [],
   intelligence: {
     selfLearningDatasetCount: 0,
@@ -505,6 +506,23 @@ function renderProjects() {
         statusPill(project.validation),
         project.lastSignal,
         project.recommendedAction ?? "等待更多证据"
+      ]))}
+    </section>
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>部署连接器</h2>
+          <p>source closure 的 deploy gate 可调用部署连接器，再由 EvoPilot 探测 health/ready。</p>
+        </div>
+        <span class="pill">${state.deployConnectors.length} 个连接器</span>
+      </div>
+      ${state.deployConnectors.length === 0 ? `<div class="empty">暂无部署连接器。可通过 API 注册 HTTP webhook、ECS、K8s 或云发布编排入口。</div>` : table(["连接器", "类型", "地址", "凭据", "健康路径", "超时"], state.deployConnectors.map((connector) => [
+        `<strong>${connector.name}</strong><span class="subtext">${connector.id}</span>`,
+        connector.type,
+        connector.url,
+        connector.tokenConfigured ? "已配置" : "未配置",
+        `${connector.healthPath ?? "/health"} / ${connector.readyPath ?? "/ready"}`,
+        `${connector.timeoutSeconds ?? 30}s`
       ]))}
     </section>
     ${state.showProjectRegistrationModal ? renderProjectRegistrationModal() : ""}
@@ -1370,6 +1388,7 @@ async function refreshData() {
     loadRules(),
     loadEvaluationDatasets(),
     loadCodeUpgrades(),
+    loadDeployConnectors(),
     loadLoops(),
     loadPipelines()
   ]);
@@ -1488,8 +1507,10 @@ function bindLoopActions() {
         if (action === "execute-source-closure") {
           const loop = state.loops.find((item) => item.id === id);
           const version = loop?.sourceClosure?.targetVersion;
+          const deployConnectorId = loop?.sourceClosure?.deploymentConnectorId ?? (state.deployConnectors.length === 1 ? state.deployConnectors[0].id : undefined);
           await postJson(`/api/v1/loops/${encodeURIComponent(id)}/source-closure/execute`, {
             tagName: version ? `v${String(version).replace(/^v/, "")}` : undefined,
+            deployConnectorId,
             files: [{
               path: `docs/evopilot-source-closures/${id}.md`,
               content: [
@@ -1865,6 +1886,17 @@ async function loadProjects() {
     }
   } catch {
     // 保留示例项目，便于静态查看控制台。
+  }
+}
+
+async function loadDeployConnectors() {
+  try {
+    const response = await apiFetch("/api/v1/connectors/deploy");
+    if (!response.ok) throw new Error(`部署连接器接口状态 ${response.status}`);
+    const { data } = await response.json();
+    state.deployConnectors = Array.isArray(data) ? data : [];
+  } catch {
+    state.deployConnectors = [];
   }
 }
 

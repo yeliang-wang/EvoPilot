@@ -298,8 +298,11 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
 test("Loop source closure executes GitHub source writeback gates", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-source-closure-"));
   const github = createFakeSourceClosureGitHubServer();
+  const deploy = createFakeDeployConnectorServer();
   await listen(github);
+  await listen(deploy);
   const githubPort = github.address().port;
+  const deployPort = deploy.address().port;
   const server = createServer({
     dataRoot,
     runtimeMode: "debug",
@@ -332,6 +335,21 @@ test("Loop source closure executes GitHub source writeback gates", async () => {
     assert.equal(project.status, 201);
     assert.equal(project.body.data.validation.status, "VERIFIED");
 
+    const deployConnector = await jsonFetch(`${baseUrl}/api/v1/connectors/deploy`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        id: "prod-webhook",
+        name: "Production Webhook",
+        url: `http://127.0.0.1:${deployPort}/deploy`,
+        token: "deploy-token",
+        healthPath: "/health",
+        readyPath: "/ready"
+      }
+    });
+    assert.equal(deployConnector.status, 201);
+    assert.equal(deployConnector.body.data.tokenConfigured, true);
+
     const created = await jsonFetch(`${baseUrl}/api/v1/loops`, {
       method: "POST",
       token: "operator-token",
@@ -345,6 +363,7 @@ test("Loop source closure executes GitHub source writeback gates", async () => {
           repositoryProvider: "github",
           sourceBranch: "main",
           targetVersion: "2.0.0",
+          deploymentConnectorId: "prod-webhook",
           requiredGates: ["code-change", "push", "tag", "deploy", "health-ready"]
         }
       }
@@ -357,7 +376,8 @@ test("Loop source closure executes GitHub source writeback gates", async () => {
       token: "admin-token",
       body: {
         files: [{ path: "docs/source-closure.md", content: "closed by EvoPilot" }],
-        tagName: "v2.0.0"
+        tagName: "v2.0.0",
+        deployConnectorId: "prod-webhook"
       }
     });
     assert.equal(executed.status, 200);
@@ -366,15 +386,19 @@ test("Loop source closure executes GitHub source writeback gates", async () => {
     assert.equal(executed.body.data.sourceClosure.artifacts.commitSha, "github-commit-sha");
     assert.equal(executed.body.data.sourceClosure.artifacts.pullRequestUrl, "http://github/pr/3");
     assert.equal(executed.body.data.sourceClosure.artifacts.tag, "v2.0.0");
+    assert.equal(executed.body.data.sourceClosure.artifacts.deploymentConnectorId, "prod-webhook");
+    assert.equal(executed.body.data.sourceClosure.artifacts.deploymentId, "deployment-1");
     assert.equal(executed.body.data.sourceClosure.gateEvidence["code-change"].status, "PASSED");
     assert.equal(executed.body.data.sourceClosure.gateEvidence.push.status, "PASSED");
     assert.equal(executed.body.data.sourceClosure.gateEvidence.tag.status, "PASSED");
     assert.equal(executed.body.data.sourceClosure.gateEvidence.deploy.status, "PASSED");
+    assert.ok(executed.body.data.sourceClosure.gateEvidence.deploy.evidence.some((item) => item === "deployConnector=prod-webhook"));
     assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
     assert.ok(executed.body.data.evidenceSets.some((set) => set.validator === "evopilot-source-closure"));
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await close(github);
+    await close(deploy);
   }
 });
 
@@ -503,6 +527,29 @@ function createFakeSourceClosureGitLabServer() {
     }
     if (request.url === "/api/v4/projects/group%2Fproject/repository/tags" && request.method === "POST") {
       return json(response, { name: "v2.1.0", target: "gitlab-commit-sha", web_url: "http://gitlab/tag/v2.1.0" });
+    }
+    response.writeHead(404);
+    response.end();
+  });
+}
+
+function createFakeDeployConnectorServer() {
+  return http.createServer(async (request, response) => {
+    if (request.url === "/deploy" && request.method === "POST") {
+      assert.equal(request.headers.authorization, "Bearer deploy-token");
+      return json(response, {
+        deploymentId: "deployment-1",
+        deploymentUrl: `http://${request.headers.host}`,
+        statusUrl: `http://${request.headers.host}/deployments/deployment-1`,
+        healthUrl: `http://${request.headers.host}/health`,
+        readyUrl: `http://${request.headers.host}/ready`
+      });
+    }
+    if (request.url === "/health") {
+      return json(response, { status: "UP" });
+    }
+    if (request.url === "/ready") {
+      return json(response, { status: "READY" });
     }
     response.writeHead(404);
     response.end();

@@ -148,7 +148,7 @@ The runtime is the common substrate for continuous product evolution, release re
 
 Every target loop also has a source-to-production closure state machine. When a loop is created, EvoPilot records `sourceClosure`: the registered source project, repository provider, Git URL or server-local root, source branch, target version, release strategy, required gates such as `code-change`, `push`, `tag`, `deploy`, `health-ready`, and deployment environment. If the caller does not provide it, EvoPilot derives it from the registered project.
 
-For GitHub and GitLab repositories, an admin can execute the closure through `POST /api/v1/loops/{loopId}/source-closure/execute` or the Dashboard “执行闭环” action. EvoPilot creates a release branch, commits requested files, opens a PR or MR, creates a tag when the loop requires `tag`, records deploy URL evidence, probes health/ready URLs, and writes `closureState`, `gateEvidence`, commit/tag/PR/MR artifacts, audit records, and independent evidence back into `LoopRun.sourceClosure`. This is a real SCM API boundary, not only metadata. A generic production deploy executor remains separate: EvoPilot records and probes deploy/health gates, but it does not pretend to SSH into arbitrary servers unless a deploy connector is configured.
+For GitHub and GitLab repositories, an admin can execute the closure through `POST /api/v1/loops/{loopId}/source-closure/execute` or the Dashboard “执行闭环” action. EvoPilot creates a release branch, commits requested files, opens a PR or MR, creates a tag when the loop requires `tag`, invokes a configured deploy connector for the `deploy` gate, probes health/ready URLs, and writes `closureState`, `gateEvidence`, commit/tag/PR/MR/deployment artifacts, audit records, and independent evidence back into `LoopRun.sourceClosure`. This is a real SCM and deploy-webhook boundary, not only metadata. HTTP webhook deploy connectors are built in; ECS/K8s/cloud-specific deployers can be attached through the same connector contract.
 
 ## Self-Hosted Improvement Loop
 
@@ -514,7 +514,7 @@ SkyWalking 更关注服务观测、链路追踪和诊断；EvoPilot 更关注如
 
 ## 当前状态
 
-EvoPilot 已具备可运行的产品闭环代码、中文 Dashboard、真实 LLM 链路、证据接入层、项目注册、代码升级执行边界、GitHub/GitLab 源码闭环写回、外部 Jenkins CI/CD 连接器边界和测试套件。
+EvoPilot 已具备可运行的产品闭环代码、中文 Dashboard、真实 LLM 链路、证据接入层、项目注册、代码升级执行边界、GitHub/GitLab 源码闭环写回、HTTP webhook 部署连接器、外部 Jenkins CI/CD 连接器边界和测试套件。
 
 发布到生产环境前，至少需要完成：
 
@@ -523,6 +523,7 @@ EvoPilot 已具备可运行的产品闭环代码、中文 Dashboard、真实 LLM
 - 配置真实项目接入凭据。
 - 配置或启动代码升级执行器。
 - 配置系统默认 Jenkins，或在项目注册时配置项目独立 Jenkins。
+- 为需要自动发布的 loop 配置 deploy connector。
 - 通过 `npm run check` 和 `npm run test:e2e:production`。
 
 ## 许可证
