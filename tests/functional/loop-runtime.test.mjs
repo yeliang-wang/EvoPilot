@@ -532,10 +532,171 @@ exit 0
     assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
     assert.match(fs.readFileSync(gitLog, "utf8"), /pull --ff-only origin main/);
     assert.equal(fs.readFileSync(dockerLog, "utf8").trim(), "compose -f docker-compose.prod.yml up -d --build evopilot-server");
+
+    const replayed = await jsonFetch(`${baseUrl}/api/v1/loops/github-ecs-loop/source-closure/execute`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        files: [{ path: "docs/source-closure.md", content: "closed by EvoPilot ECS connector" }],
+        deployConnectorId: "ecs-compose"
+      }
+    });
+    assert.equal(replayed.status, 200);
+    assert.equal(replayed.body.data.sourceClosure.gateEvidence.deploy.status, "PASSED");
+    assert.ok(replayed.body.data.sourceClosure.gateEvidence.deploy.evidence.some((item) => item === "idempotentReplay=true"));
+    assert.equal(fs.readFileSync(dockerLog, "utf8").trim().split("\n").length, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await close(github);
     await close(deploy);
+  }
+});
+
+test("ECS Docker Compose deploy connector rolls back after compose failure", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-ecs-compose-rollback-"));
+  const deployRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-ecs-compose-rollback-workdir-"));
+  const binDir = path.join(deployRoot, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const gitLog = path.join(deployRoot, "git.log");
+  const dockerLog = path.join(deployRoot, "docker.log");
+  const pulledMarker = path.join(deployRoot, ".pulled");
+  const resetMarker = path.join(deployRoot, ".reset");
+  const dockerCount = path.join(deployRoot, "docker-count");
+  const gitScript = path.join(binDir, "git");
+  const dockerScript = path.join(binDir, "docker");
+  fs.writeFileSync(gitScript, `#!/bin/sh
+echo "$@" >> "${gitLog}"
+if [ "$1" = "rev-parse" ]; then
+  if [ -f "${pulledMarker}" ]; then
+    echo "after-rollback-commit"
+  else
+    echo "before-rollback-commit"
+  fi
+  exit 0
+fi
+if [ "$1" = "pull" ]; then
+  touch "${pulledMarker}"
+  echo "pulled"
+  exit 0
+fi
+if [ "$1" = "reset" ]; then
+  touch "${resetMarker}"
+  echo "reset to $3"
+  exit 0
+fi
+echo "unexpected git command: $@" >&2
+exit 2
+`);
+  fs.writeFileSync(dockerScript, `#!/bin/sh
+echo "$@" >> "${dockerLog}"
+if [ ! -f "${dockerCount}" ]; then
+  echo 1 > "${dockerCount}"
+  echo "compose failed" >&2
+  exit 9
+fi
+echo "rollback compose succeeded"
+exit 0
+`);
+  fs.chmodSync(gitScript, 0o755);
+  fs.chmodSync(dockerScript, 0o755);
+
+  const github = createFakeSourceClosureGitHubServer();
+  await listen(github);
+  const githubPort = github.address().port;
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const project = await jsonFetch(`${baseUrl}/api/v1/projects`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        id: "github-ecs-rollback-source",
+        name: "GitHub ECS Rollback Source",
+        repository: {
+          provider: "github",
+          baseUrl: `http://127.0.0.1:${githubPort}`,
+          owner: "org",
+          repo: "repo",
+          defaultBranch: "main",
+          credentials: { token: "token" }
+        }
+      }
+    });
+    assert.equal(project.status, 201);
+
+    const deployConnector = await jsonFetch(`${baseUrl}/api/v1/connectors/deploy`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        id: "ecs-compose-rollback",
+        name: "ECS Docker Compose Rollback",
+        type: "ecs-docker-compose",
+        workingDir: deployRoot,
+        composeFile: "docker-compose.prod.yml",
+        serviceName: "evopilot-server",
+        gitCommand: gitScript,
+        dockerCommand: dockerScript,
+        gitRemote: "origin",
+        gitBranch: "main",
+        rollbackOnFailure: true,
+        url: "http://127.0.0.1:1",
+        healthPath: "/health",
+        readyPath: "/ready"
+      }
+    });
+    assert.equal(deployConnector.status, 201);
+    assert.equal(deployConnector.body.data.rollbackOnFailure, true);
+    assert.equal(deployConnector.body.data.deployLock, true);
+    assert.equal(deployConnector.body.data.idempotency, true);
+
+    const created = await jsonFetch(`${baseUrl}/api/v1/loops`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        id: "github-ecs-rollback-loop",
+        projectId: "github-ecs-rollback-source",
+        objective: "Rollback a failed ECS Docker Compose deployment.",
+        controlPlaneUrl: baseUrl,
+        sourceClosure: {
+          sourceProjectId: "github-ecs-rollback-source",
+          repositoryProvider: "github",
+          sourceBranch: "main",
+          targetVersion: "2.3.0",
+          deploymentConnectorId: "ecs-compose-rollback",
+          requiredGates: ["code-change", "push", "deploy", "health-ready"]
+        }
+      }
+    });
+    assert.equal(created.status, 201);
+
+    const executed = await jsonFetch(`${baseUrl}/api/v1/loops/github-ecs-rollback-loop/source-closure/execute`, {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        files: [{ path: "docs/source-closure.md", content: "closed by EvoPilot rollback connector" }],
+        deployConnectorId: "ecs-compose-rollback"
+      }
+    });
+    assert.equal(executed.status, 200);
+    assert.equal(executed.body.data.sourceClosure.closureState, "FAILED");
+    assert.equal(executed.body.data.sourceClosure.gateEvidence.deploy.status, "FAILED");
+    assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "SKIPPED");
+    assert.ok(executed.body.data.sourceClosure.gateEvidence.deploy.evidence.some((item) => item === "rollbackStatus=SUCCEEDED"));
+    assert.ok(executed.body.data.sourceClosure.gateEvidence.deploy.evidence.some((item) => item.startsWith("deployLock=")));
+    assert.match(fs.readFileSync(gitLog, "utf8"), /reset --hard before-rollback-commit/);
+    assert.equal(fs.readFileSync(dockerLog, "utf8").trim().split("\n").length, 2);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await close(github);
   }
 });
 

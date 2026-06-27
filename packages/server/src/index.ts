@@ -258,6 +258,9 @@ interface StoredDeployConnector {
   gitBranch?: string;
   gitPull?: boolean;
   build?: boolean;
+  deployLock?: boolean;
+  idempotency?: boolean;
+  rollbackOnFailure?: boolean;
   gitCommand?: string;
   dockerCommand?: string;
   healthPath?: string;
@@ -1799,6 +1802,9 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           gitBranch: body.gitBranch ? String(body.gitBranch).trim() : "main",
           gitPull: body.gitPull === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.gitPull),
           build: body.build === undefined ? true : Boolean(body.build),
+          deployLock: body.deployLock === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.deployLock),
+          idempotency: body.idempotency === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.idempotency),
+          rollbackOnFailure: body.rollbackOnFailure === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.rollbackOnFailure),
           gitCommand: body.gitCommand ? String(body.gitCommand).trim() : "git",
           dockerCommand: body.dockerCommand ? String(body.dockerCommand).trim() : "docker",
           healthPath: body.healthPath ? String(body.healthPath) : undefined,
@@ -2568,13 +2574,13 @@ class FileStore {
     return fs.readdirSync(this.deployConnectorsDir)
       .filter((file) => file.endsWith(".json"))
       .sort()
-      .map((file) => JSON.parse(fs.readFileSync(path.join(this.deployConnectorsDir, file), "utf8")) as StoredDeployConnector);
+      .map((file) => this.hydrateDeployConnector(JSON.parse(fs.readFileSync(path.join(this.deployConnectorsDir, file), "utf8"))));
   }
 
   readDeployConnector(id: string): StoredDeployConnector | undefined {
     const file = path.join(this.deployConnectorsDir, `${safeFileName(id)}.json`);
     if (!fs.existsSync(file)) return undefined;
-    return JSON.parse(fs.readFileSync(file, "utf8")) as StoredDeployConnector;
+    return this.hydrateDeployConnector(JSON.parse(fs.readFileSync(file, "utf8")));
   }
 
   writeDeployConnector(connector: StoredDeployConnector): void {
@@ -2584,6 +2590,24 @@ class FileStore {
       createdAt: existing?.createdAt ?? connector.createdAt,
       updatedAt: connector.updatedAt
     });
+  }
+
+  private hydrateDeployConnector(value: any): StoredDeployConnector {
+    const connector = value as StoredDeployConnector;
+    if (connector.type !== "ecs-docker-compose") return connector;
+    return {
+      ...connector,
+      composeFile: connector.composeFile ?? "docker-compose.yml",
+      gitRemote: connector.gitRemote ?? "origin",
+      gitBranch: connector.gitBranch ?? "main",
+      gitPull: connector.gitPull ?? true,
+      build: connector.build ?? true,
+      deployLock: connector.deployLock ?? true,
+      idempotency: connector.idempotency ?? true,
+      rollbackOnFailure: connector.rollbackOnFailure ?? true,
+      gitCommand: connector.gitCommand ?? "git",
+      dockerCommand: connector.dockerCommand ?? "docker"
+    };
   }
 
   listPipelines(): PipelineRun[] {
@@ -4915,9 +4939,14 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
       }
     }
     if (loop.sourceClosure.requiredGates.includes("health-ready")) {
-      const checks = await probeHealthReady(healthUrl, readyUrl);
-      markGate(gateEvidence, "health-ready", checks.passed ? "PASSED" : "FAILED", checks.evidence, new Date().toISOString());
-      closureState = checks.passed ? "HEALTH_READY" : "FAILED";
+      if (gateEvidence.deploy?.status === "FAILED") {
+        markGate(gateEvidence, "health-ready", "SKIPPED", ["deploy gate failed"], new Date().toISOString());
+        closureState = "FAILED";
+      } else {
+        const checks = await probeHealthReady(healthUrl, readyUrl);
+        markGate(gateEvidence, "health-ready", checks.passed ? "PASSED" : "FAILED", checks.evidence, new Date().toISOString());
+        closureState = checks.passed ? "HEALTH_READY" : "FAILED";
+      }
     }
     if (requiredSourceClosureGatesPassed(loop.sourceClosure.requiredGates, gateEvidence)) {
       closureState = "PROMOTED";
@@ -5127,56 +5156,223 @@ async function executeEcsDockerComposeDeploy(connector: StoredDeployConnector, i
     ...(input.artifacts.commitSha ? [`sourceCommit=${input.artifacts.commitSha}`] : []),
     ...(input.artifacts.tag ? [`sourceTag=${input.artifacts.tag}`] : [])
   ];
-  const before = await runBoundedCommand({
-    command: gitCommand,
-    args: ["rev-parse", "--short", "HEAD"],
-    cwd: workingDir,
-    timeoutSeconds
-  });
-  commandResults.push({ name: "git rev-parse", exitCode: before.exitCode, output: before.output });
-  if (before.exitCode !== 0) {
-    return ecsDeployResult(connector, "FAILED", evidence, commandResults, undefined, "git rev-parse failed");
+  const releaseKey = ecsDeployReleaseKey(input);
+  evidence.push(`releaseKey=${releaseKey}`);
+  const lock = connector.deployLock === false ? undefined : acquireEcsDeployLock(workingDir, connector, input, releaseKey);
+  if (connector.deployLock !== false && !lock) {
+    return ecsDeployResult(connector, "FAILED", evidence, commandResults, undefined, "deploy lock is already held");
   }
-  const beforeCommit = before.output.trim().split(/\s+/)[0];
-  evidence.push(`beforeCommit=${beforeCommit}`);
-  if (connector.gitPull !== false) {
-    const pull = await runBoundedCommand({
+  if (lock) evidence.push(`deployLock=${lock.file}`);
+  try {
+    const before = await runBoundedCommand({
       command: gitCommand,
-      args: ["pull", "--ff-only", gitRemote, gitBranch],
+      args: ["rev-parse", "--short", "HEAD"],
       cwd: workingDir,
       timeoutSeconds
     });
-    commandResults.push({ name: "git pull", exitCode: pull.exitCode, output: pull.output });
-    if (pull.exitCode !== 0) {
-      return ecsDeployResult(connector, "FAILED", evidence, commandResults, beforeCommit, "git pull failed");
+    commandResults.push({ name: "git rev-parse", exitCode: before.exitCode, output: before.output });
+    if (before.exitCode !== 0) {
+      return ecsDeployResult(connector, "FAILED", evidence, commandResults, undefined, "git rev-parse failed");
     }
+    const beforeCommit = before.output.trim().split(/\s+/)[0];
+    evidence.push(`beforeCommit=${beforeCommit}`);
+    const previousStamp = connector.idempotency === false ? undefined : readEcsDeployStamp(workingDir, connector);
+    if (previousStamp?.releaseKey === releaseKey) {
+      evidence.push("idempotentReplay=true", `idempotentDeploymentId=${previousStamp.deploymentId}`);
+      return ecsDeployResult(connector, "SUCCEEDED", evidence, commandResults, previousStamp.deploymentId);
+    }
+    if (connector.gitPull !== false) {
+      const pull = await runBoundedCommand({
+        command: gitCommand,
+        args: ["pull", "--ff-only", gitRemote, gitBranch],
+        cwd: workingDir,
+        timeoutSeconds
+      });
+      commandResults.push({ name: "git pull", exitCode: pull.exitCode, output: pull.output });
+      if (pull.exitCode !== 0) {
+        return ecsDeployResult(connector, "FAILED", evidence, commandResults, beforeCommit, "git pull failed");
+      }
+    }
+    const after = await runBoundedCommand({
+      command: gitCommand,
+      args: ["rev-parse", "--short", "HEAD"],
+      cwd: workingDir,
+      timeoutSeconds
+    });
+    commandResults.push({ name: "git rev-parse after", exitCode: after.exitCode, output: after.output });
+    if (after.exitCode !== 0) {
+      return ecsDeployResult(connector, "FAILED", evidence, commandResults, beforeCommit, "git rev-parse after failed");
+    }
+    const afterCommit = after.output.trim().split(/\s+/)[0];
+    evidence.push(`afterCommit=${afterCommit}`);
+    const composeArgs = ["compose", "-f", composeFile, "up", "-d"];
+    if (connector.build !== false) composeArgs.push("--build");
+    if (serviceName) composeArgs.push(serviceName);
+    const compose = await runBoundedCommand({
+      command: dockerCommand,
+      args: composeArgs,
+      cwd: workingDir,
+      timeoutSeconds
+    });
+    commandResults.push({ name: "docker compose up", exitCode: compose.exitCode, output: compose.output });
+    if (compose.exitCode !== 0) {
+      if (connector.rollbackOnFailure !== false) {
+        const rollbackStatus = await rollbackEcsDockerComposeDeploy({
+          connector,
+          gitCommand,
+          dockerCommand,
+          composeArgs,
+          workingDir,
+          timeoutSeconds,
+          beforeCommit,
+          commandResults
+        });
+        evidence.push(`rollbackStatus=${rollbackStatus}`);
+      }
+      return ecsDeployResult(connector, "FAILED", evidence, commandResults, afterCommit, "docker compose up failed");
+    }
+    if (connector.idempotency !== false) {
+      writeEcsDeployStamp(workingDir, connector, {
+        releaseKey,
+        deploymentId: afterCommit,
+        beforeCommit,
+        afterCommit,
+        loopId: input.loop.id,
+        updatedAt: new Date().toISOString()
+      });
+      evidence.push("idempotencyStamp=written");
+    }
+    return ecsDeployResult(connector, "SUCCEEDED", evidence, commandResults, afterCommit);
+  } finally {
+    if (lock) releaseEcsDeployLock(lock);
   }
-  const after = await runBoundedCommand({
-    command: gitCommand,
-    args: ["rev-parse", "--short", "HEAD"],
-    cwd: workingDir,
-    timeoutSeconds
+}
+
+async function rollbackEcsDockerComposeDeploy(args: {
+  connector: StoredDeployConnector;
+  gitCommand: string;
+  dockerCommand: string;
+  composeArgs: string[];
+  workingDir: string;
+  timeoutSeconds: number;
+  beforeCommit: string;
+  commandResults: Array<{ name: string; exitCode: number; output: string }>;
+}): Promise<"SUCCEEDED" | "FAILED"> {
+  const reset = await runBoundedCommand({
+    command: args.gitCommand,
+    args: ["reset", "--hard", args.beforeCommit],
+    cwd: args.workingDir,
+    timeoutSeconds: args.timeoutSeconds
   });
-  commandResults.push({ name: "git rev-parse after", exitCode: after.exitCode, output: after.output });
-  if (after.exitCode !== 0) {
-    return ecsDeployResult(connector, "FAILED", evidence, commandResults, beforeCommit, "git rev-parse after failed");
-  }
-  const afterCommit = after.output.trim().split(/\s+/)[0];
-  evidence.push(`afterCommit=${afterCommit}`);
-  const composeArgs = ["compose", "-f", composeFile, "up", "-d"];
-  if (connector.build !== false) composeArgs.push("--build");
-  if (serviceName) composeArgs.push(serviceName);
+  args.commandResults.push({ name: "rollback git reset", exitCode: reset.exitCode, output: reset.output });
+  if (reset.exitCode !== 0) return "FAILED";
   const compose = await runBoundedCommand({
-    command: dockerCommand,
-    args: composeArgs,
-    cwd: workingDir,
-    timeoutSeconds
+    command: args.dockerCommand,
+    args: args.composeArgs,
+    cwd: args.workingDir,
+    timeoutSeconds: args.timeoutSeconds
   });
-  commandResults.push({ name: "docker compose up", exitCode: compose.exitCode, output: compose.output });
-  if (compose.exitCode !== 0) {
-    return ecsDeployResult(connector, "FAILED", evidence, commandResults, afterCommit, "docker compose up failed");
+  args.commandResults.push({ name: "rollback docker compose up", exitCode: compose.exitCode, output: compose.output });
+  return compose.exitCode === 0 ? "SUCCEEDED" : "FAILED";
+}
+
+function ecsDeployReleaseKey(input: {
+  loop: LoopRun;
+  artifacts: LoopSourceClosure["artifacts"];
+  parameters: Record<string, unknown>;
+}): string {
+  const explicit = optionalTrimmedString(input.parameters.releaseKey) ?? optionalTrimmedString(input.parameters.idempotencyKey);
+  if (explicit) return explicit;
+  return [
+    input.loop.id,
+    input.artifacts.commitSha ?? "no-source-commit",
+    input.artifacts.tag ?? "no-tag",
+    input.loop.sourceClosure.targetVersion ?? "no-target-version"
+  ].join(":");
+}
+
+function ecsDeployRuntimeDir(workingDir: string, child: string): string {
+  return path.join(workingDir, ".evopilot", child);
+}
+
+function acquireEcsDeployLock(
+  workingDir: string,
+  connector: StoredDeployConnector,
+  input: { loop: LoopRun; actor: string },
+  releaseKey: string
+): { file: string } | undefined {
+  const lockDir = ecsDeployRuntimeDir(workingDir, "deploy-locks");
+  fs.mkdirSync(lockDir, { recursive: true });
+  const file = path.join(lockDir, `${safeFileName(connector.id)}.lock`);
+  try {
+    const fd = fs.openSync(file, "wx");
+    fs.writeFileSync(fd, JSON.stringify({
+      connectorId: connector.id,
+      loopId: input.loop.id,
+      actor: input.actor,
+      releaseKey,
+      pid: process.pid,
+      createdAt: new Date().toISOString()
+    }, null, 2));
+    fs.closeSync(fd);
+    return { file };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return undefined;
+    throw error;
   }
-  return ecsDeployResult(connector, "SUCCEEDED", evidence, commandResults, afterCommit);
+}
+
+function releaseEcsDeployLock(lock: { file: string }): void {
+  try {
+    fs.unlinkSync(lock.file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+interface EcsDeployStamp {
+  releaseKey: string;
+  deploymentId: string;
+  beforeCommit: string;
+  afterCommit: string;
+  loopId: string;
+  updatedAt: string;
+}
+
+function ecsDeployStampFile(workingDir: string, connector: StoredDeployConnector): string {
+  const stampDir = ecsDeployRuntimeDir(workingDir, "deploy-stamps");
+  fs.mkdirSync(stampDir, { recursive: true });
+  return path.join(stampDir, `${safeFileName(connector.id)}.json`);
+}
+
+function readEcsDeployStamp(workingDir: string, connector: StoredDeployConnector): EcsDeployStamp | undefined {
+  const file = ecsDeployStampFile(workingDir, connector);
+  if (!fs.existsSync(file)) return undefined;
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    return isRecord(value)
+      && typeof value.releaseKey === "string"
+      && typeof value.deploymentId === "string"
+      && typeof value.beforeCommit === "string"
+      && typeof value.afterCommit === "string"
+      && typeof value.loopId === "string"
+      && typeof value.updatedAt === "string"
+      ? {
+        releaseKey: value.releaseKey,
+        deploymentId: value.deploymentId,
+        beforeCommit: value.beforeCommit,
+        afterCommit: value.afterCommit,
+        loopId: value.loopId,
+        updatedAt: value.updatedAt
+      }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeEcsDeployStamp(workingDir: string, connector: StoredDeployConnector, stamp: EcsDeployStamp): void {
+  atomicWriteJson(ecsDeployStampFile(workingDir, connector), stamp);
 }
 
 function ecsDeployResult(

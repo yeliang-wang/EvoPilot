@@ -516,10 +516,15 @@ function renderProjects() {
         </div>
         <span class="pill">${state.deployConnectors.length} 个连接器</span>
       </div>
-      ${state.deployConnectors.length === 0 ? `<div class="empty">暂无部署连接器。可通过 API 注册 HTTP webhook、ECS、K8s 或云发布编排入口。</div>` : table(["连接器", "类型", "地址/工作目录", "凭据", "健康路径", "超时"], state.deployConnectors.map((connector) => [
+      ${state.deployConnectors.length === 0 ? `<div class="empty">暂无部署连接器。可通过 API 注册 HTTP webhook、ECS、K8s 或云发布编排入口。</div>` : table(["连接器", "类型", "地址/工作目录", "保护", "凭据", "健康路径", "超时"], state.deployConnectors.map((connector) => [
         `<strong>${connector.name}</strong><span class="subtext">${connector.id}</span>`,
         connector.type,
         connector.url ?? connector.workingDir ?? "-",
+        [
+          connector.deployLock ? "锁" : null,
+          connector.idempotency ? "幂等" : null,
+          connector.rollbackOnFailure ? "回滚" : null
+        ].filter(Boolean).join(" / ") || "-",
         connector.tokenConfigured ? "已配置" : "未配置",
         `${connector.healthPath ?? "/health"} / ${connector.readyPath ?? "/ready"}`,
         `${connector.timeoutSeconds ?? 30}s`
