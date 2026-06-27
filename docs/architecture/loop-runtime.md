@@ -50,6 +50,8 @@ Deploy connectors are separate runtime connectors. The built-in connector types 
 
 Dashboard loop orchestration is a productized control plane surface, not a separate script. `GET /api/v1/loop-orchestration/presets` exposes standard closed-loop presets and `POST /api/v1/loop-orchestration/instantiate` creates a source-to-production loop with a typed executor graph, Docker sandbox enforcement, worker/watchdog continuity, source closure, deployment connector binding, and health-ready rollback semantics.
 
+Target-loop backlog is the next control-plane layer above a single LoopRun. `GET /api/v1/loop-orchestration/targets` maps product-evolution work into Sandbox, Context, Harness, and Loop targets with acceptance criteria, status, next action, and evidence. `POST /api/v1/loop-orchestration/advance` creates or advances a Codex-backed target loop and stops at explicit human approval or source-closure boundaries. This keeps the long-task loop state inside EvoPilot while allowing Codex to act as an executor rather than the system of record.
+
 The remaining target-loop capabilities are now part of the product runtime:
 
 - `persistent-loop-store`: every loop exposes its active store backend, lock provider, and idempotent recovery contract. File remains the default backend; `EVOPILOT_LOOP_STORE_BACKEND=sqlite|postgres` and `EVOPILOT_LOOP_STORE_DSN` declare the production store contract without leaking credentials.

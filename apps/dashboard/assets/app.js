@@ -13,6 +13,7 @@ const state = {
   },
   deployConnectors: [],
   loopOrchestrationPresets: [],
+  loopOrchestrationTargets: [],
   serviceScorecards: [],
   intelligence: {
     selfLearningDatasetCount: 0,
@@ -1035,6 +1036,7 @@ function renderLoops() {
   const store = state.loopStore;
   return `
     ${renderLoopOrchestrationPanel()}
+    ${renderLoopTargetBacklogPanel()}
     <section class="card">
       <div class="section-title">
         <div>
@@ -1062,6 +1064,33 @@ function renderLoops() {
       ]))}
     </section>
     ${loops.slice(0, 3).map(renderLoopDetail).join("")}
+  `;
+}
+
+function renderLoopTargetBacklogPanel() {
+  const targets = state.loopOrchestrationTargets;
+  return `
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>Target Loop Backlog</h2>
+          <p>按 Sandbox、Context、Harness、Loop 四层持续推进 Codex target loop，记录 next action、stop condition 和独立证据。</p>
+        </div>
+        <span class="pill ${targets.some((target) => target.status === "RUNNING") ? "good" : "warn"}">${targets.length || 0} 个 Target</span>
+      </div>
+      <div class="table-actions">
+        <button class="primary" data-action="advance-loop-target" data-target-id="">推进下一 Target</button>
+      </div>
+      ${targets.length === 0 ? `<div class="empty">暂无 target backlog。生产模式请先输入 API Token。</div>` : table(["Target", "层", "状态", "下一步", "验收", "证据", "操作"], targets.map((target) => [
+        `<strong>${escapeHtml(target.title)}</strong><span class="subtext">${escapeHtml(target.id)}${target.loopId ? ` / ${escapeHtml(target.loopId)}` : ""}</span>`,
+        escapeHtml(target.layer),
+        statusPill(target.status),
+        escapeHtml(target.nextAction),
+        (target.acceptanceCriteria ?? []).map(escapeHtml).join("<br />"),
+        (target.evidence ?? []).map(escapeHtml).join("<br />"),
+        `<button data-action="advance-loop-target" data-target-id="${escapeHtml(target.id)}">推进</button>`
+      ]))}
+    </section>
   `;
 }
 
@@ -1615,6 +1644,28 @@ function bindLoopActions() {
       }
     });
   }
+  for (const button of content.querySelectorAll('[data-action="advance-loop-target"]')) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      state.authNotice = "";
+      try {
+        await postJson("/api/v1/loop-orchestration/advance", {
+          targetId: button.dataset.targetId || undefined,
+          projectId: state.projects[0]?.id ?? "evopilot",
+          deployConnectorId: state.deployConnectors.length === 1 ? state.deployConnectors[0].id : undefined,
+          controlPlaneUrl: window.location.origin,
+          autoStart: true
+        });
+        state.authNotice = "已推进 Codex target loop，Loop Runtime 会显示最新轮次、证据和 stop condition。";
+        await loadLoops();
+        await loadSummary();
+      } catch (error) {
+        state.authNotice = `Target 推进失败：${error.message}`;
+      } finally {
+        render();
+      }
+    });
+  }
   for (const button of content.querySelectorAll('[data-action="approve-loop"], [data-action="start-loop"], [data-action="resume-loop"], [data-action="watchdog-loop"], [data-action="execute-source-closure"]')) {
     button.addEventListener("click", async () => {
       const id = button.dataset.id;
@@ -2119,6 +2170,11 @@ async function loadLoops() {
       const { data: presetData } = await presetsResponse.json();
       state.loopOrchestrationPresets = Array.isArray(presetData) ? presetData : [];
     }
+    const targetsResponse = await apiFetch("/api/v1/loop-orchestration/targets");
+    if (targetsResponse.ok) {
+      const { data: targetData } = await targetsResponse.json();
+      state.loopOrchestrationTargets = Array.isArray(targetData) ? targetData : [];
+    }
     const storeResponse = await apiFetch("/api/v1/loop-store");
     if (storeResponse.ok) {
       const { data: storeData } = await storeResponse.json();
@@ -2137,6 +2193,7 @@ async function loadLoops() {
     state.loops = [];
     state.loopTraces = [];
     state.loopOrchestrationPresets = [];
+    state.loopOrchestrationTargets = [];
     state.authNotice = `Loop 数据读取失败：${error.message}`;
   }
 }

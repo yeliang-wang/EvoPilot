@@ -27,7 +27,7 @@ GET /api/v1/release/decisions
 | Capability | What EvoPilot provides |
 |---|---|
 | Continuous evolution control plane | Product-facing layers for evidence, decision, execution, governance, and continuity. |
-| Loop Engineering | Durable Loop Runtime, typed executor graphs, ExecutorAdapter plugins, Dashboard orchestration presets, replay with human context edits, sandbox enforcement evidence, worker leases, watchdog recovery, loop traces, and Dashboard timeline. |
+| Loop Engineering | Durable Loop Runtime, typed executor graphs, ExecutorAdapter plugins, Dashboard orchestration presets, target-loop backlog, Codex target autopilot, replay with human context edits, sandbox enforcement evidence, worker leases, watchdog recovery, loop traces, and Dashboard timeline. |
 | Evidence ingestion | Runtime events, OpenTelemetry traces/logs, SkyWalking data, evaluation results, and user feedback. |
 | Opportunity discovery | Evidence clustering, failure attribution, dynamic baselines, scorecards, SLOs, and governance rules. |
 | Human approval | Markdown evolution proposals that users can review and edit before execution. |
@@ -140,6 +140,8 @@ GET /api/v1/loop-store
 GET /api/v1/loop-observability
 POST /api/v1/loop-workers/heartbeat
 GET /api/v1/loop-orchestration/presets
+GET /api/v1/loop-orchestration/targets
+POST /api/v1/loop-orchestration/advance
 POST /api/v1/loop-orchestration/instantiate
 POST /api/v1/loops/watchdog
 POST /api/v1/im/feishu/webhook
@@ -152,7 +154,7 @@ Every target loop also has a source-to-production closure state machine. When a 
 
 For GitHub and GitLab repositories, an admin can execute the closure through `POST /api/v1/loops/{loopId}/source-closure/execute` or the Dashboard “执行闭环” action. EvoPilot creates a release branch, commits requested files, opens a PR or MR, creates a tag when the loop requires `tag`, invokes a configured deploy connector for the `deploy` gate, probes health/ready URLs, and writes `closureState`, `gateEvidence`, commit/tag/PR/MR/deployment artifacts, audit records, and independent evidence back into `LoopRun.sourceClosure`. The release states distinguish planned, code changed, pushed, tagged, deployed, health-ready, health-failed, rolled-back, promoted, and failed outcomes, so a rollout that is reverted after health failure is not reported as a promoted release. This is a real SCM and deployment boundary, not only metadata. Built-in deploy connectors cover HTTP webhooks and bounded ECS Docker Compose rollouts with deploy locks, idempotency stamps, compose-failure rollback, and post-deploy health-ready rollback; K8s/cloud-specific deployers can be attached through the same connector contract.
 
-The Dashboard also exposes a closed-loop orchestration workbench. `GET /api/v1/loop-orchestration/presets` lists productized loop presets, and `POST /api/v1/loop-orchestration/instantiate` creates a standard source-to-production target loop with a typed executor graph, Docker sandbox enforcement evidence, worker/watchdog continuity, deploy connector binding, and health-ready rollback semantics. Executor graphs now preserve typed edges, conditional routes, fan-out/fan-in edges, nested subgraph markers, and schema validation evidence in the graph contract.
+The Dashboard also exposes a closed-loop orchestration workbench. `GET /api/v1/loop-orchestration/presets` lists productized loop presets, and `POST /api/v1/loop-orchestration/instantiate` creates a standard source-to-production target loop with a typed executor graph, Docker sandbox enforcement evidence, worker/watchdog continuity, deploy connector binding, and health-ready rollback semantics. `GET /api/v1/loop-orchestration/targets` exposes the product target backlog across Sandbox, Context, Harness, and Loop layers; `POST /api/v1/loop-orchestration/advance` creates or advances the next Codex-backed target loop, records next action and stop condition, and keeps acceptance criteria as loop context. Executor graphs now preserve typed edges, conditional routes, fan-out/fan-in edges, nested subgraph markers, and schema validation evidence in the graph contract.
 
 ## Self-Hosted Improvement Loop
 

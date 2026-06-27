@@ -180,6 +180,7 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
     });
     assert.equal(presets.status, 200);
     assert.ok(presets.body.data.some((preset) => preset.id === "source-release-closure"));
+    assert.ok(presets.body.data.some((preset) => preset.id === "codex-target-loop"));
 
     const orchestrated = await jsonFetch(`${baseUrl}/api/v1/loop-orchestration/instantiate`, {
       method: "POST",
@@ -199,6 +200,51 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
     assert.equal(orchestrated.body.data.sandboxEnforcement.status, "ENFORCED");
     assert.equal(orchestrated.body.data.coordination.mode, "parallel");
     assert.ok(orchestrated.body.data.coordination.nodes.some((node) => node.dependsOn.some((dependency) => dependency.includes("fan-in"))));
+
+    const targets = await jsonFetch(`${baseUrl}/api/v1/loop-orchestration/targets`, {
+      token: "viewer-token"
+    });
+    assert.equal(targets.status, 200);
+    assert.ok(targets.body.data.some((target) => target.id === "codex-loop-target-autopilot"));
+    assert.ok(targets.body.data.some((target) => target.layer === "sandbox"));
+    assert.ok(targets.body.data.every((target) => Array.isArray(target.acceptanceCriteria)));
+
+    const advanced = await jsonFetch(`${baseUrl}/api/v1/loop-orchestration/advance`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        targetId: "codex-loop-target-autopilot",
+        projectId: "workbuddy",
+        targetVersion: "2.0.2",
+        controlPlaneUrl: baseUrl,
+        autoStart: true
+      }
+    });
+    assert.equal(advanced.status, 201);
+    assert.equal(advanced.body.data.schema, "evopilot-loop-orchestration-advance/v1");
+    assert.equal(advanced.body.data.target.id, "codex-loop-target-autopilot");
+    assert.equal(advanced.body.data.target.status, "RUNNING");
+    assert.equal(advanced.body.data.action, "start-loop");
+    assert.equal(advanced.body.data.loop.context.codexLoopTarget, true);
+    assert.equal(advanced.body.data.loop.context.orchestrationTargetId, "codex-loop-target-autopilot");
+    assert.equal(advanced.body.data.loop.sourceClosure.targetVersion, "2.0.2");
+    assert.equal(advanced.body.data.loop.currentIteration, 1);
+    assert.ok(advanced.body.data.evidence.some((item) => item === "target=codex-loop-target-autopilot"));
+    assert.ok(advanced.body.data.loop.evidenceSets[0].evidence.some((item) => item === "codexLoopTarget=true"));
+
+    const advancedAgain = await jsonFetch(`${baseUrl}/api/v1/loop-orchestration/advance`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        targetId: "codex-loop-target-autopilot",
+        projectId: "workbuddy",
+        autoStart: true
+      }
+    });
+    assert.equal(advancedAgain.status, 201);
+    assert.equal(advancedAgain.body.data.loop.id, advanced.body.data.loop.id);
+    assert.equal(advancedAgain.body.data.action, "resume-loop");
+    assert.equal(advancedAgain.body.data.loop.currentIteration, 2);
 
     const trace = await jsonFetch(`${baseUrl}/api/v1/loops/workbuddy-long-task/trace`, {
       token: "viewer-token"

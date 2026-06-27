@@ -197,6 +197,8 @@ Loop Runtime 负责长任务连续性：durable run state、heartbeat lease、wa
 
 Dashboard 的“闭环编排”会调用 `POST /api/v1/loop-orchestration/instantiate`，从标准预设创建 source-to-production target loop。该 loop 会自动带上 typed executor graph、Docker sandbox enforcement、sourceClosure、worker/watchdog 语义、deploy connector 和 health-ready rollback。创建后，用户可以在同一页启动、继续、批准、watchdog、执行源码闭环，并查看 Source Closure Workbench 和 Release Artifacts。
 
+同一页面的 Target Loop Backlog 对应 `GET /api/v1/loop-orchestration/targets` 和 `POST /api/v1/loop-orchestration/advance`。它把后续产品进化目标按 Sandbox、Context、Harness、Loop 四层排队，记录 acceptance criteria、next action、stop condition 和证据摘要；点击“推进下一 Target”时，EvoPilot 会创建或推进 Codex-backed target loop，而不是要求用户每次手工复制命令或重新描述上下文。
+
 ### 9.1 EvoPilot 自托管改进 Loop
 
 EvoPilot 可以把当前 EvoPilot 仓库或远程 EvoPilot 仓库作为被治理的目标项目接入自身控制面。这个入口用于形成受控的自举 loop，而不是让运行中的 controller 直接自我修改。

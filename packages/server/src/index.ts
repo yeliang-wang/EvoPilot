@@ -967,6 +967,31 @@ interface LoopRun {
   updatedAt: string;
 }
 
+type LoopOrchestrationTargetStatus = "PENDING" | "RUNNING" | "WAITING_HUMAN" | "DONE" | "BLOCKED";
+
+interface LoopOrchestrationTarget {
+  id: string;
+  title: string;
+  layer: "sandbox" | "context" | "harness" | "loop";
+  presetId: string;
+  objective: string;
+  acceptanceCriteria: string[];
+  status: LoopOrchestrationTargetStatus;
+  loopId?: string;
+  nextAction: "create-loop" | "start-loop" | "resume-loop" | "human-approval" | "source-closure" | "done" | "repair";
+  evidence: string[];
+}
+
+interface LoopOrchestrationAdvanceResult {
+  schema: "evopilot-loop-orchestration-advance/v1";
+  target: LoopOrchestrationTarget;
+  loop?: LoopRun;
+  action: LoopOrchestrationTarget["nextAction"];
+  advanced: boolean;
+  evidence: string[];
+  createdAt: string;
+}
+
 interface ProjectEvolutionCursor {
   projectId: string;
   lastProcessedDatasetTriggeredAt?: string;
@@ -1360,6 +1385,25 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       if (request.method === "GET" && url.pathname === "/api/v1/loop-orchestration/presets") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(loopOrchestrationPresets(store)));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-orchestration/targets") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(loopOrchestrationTargets(store)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/loop-orchestration/advance") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const result = advanceLoopOrchestrationTarget(store, auth.actor, {
+          targetId: optionalTrimmedString(body.targetId),
+          projectId: optionalTrimmedString(body.projectId),
+          targetVersion: optionalTrimmedString(body.targetVersion),
+          objective: optionalTrimmedString(body.objective),
+          controlPlaneUrl: optionalTrimmedString(body.controlPlaneUrl),
+          deployConnectorId: optionalTrimmedString(body.deployConnectorId),
+          autoStart: body.autoStart !== false
+        });
+        store.appendAudit(audit(auth, "loop-orchestration.advanced", result.target.id, { action: result.action, loopId: result.loop?.id, advanced: result.advanced }));
+        return writeJson(response, result.advanced ? 201 : 200, envelope(result));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/loop-orchestration/instantiate") {
         if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -4443,7 +4487,266 @@ function loopOrchestrationPresets(store: FileStore): Array<{
       `graphValidation=${selfEvolutionExecutorGraph().validation.status}`,
       "dashboardWorkbench=true"
     ]
+  }, {
+    id: "codex-target-loop",
+    name: "Codex Target Loop Autopilot",
+    defaultObjective: "Drive the next EvoPilot product target through Codex executor planning, source change, independent validation, source closure, and production health evidence.",
+    defaultTargetVersion: `codex-loop-${new Date().toISOString().slice(0, 10)}`,
+    controlPlaneUrl: process.env.EVOPILOT_CONTROL_PLANE_URL,
+    capabilities: [
+      "target-backlog",
+      "codex-executor",
+      "auto-advance",
+      "independent-validation",
+      "human-stop-condition",
+      "source-to-production-closure"
+    ],
+    ready: deployConnectors.length > 0,
+    evidence: [
+      `deployConnectorCount=${deployConnectors.length}`,
+      "targetBacklog=productized",
+      "advanceApi=/api/v1/loop-orchestration/advance",
+      "codexLoopTarget=true"
+    ]
   }];
+}
+
+function loopOrchestrationTargetDefinitions(): Array<Omit<LoopOrchestrationTarget, "status" | "loopId" | "nextAction" | "evidence">> {
+  return [
+    {
+      id: "codex-loop-target-autopilot",
+      title: "Codex Loop Target Autopilot",
+      layer: "loop",
+      presetId: "codex-target-loop",
+      objective: "Let EvoPilot keep a prioritized target backlog, create the next Codex-backed target loop, and advance it through start, resume, human stop, and source closure states.",
+      acceptanceCriteria: [
+        "Dashboard and API expose target backlog with status and next action.",
+        "Advance API creates or advances the next target loop idempotently.",
+        "Loop evidence records Codex executor intent, independent validation, source closure, and stop condition."
+      ]
+    },
+    {
+      id: "context-time-travel-workbench",
+      title: "Context Time Travel Workbench",
+      layer: "context",
+      presetId: "codex-target-loop",
+      objective: "Make replay, editable context, checkpoint inspection, and replay diff available as a reusable workbench for every connected project.",
+      acceptanceCriteria: [
+        "Users can inspect checkpoints and replay from a selected iteration.",
+        "Context edits are persisted as auditable artifacts.",
+        "Replay diff compares old and new executor outputs."
+      ]
+    },
+    {
+      id: "harness-worker-failover",
+      title: "Harness Worker Failover",
+      layer: "harness",
+      presetId: "codex-target-loop",
+      objective: "Turn worker lease, queue claim, watchdog recovery, and duplicate side-effect prevention into production-grade harness controls.",
+      acceptanceCriteria: [
+        "Workers claim and renew durable leases.",
+        "Expired leases are recovered by watchdog without duplicate source closure.",
+        "Dashboard shows queue pressure and failover evidence."
+      ]
+    },
+    {
+      id: "sandbox-hard-boundary-proof",
+      title: "Sandbox Hard Boundary Proof",
+      layer: "sandbox",
+      presetId: "codex-target-loop",
+      objective: "Prove Docker/K8s sandbox enforcement with network, credential, path, and resource restrictions as first-class loop evidence.",
+      acceptanceCriteria: [
+        "Sandbox policy maps to an executable Docker/K8s boundary.",
+        "Credential and path restrictions are tested and recorded.",
+        "Failed sandbox enforcement blocks non-human executor nodes."
+      ]
+    }
+  ];
+}
+
+function loopOrchestrationTargets(store: FileStore): LoopOrchestrationTarget[] {
+  const loops = store.listLoops();
+  return loopOrchestrationTargetDefinitions().map((target) => {
+    const loop = loops
+      .filter((item) => item.context?.orchestrationTargetId === target.id)
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
+    const status = loop ? targetStatusFromLoop(loop) : "PENDING";
+    return {
+      ...target,
+      status,
+      loopId: loop?.id,
+      nextAction: nextTargetAction(loop),
+      evidence: targetEvidence(target, loop)
+    };
+  });
+}
+
+function advanceLoopOrchestrationTarget(store: FileStore, actor: string, input: {
+  targetId?: string;
+  projectId?: string;
+  targetVersion?: string;
+  objective?: string;
+  controlPlaneUrl?: string;
+  deployConnectorId?: string;
+  autoStart?: boolean;
+}): LoopOrchestrationAdvanceResult {
+  const targets = loopOrchestrationTargets(store);
+  const target = input.targetId
+    ? targets.find((item) => item.id === input.targetId)
+    : targets.find((item) => item.status === "PENDING" || item.status === "RUNNING" || item.status === "BLOCKED") ?? targets[0];
+  if (!target) throw httpError(404, "LOOP_ORCHESTRATION_TARGET_NOT_FOUND", "No loop orchestration target is available.");
+  let loop = target.loopId ? store.readLoop(target.loopId) : undefined;
+  let action = target.nextAction;
+  let advanced = false;
+  const evidence = [`target=${target.id}`, `layer=${target.layer}`, `preset=${target.presetId}`];
+  if (!loop) {
+    loop = createOrchestrationTargetLoop(store, target, input);
+    action = input.autoStart === false ? "create-loop" : "start-loop";
+    advanced = true;
+    evidence.push(`loopCreated=${loop.id}`);
+  }
+  if (input.autoStart !== false && loop.status === "PENDING") {
+    loop = store.startLoop(loop.id, actor, {
+      evidence: [
+        `orchestrationTarget=${target.id}`,
+        "codexLoopTarget=true",
+        "advanceMode=auto-start"
+      ]
+    }) ?? loop;
+    action = "start-loop";
+    advanced = true;
+  } else if (input.autoStart !== false && (loop.status === "RUNNING" || loop.status === "BLOCKED")) {
+    loop = store.resumeLoop(loop.id, actor, {
+      evidence: [
+        `orchestrationTarget=${target.id}`,
+        "codexLoopTarget=true",
+        "advanceMode=auto-resume"
+      ]
+    }) ?? loop;
+    action = "resume-loop";
+    advanced = true;
+  } else if (loop.status === "WAITING_APPROVAL") {
+    action = "human-approval";
+    evidence.push("stopCondition=human-approval");
+  } else if (loop.status === "SUCCEEDED" && loop.sourceClosure.closureState !== "PROMOTED") {
+    action = "source-closure";
+    evidence.push("nextGate=source-closure");
+  } else if (loop.status === "SUCCEEDED") {
+    action = "done";
+    evidence.push("targetStatus=done");
+  }
+  const refreshedTarget = {
+    ...target,
+    status: targetStatusFromLoop(loop),
+    loopId: loop.id,
+    nextAction: nextTargetAction(loop),
+    evidence: targetEvidence(target, loop)
+  };
+  return {
+    schema: "evopilot-loop-orchestration-advance/v1",
+    target: refreshedTarget,
+    loop,
+    action,
+    advanced,
+    evidence,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function createOrchestrationTargetLoop(store: FileStore, target: LoopOrchestrationTarget, input: {
+  projectId?: string;
+  targetVersion?: string;
+  objective?: string;
+  controlPlaneUrl?: string;
+  deployConnectorId?: string;
+}): LoopRun {
+  const projectId = safeFileName(String(input.projectId ?? "evopilot-github"));
+  const project = store.readProject(projectId);
+  const deployConnectorId = input.deployConnectorId
+    ?? (store.listDeployConnectors().length === 1 ? store.listDeployConnectors()[0].id : undefined);
+  const graph = store.writeExecutorGraph(selfEvolutionExecutorGraph());
+  return store.createLoop({
+    id: `target-${target.id}-${Date.now()}`,
+    source: "api",
+    projectId,
+    objective: input.objective ?? target.objective,
+    executorGraphId: graph.id,
+    controlPlaneUrl: input.controlPlaneUrl,
+    sourceClosure: {
+      sourceProjectId: projectId,
+      repositoryProvider: project?.repository?.provider ?? "unknown",
+      sourceBranch: project?.repository?.defaultBranch ?? "main",
+      targetVersion: input.targetVersion ?? `target-${target.id}-${new Date().toISOString().slice(0, 10)}`,
+      deploymentConnectorId: deployConnectorId,
+      deploymentEnvironment: "production",
+      requiredGates: ["code-change", "push", "deploy", "health-ready"]
+    },
+    sandbox: {
+      runtime: "docker",
+      network: "restricted",
+      credentialScope: "loop",
+      allowedPaths: ["packages", "apps", "docs", "tests", "scripts"],
+      deniedPaths: [".env", ".env.*", ".git", "node_modules"]
+    },
+    stopPolicy: {
+      maxIterations: 6,
+      maxDurationSeconds: 24 * 60 * 60,
+      requireApprovalForRelease: true,
+      stopOnRepeatedFailure: 2
+    },
+    retryPolicy: {
+      maxAttemptsPerNode: 2,
+      backoffSeconds: 5,
+      circuitBreakerFailures: 2
+    },
+    context: {
+      orchestrationPresetId: target.presetId,
+      orchestrationTargetId: target.id,
+      targetLayer: target.layer,
+      codexLoopTarget: true,
+      acceptanceCriteria: target.acceptanceCriteria,
+      dashboardWorkbench: true,
+      unattendedProof: {
+        watchdog: true,
+        workerLease: true,
+        independentValidation: true,
+        sourceClosure: true,
+        deployRollback: true
+      }
+    }
+  });
+}
+
+function targetStatusFromLoop(loop?: LoopRun): LoopOrchestrationTargetStatus {
+  if (!loop) return "PENDING";
+  if (loop.status === "SUCCEEDED" && loop.sourceClosure.closureState === "PROMOTED") return "DONE";
+  if (loop.status === "WAITING_APPROVAL") return "WAITING_HUMAN";
+  if (loop.status === "FAILED" || loop.status === "CANCELLED" || loop.status === "BLOCKED") return "BLOCKED";
+  return "RUNNING";
+}
+
+function nextTargetAction(loop?: LoopRun): LoopOrchestrationTarget["nextAction"] {
+  if (!loop) return "create-loop";
+  if (loop.status === "PENDING") return "start-loop";
+  if (loop.status === "WAITING_APPROVAL") return "human-approval";
+  if (loop.status === "RUNNING" || loop.status === "BLOCKED") return "resume-loop";
+  if (loop.status === "SUCCEEDED" && loop.sourceClosure.closureState !== "PROMOTED") return "source-closure";
+  if (loop.status === "SUCCEEDED") return "done";
+  return "repair";
+}
+
+function targetEvidence(target: Pick<LoopOrchestrationTarget, "id" | "layer" | "acceptanceCriteria">, loop?: LoopRun): string[] {
+  return [
+    `target=${target.id}`,
+    `layer=${target.layer}`,
+    `acceptanceCriteria=${target.acceptanceCriteria.length}`,
+    loop ? `loop=${loop.id}` : "loop=not-created",
+    loop ? `loopStatus=${loop.status}` : "loopStatus=PENDING",
+    loop ? `iteration=${loop.currentIteration}/${loop.stopPolicy.maxIterations}` : "iteration=0",
+    loop ? `sourceClosure=${loop.sourceClosure.closureState}` : "sourceClosure=not-started",
+    loop ? `sandboxEnforcement=${loop.sandboxEnforcement.status}` : "sandboxEnforcement=pending",
+    loop?.trace ? `executorSteps=${loop.trace.executorStepCount}` : "executorSteps=0"
+  ];
 }
 
 function normalizeLoopStopPolicy(input?: Partial<LoopStopPolicy>): LoopStopPolicy {
