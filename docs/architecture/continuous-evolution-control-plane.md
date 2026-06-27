@@ -96,7 +96,15 @@ EvoPilot supports a self-hosted improvement entrypoint through `scripts/evopilot
 local checkout -> /api/v1/projects -> /api/v1/evidence/events -> /api/v1/loops
 ```
 
+For production control planes, the first step should usually be a remote repository target:
+
+```text
+GitHub or GitLab repository -> /api/v1/projects -> /api/v1/evidence/events -> /api/v1/loops
+```
+
 The controller and target are intentionally separated even when they point at the same repository. The control plane persists project registration, evidence, loop context, stop policy, retry policy, timeline, and approval state. The target scope is constrained in loop context with allowed paths and validation commands.
+
+Repository validation runs inside the EvoPilot server process. A production server cannot validate a Mac-local `/Users/.../EvoPilot` path unless that checkout also exists on the server. Use `github` or `gitlab` target registration when the control plane is remote from the developer workstation.
 
 This is not uncontrolled self-modification. The default command creates the target project, evidence, and loop only. Starting a runtime iteration requires `EVOPILOT_SELF_LOOP_START=1`, and production-changing work still requires an approved executor contract, independent validation, and human approval gates.
 

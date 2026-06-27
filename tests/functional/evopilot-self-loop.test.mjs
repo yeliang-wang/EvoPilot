@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +22,7 @@ test("self-loop script registers EvoPilot, ingests evidence, and creates a bound
     const result = await runSelfLoopScript({ baseUrl, repoRoot });
     assert.equal(result.schema, "evopilot-self-loop-result/v1");
     assert.equal(result.projectId, "evopilot-self");
+    assert.equal(result.repositoryProvider, "local-git");
     assert.equal(result.projectValidation.status, "VERIFIED");
     assert.equal(result.ingestedEvents, 1);
     assert.equal(result.loopId, "evopilot-self-executor-adapter-contract");
@@ -51,6 +53,48 @@ test("self-loop script registers EvoPilot, ingests evidence, and creates a bound
     assert.equal(idempotent.loopStatus, "PENDING");
   } finally {
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("self-loop script can register a production remote GitHub target", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-self-loop-github-data-"));
+  const github = await startFakeGitHub();
+  const previousToken = process.env.EVOPILOT_SELF_TEST_GITHUB_TOKEN;
+  process.env.EVOPILOT_SELF_TEST_GITHUB_TOKEN = "github-token";
+  const server = createServer({ dataRoot, apiToken: "self-loop-token", runtimeMode: "debug" });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const result = await runSelfLoopScript({
+      baseUrl,
+      repoRoot: process.cwd(),
+      env: {
+        EVOPILOT_SELF_REPOSITORY_PROVIDER: "github",
+        EVOPILOT_SELF_GITHUB_OWNER: "yeliang-wang",
+        EVOPILOT_SELF_GITHUB_REPO: "EvoPilot",
+        EVOPILOT_SELF_GITHUB_API_BASE_URL: github.baseUrl,
+        EVOPILOT_SELF_GITHUB_TOKEN_REF: "EVOPILOT_SELF_TEST_GITHUB_TOKEN"
+      }
+    });
+
+    assert.equal(result.repositoryProvider, "github");
+    assert.equal(result.projectValidation.status, "VERIFIED");
+    assert.equal(github.requests.length, 1);
+    assert.equal(github.requests[0].authorization, "Bearer github-token");
+
+    const projects = await get(baseUrl, "/api/v1/projects");
+    const project = projects.find((item) => item.id === "evopilot-self");
+    assert.equal(project.repository.provider, "github");
+    assert.equal(project.repository.owner, "yeliang-wang");
+    assert.equal(project.repository.repo, "EvoPilot");
+    assert.equal(project.repository.credentialsConfigured, true);
+  } finally {
+    if (previousToken === undefined) delete process.env.EVOPILOT_SELF_TEST_GITHUB_TOKEN;
+    else process.env.EVOPILOT_SELF_TEST_GITHUB_TOKEN = previousToken;
+    await new Promise((resolve) => server.close(resolve));
+    await github.close();
   }
 });
 
@@ -118,4 +162,31 @@ function createLocalEvoPilotRepo(root, name) {
   fs.writeFileSync(path.join(repoRoot, "docs", "architecture", "loop-runtime.md"), "# Loop Runtime\n");
   fs.writeFileSync(path.join(repoRoot, "packages", "server", "src", "index.ts"), "export const ok = true;\n");
   return repoRoot;
+}
+
+async function startFakeGitHub() {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    requests.push({ url: request.url, authorization: request.headers.authorization });
+    if (request.method === "GET" && request.url === "/repos/yeliang-wang/EvoPilot/git/trees/main?recursive=1") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        tree: [
+          { type: "blob", path: "package.json" },
+          { type: "blob", path: "README.md" },
+          { type: "blob", path: "packages/server/src/index.ts" }
+        ]
+      }));
+      return;
+    }
+    response.writeHead(404, { "content-type": "application/json" });
+    response.end(JSON.stringify({ message: "not found" }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve))
+  };
 }

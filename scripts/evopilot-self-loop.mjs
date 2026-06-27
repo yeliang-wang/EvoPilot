@@ -5,15 +5,12 @@ import process from "node:process";
 
 const baseUrl = trimTrailingSlash(process.env.EVOPILOT_BASE_URL ?? "http://127.0.0.1:19876");
 const token = process.env.EVOPILOT_API_TOKEN;
-const repoRoot = path.resolve(process.env.EVOPILOT_SELF_REPO_ROOT ?? process.cwd());
 const projectId = process.env.EVOPILOT_SELF_PROJECT_ID ?? "evopilot-self";
 const loopId = process.env.EVOPILOT_SELF_LOOP_ID ?? "evopilot-self-executor-adapter-contract";
 const startLoop = parseBoolean(process.env.EVOPILOT_SELF_LOOP_START, false);
+const repository = resolveSelfRepository();
 
 if (!token) fail("EVOPILOT_API_TOKEN is required.");
-if (!fs.existsSync(path.join(repoRoot, "package.json"))) {
-  fail(`EVOPILOT_SELF_REPO_ROOT must point to an EvoPilot checkout with package.json: ${repoRoot}`);
-}
 
 const safetyBoundary = {
   controllerProjectId: projectId,
@@ -84,6 +81,7 @@ console.log(JSON.stringify({
   schema: "evopilot-self-loop-result/v1",
   baseUrl,
   projectId: project.id,
+  repositoryProvider: project.repository?.provider,
   projectValidation: project.validation,
   evidenceRunId: evidence.run?.id,
   ingestedEvents: evidence.ingestedEvents,
@@ -101,18 +99,14 @@ console.log(JSON.stringify({
 async function ensureSelfProject() {
   const projects = await get("/api/v1/projects");
   const existing = projects.find((item) => item.id === projectId);
-  if (existing?.repository?.provider === "local-git" && existing.repository.root === repoRoot && existing.validation?.status === "VERIFIED") {
+  if (existing?.validation?.status === "VERIFIED" && sameRepository(existing.repository, repository)) {
     return existing;
   }
   return post("/api/v1/projects", {
     id: projectId,
     name: "EvoPilot Self",
     profileId: "evopilot-self",
-    repository: {
-      provider: "local-git",
-      root: repoRoot,
-      defaultBranch: "main"
-    }
+    repository
   });
 }
 
@@ -180,6 +174,76 @@ function parseBoolean(value, fallback) {
 
 function trimTrailingSlash(value) {
   return value.replace(/\/+$/, "");
+}
+
+function resolveSelfRepository() {
+  const provider = (process.env.EVOPILOT_SELF_REPOSITORY_PROVIDER ?? "local-git").trim();
+  const defaultBranch = process.env.EVOPILOT_SELF_REPOSITORY_DEFAULT_BRANCH ?? "main";
+  if (provider === "local-git") {
+    const repoRoot = path.resolve(process.env.EVOPILOT_SELF_REPO_ROOT ?? process.cwd());
+    if (!fs.existsSync(path.join(repoRoot, "package.json"))) {
+      fail(`EVOPILOT_SELF_REPO_ROOT must point to an EvoPilot checkout with package.json: ${repoRoot}`);
+    }
+    return {
+      provider,
+      root: repoRoot,
+      defaultBranch
+    };
+  }
+  if (provider === "github") {
+    const owner = requiredEnv("EVOPILOT_SELF_GITHUB_OWNER");
+    const repo = requiredEnv("EVOPILOT_SELF_GITHUB_REPO");
+    return {
+      provider,
+      owner,
+      repo,
+      baseUrl: optionalEnv("EVOPILOT_SELF_GITHUB_API_BASE_URL"),
+      defaultBranch,
+      token: optionalEnv("EVOPILOT_SELF_GITHUB_TOKEN"),
+      tokenRef: optionalEnv("EVOPILOT_SELF_GITHUB_TOKEN_REF")
+    };
+  }
+  if (provider === "gitlab") {
+    return {
+      provider,
+      gitUrl: optionalEnv("EVOPILOT_SELF_GITLAB_GIT_URL"),
+      baseUrl: requiredEnv("EVOPILOT_SELF_GITLAB_BASE_URL"),
+      projectId: requiredEnv("EVOPILOT_SELF_GITLAB_PROJECT_ID"),
+      defaultBranch,
+      username: optionalEnv("EVOPILOT_SELF_GITLAB_USERNAME"),
+      token: optionalEnv("EVOPILOT_SELF_GITLAB_TOKEN"),
+      tokenRef: optionalEnv("EVOPILOT_SELF_GITLAB_TOKEN_REF")
+    };
+  }
+  fail(`EVOPILOT_SELF_REPOSITORY_PROVIDER must be local-git, github, or gitlab: ${provider}`);
+}
+
+function sameRepository(existing, expected) {
+  if (!existing || existing.provider !== expected.provider) return false;
+  if (expected.provider === "local-git") return existing.root === expected.root;
+  if (expected.provider === "github") {
+    return existing.owner === expected.owner
+      && existing.repo === expected.repo
+      && (existing.baseUrl ?? "") === (expected.baseUrl ?? "")
+      && (existing.defaultBranch ?? "main") === (expected.defaultBranch ?? "main");
+  }
+  if (expected.provider === "gitlab") {
+    return existing.baseUrl === expected.baseUrl
+      && existing.projectId === expected.projectId
+      && (existing.defaultBranch ?? "main") === (expected.defaultBranch ?? "main");
+  }
+  return false;
+}
+
+function optionalEnv(name) {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function requiredEnv(name) {
+  const value = optionalEnv(name);
+  if (!value) fail(`${name} is required.`);
+  return value;
 }
 
 function fail(message) {

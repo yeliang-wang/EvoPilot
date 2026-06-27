@@ -197,7 +197,7 @@ Loop Runtime 负责长任务连续性：durable run state、heartbeat lease、wa
 
 ### 9.1 EvoPilot 自托管改进 Loop
 
-EvoPilot 可以把当前 EvoPilot 仓库作为被治理的目标项目接入自身控制面。这个入口用于形成受控的自举 loop，而不是让运行中的 controller 直接自我修改。
+EvoPilot 可以把当前 EvoPilot 仓库或远程 EvoPilot 仓库作为被治理的目标项目接入自身控制面。这个入口用于形成受控的自举 loop，而不是让运行中的 controller 直接自我修改。
 
 启动控制面后执行：
 
@@ -207,7 +207,7 @@ EVOPILOT_API_TOKEN=<admin-token> npm run self-loop
 
 该命令会完成三件事：
 
-- 注册 `evopilot-self` 项目，仓库类型为 `local-git`，并通过现有项目验证。
+- 注册 `evopilot-self` 项目，并通过现有项目验证。
 - 上报一条关于 `ExecutorAdapter` 合同缺口的真实 evidence event。
 - 创建 `evopilot-self-executor-adapter-contract` loop，并把 `allowedPaths`、`validationCommands`、`nonGoals` 和 `approvalRequired` 写入 loop context。
 
@@ -218,6 +218,20 @@ EVOPILOT_API_TOKEN=<admin-token> EVOPILOT_SELF_LOOP_START=1 npm run self-loop
 ```
 
 操作者应在 loop context 中检查边界，再用 `npm run loop-runtime:check`、`npm run check` 和 `git diff --check` 验证后续实现。
+
+生产服务器管理 EvoPilot 自身时，不应注册操作者 Mac 上的 `/Users/.../EvoPilot` 路径，因为 `local-git` 验证发生在服务器端。应注册 GitHub 或 GitLab 远程仓库：
+
+```bash
+EVOPILOT_BASE_URL=https://evopilot.example.com \
+EVOPILOT_API_TOKEN=<admin-token> \
+EVOPILOT_SELF_REPOSITORY_PROVIDER=github \
+EVOPILOT_SELF_GITHUB_OWNER=yeliang-wang \
+EVOPILOT_SELF_GITHUB_REPO=EvoPilot \
+EVOPILOT_SELF_GITHUB_TOKEN_REF=GITHUB_TOKEN \
+npm run self-loop
+```
+
+其中 `GITHUB_TOKEN` 必须存在于 EvoPilot 服务器环境中，供服务器验证远程仓库。
 
 ## 10. 角色权限
 

@@ -143,7 +143,7 @@ The runtime is the common substrate for continuous product evolution, release re
 
 ## Self-Hosted Improvement Loop
 
-EvoPilot can register the current EvoPilot checkout as an EvoPilot-managed target project and create a bounded self-improvement loop:
+EvoPilot can register an EvoPilot checkout or remote EvoPilot repository as an EvoPilot-managed target project and create a bounded self-improvement loop:
 
 ```bash
 EVOPILOT_API_TOKEN=<admin-token> npm run self-loop
@@ -151,7 +151,7 @@ EVOPILOT_API_TOKEN=<admin-token> npm run self-loop
 
 By default this command only performs controlled setup:
 
-- registers `evopilot-self` through `POST /api/v1/projects` with a verified `local-git` repository.
+- registers `evopilot-self` through `POST /api/v1/projects` with a verified repository.
 - ingests a real improvement signal through `POST /api/v1/evidence/events`.
 - creates `evopilot-self-executor-adapter-contract` through `POST /api/v1/loops`.
 - records allowed paths, validation commands, non-goals, and the human approval boundary in loop context.
@@ -167,9 +167,28 @@ Useful overrides:
 | Variable | Default | Purpose |
 |---|---|---|
 | `EVOPILOT_BASE_URL` | `http://127.0.0.1:19876` | EvoPilot control-plane URL. |
+| `EVOPILOT_SELF_REPOSITORY_PROVIDER` | `local-git` | Target repository provider: `local-git`, `github`, or `gitlab`. |
 | `EVOPILOT_SELF_REPO_ROOT` | current working directory | Target checkout to register. |
 | `EVOPILOT_SELF_PROJECT_ID` | `evopilot-self` | Project id for the self-hosted target. |
 | `EVOPILOT_SELF_LOOP_ID` | `evopilot-self-executor-adapter-contract` | Loop id, useful when starting a fresh candidate loop. |
+| `EVOPILOT_SELF_GITHUB_OWNER` / `EVOPILOT_SELF_GITHUB_REPO` | none | GitHub target owner and repository when `EVOPILOT_SELF_REPOSITORY_PROVIDER=github`. |
+| `EVOPILOT_SELF_GITHUB_TOKEN_REF` | none | Environment variable name available to the EvoPilot server, used to verify the GitHub target. |
+| `EVOPILOT_SELF_GITLAB_BASE_URL` / `EVOPILOT_SELF_GITLAB_PROJECT_ID` | none | GitLab target coordinates when `EVOPILOT_SELF_REPOSITORY_PROVIDER=gitlab`. |
+| `EVOPILOT_SELF_GITLAB_TOKEN_REF` | none | Environment variable name available to the EvoPilot server, used to verify the GitLab target. |
+
+For a production server managing this repository, register the remote GitHub target instead of a Mac-local path:
+
+```bash
+EVOPILOT_BASE_URL=https://evopilot.example.com \
+EVOPILOT_API_TOKEN=<admin-token> \
+EVOPILOT_SELF_REPOSITORY_PROVIDER=github \
+EVOPILOT_SELF_GITHUB_OWNER=yeliang-wang \
+EVOPILOT_SELF_GITHUB_REPO=EvoPilot \
+EVOPILOT_SELF_GITHUB_TOKEN_REF=GITHUB_TOKEN \
+npm run self-loop
+```
+
+`GITHUB_TOKEN` must be configured in the EvoPilot server environment, because repository validation is executed by the server.
 
 ## ProofOps Target Loop Mode
 

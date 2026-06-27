@@ -33,6 +33,30 @@ docker run --rm \
 docker compose up --build
 ```
 
+## 生产控制面接入 EvoPilot 自身
+
+生产服务器上的 EvoPilot 可以把 EvoPilot 仓库注册成受治理 target，并创建第一条受控 self-loop。推荐使用远程 GitHub/GitLab 仓库，而不是操作者本机的 `local-git` 路径；`local-git` 验证发生在服务器端，只能验证服务器本地存在的 checkout。
+
+以 GitHub 为例，先在生产服务环境中配置 `GITHUB_TOKEN`，再从任意可访问生产控制面的机器执行：
+
+```bash
+EVOPILOT_BASE_URL=https://evopilot.example.com \
+EVOPILOT_API_TOKEN=<admin-token> \
+EVOPILOT_SELF_REPOSITORY_PROVIDER=github \
+EVOPILOT_SELF_GITHUB_OWNER=yeliang-wang \
+EVOPILOT_SELF_GITHUB_REPO=EvoPilot \
+EVOPILOT_SELF_GITHUB_TOKEN_REF=GITHUB_TOKEN \
+npm run self-loop
+```
+
+如需启动一轮 Loop Runtime 迭代，显式增加：
+
+```bash
+EVOPILOT_SELF_LOOP_START=1
+```
+
+该入口只创建 target、evidence 和 loop，或在显式开启时推进一轮 runtime iteration；不会自动修改代码、merge、tag、push 或发布 GA 结论。
+
 ## 运行模式
 
 EvoPilot 默认按生产模式启动：
