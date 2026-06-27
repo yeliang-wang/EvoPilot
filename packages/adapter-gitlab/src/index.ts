@@ -12,6 +12,7 @@ export interface GitLabAdapterCapability {
   createBranch: boolean;
   commitFiles: boolean;
   createTag: boolean;
+  mergeMergeRequest: boolean;
 }
 
 export const gitLabAdapterCapability: GitLabAdapterCapability = {
@@ -20,7 +21,8 @@ export const gitLabAdapterCapability: GitLabAdapterCapability = {
   readPipelines: true,
   createBranch: true,
   commitFiles: true,
-  createTag: true
+  createTag: true,
+  mergeMergeRequest: true
 };
 
 export interface GitLabPipeline {
@@ -82,6 +84,18 @@ export class GitLabHttpAdapter {
     });
     return {
       iid: Number(response.iid),
+      webUrl: response.web_url ? String(response.web_url) : undefined
+    };
+  }
+
+  async mergeMergeRequest(iid: number, input: { commitMessage?: string } = {}): Promise<{ id: string; iid: number; mergeCommitSha?: string; webUrl?: string }> {
+    const response = await this.requestJson<any>("PUT", `/merge_requests/${encodeURIComponent(String(iid))}/merge`, {
+      ...(input.commitMessage ? { merge_commit_message: input.commitMessage } : {})
+    });
+    return {
+      id: String(response.id ?? ""),
+      iid: Number(response.iid ?? iid),
+      mergeCommitSha: response.merge_commit_sha ? String(response.merge_commit_sha) : undefined,
       webUrl: response.web_url ? String(response.web_url) : undefined
     };
   }

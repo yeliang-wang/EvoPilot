@@ -686,6 +686,8 @@ type LoopExecutorMode = "serial" | "parallel";
 type LoopSandboxRuntimeType = "host" | "docker" | "k8s";
 type LoopSourceClosureState = "PLANNED" | "CODE_CHANGED" | "PUSHED" | "TAGGED" | "DEPLOYED" | "HEALTH_READY" | "HEALTH_FAILED" | "ROLLED_BACK" | "PROMOTED" | "FAILED";
 type LoopSourceClosureGate = "code-change" | "push" | "tag" | "deploy" | "health-ready";
+type SourceReleaseClosureStage = LoopSourceClosureGate | "review" | "merge";
+type SourceReleaseReviewStatus = "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REJECTED" | "MERGED";
 
 interface SourceReleaseClosureRun {
   schema: "evopilot-source-release-closure-run/v1";
@@ -705,15 +707,26 @@ interface SourceReleaseClosureRun {
   deploymentEnvironment?: string;
   status: LoopSourceClosureState;
   stages: Array<{
-    gate: LoopSourceClosureGate;
+    gate: SourceReleaseClosureStage;
     label: string;
     status: "PENDING" | "PASSED" | "FAILED" | "SKIPPED";
     evidence: string[];
     checkedAt?: string;
   }>;
   artifacts: LoopSourceClosure["artifacts"];
+  review: {
+    status: SourceReleaseReviewStatus;
+    reviewUrl?: string;
+    approvedBy?: string;
+    approvedAt?: string;
+    rejectedBy?: string;
+    rejectedAt?: string;
+    mergedBy?: string;
+    mergedAt?: string;
+    mergeCommitSha?: string;
+  };
   capabilities: string[];
-  nextAction: "write-source" | "open-review" | "tag" | "deploy" | "probe-health" | "rollback" | "promoted" | "failed";
+  nextAction: "write-source" | "open-review" | "approve-review" | "merge-review" | "tag" | "deploy" | "probe-health" | "rollback" | "promoted" | "failed";
   createdAt: string;
   updatedAt: string;
   actor?: string;
@@ -854,8 +867,18 @@ interface LoopSourceClosure {
   artifacts: {
     branch?: string;
     commitSha?: string;
+    mergeCommitSha?: string;
     pullRequestUrl?: string;
+    pullRequestNumber?: number;
     mergeRequestUrl?: string;
+    mergeRequestIid?: number;
+    reviewStatus?: SourceReleaseReviewStatus;
+    approvedAt?: string;
+    approvedBy?: string;
+    rejectedAt?: string;
+    rejectedBy?: string;
+    mergedAt?: string;
+    mergedBy?: string;
     tag?: string;
     deploymentConnectorId?: string;
     deploymentId?: string;
@@ -1835,6 +1858,21 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           closureState: result.loop.sourceClosure.closureState,
           branch: result.loop.sourceClosure.artifacts.branch,
           tag: result.loop.sourceClosure.artifacts.tag,
+          releaseRunId: result.releaseRun.id
+        }));
+        return writeJson(response, 200, envelope({ ...result.loop, sourceReleaseRun: result.releaseRun }));
+      }
+      const loopSourceClosureReviewDecisionMatch = url.pathname.match(/^\/api\/v1\/loops\/([^/]+)\/source-closure\/review-decision$/);
+      if (request.method === "POST" && loopSourceClosureReviewDecisionMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const result = await applySourceClosureReviewDecision(store, decodeURIComponent(loopSourceClosureReviewDecisionMatch[1]), auth.actor, body);
+        if (!result) return writeJson(response, 404, { error: "LOOP_NOT_FOUND" });
+        store.appendAudit(audit(auth, "loop.source-closure-review-decided", result.loop.id, {
+          action: result.action,
+          provider: result.loop.sourceClosure.repositoryProvider,
+          reviewStatus: result.releaseRun.review.status,
+          mergeCommitSha: result.releaseRun.review.mergeCommitSha,
           releaseRunId: result.releaseRun.id
         }));
         return writeJson(response, 200, envelope({ ...result.loop, sourceReleaseRun: result.releaseRun }));
@@ -5342,8 +5380,18 @@ function normalizeSourceClosureArtifacts(value: unknown): LoopSourceClosure["art
   return {
     branch: optionalTrimmedString(value.branch),
     commitSha: optionalTrimmedString(value.commitSha),
+    mergeCommitSha: optionalTrimmedString(value.mergeCommitSha),
     pullRequestUrl: optionalTrimmedString(value.pullRequestUrl),
+    pullRequestNumber: optionalNumber(value.pullRequestNumber),
     mergeRequestUrl: optionalTrimmedString(value.mergeRequestUrl),
+    mergeRequestIid: optionalNumber(value.mergeRequestIid),
+    reviewStatus: normalizeSourceReleaseReviewStatus(value.reviewStatus),
+    approvedAt: optionalTrimmedString(value.approvedAt),
+    approvedBy: optionalTrimmedString(value.approvedBy),
+    rejectedAt: optionalTrimmedString(value.rejectedAt),
+    rejectedBy: optionalTrimmedString(value.rejectedBy),
+    mergedAt: optionalTrimmedString(value.mergedAt),
+    mergedBy: optionalTrimmedString(value.mergedBy),
     tag: optionalTrimmedString(value.tag),
     deploymentConnectorId: optionalTrimmedString(value.deploymentConnectorId),
     deploymentId: optionalTrimmedString(value.deploymentId),
@@ -5354,6 +5402,17 @@ function normalizeSourceClosureArtifacts(value: unknown): LoopSourceClosure["art
     executedAt: optionalTrimmedString(value.executedAt),
     executedBy: optionalTrimmedString(value.executedBy)
   };
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function normalizeSourceReleaseReviewStatus(value: unknown): SourceReleaseReviewStatus | undefined {
+  const status = String(value ?? "").trim().toUpperCase();
+  if (status === "NOT_REQUIRED" || status === "PENDING" || status === "APPROVED" || status === "REJECTED" || status === "MERGED") return status;
+  return undefined;
 }
 
 function optionalTrimmedString(value: unknown): string | undefined {
@@ -6287,7 +6346,11 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
           base: loop.sourceClosure.sourceBranch
         });
         artifacts.pullRequestUrl = pr.htmlUrl;
+        artifacts.pullRequestNumber = pr.number;
+        artifacts.reviewStatus = "PENDING";
         evidence.push(`github.pullRequest=${pr.htmlUrl ?? pr.number}`);
+      } else {
+        artifacts.reviewStatus = "NOT_REQUIRED";
       }
       if (tagName && loop.sourceClosure.requiredGates.includes("tag")) {
         await ignoreAlreadyExists(() => adapter.createTag(tagName, artifacts.commitSha ?? baseRef.sha));
@@ -6327,7 +6390,11 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
           targetBranch: loop.sourceClosure.sourceBranch
         });
         artifacts.mergeRequestUrl = mr.webUrl;
+        artifacts.mergeRequestIid = mr.iid;
+        artifacts.reviewStatus = "PENDING";
         evidence.push(`gitlab.mergeRequest=${mr.webUrl ?? mr.iid}`);
+      } else {
+        artifacts.reviewStatus = "NOT_REQUIRED";
       }
       if (tagName && loop.sourceClosure.requiredGates.includes("tag")) {
         const tag = await ignoreAlreadyExists(() => adapter.createTag(tagName, branch, `EvoPilot closure tag for ${loop.id}`));
@@ -6348,6 +6415,7 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
       artifacts.branch = branch;
       artifacts.commitSha = localResult.commitSha;
       artifacts.pullRequestUrl = localResult.reviewUrl;
+      artifacts.reviewStatus = request.createReviewRequest === false ? "NOT_REQUIRED" : "PENDING";
       markGate(gateEvidence, "push", "PASSED", localResult.branchEvidence, now);
       evidence.push(...localResult.evidence);
       if (files.length > 0) {
@@ -6473,6 +6541,136 @@ async function executeLoopSourceClosure(store: FileStore, loopId: string, actor:
   return { loop: updatedLoop, releaseRun };
 }
 
+async function applySourceClosureReviewDecision(store: FileStore, loopId: string, actor: string, body: unknown): Promise<{ loop: LoopRun; releaseRun: SourceReleaseClosureRun; action: string } | undefined> {
+  const loop = store.readLoop(loopId);
+  if (!loop) return undefined;
+  const project = store.readProject(loop.sourceClosure.sourceProjectId) ?? store.readProject(loop.projectId);
+  const request = isRecord(body) ? body : {};
+  const action = String(request.action ?? "approve").trim().toLowerCase();
+  if (action !== "approve" && action !== "reject" && action !== "merge") throw httpError(400, "SOURCE_CLOSURE_REVIEW_ACTION_INVALID", "action must be approve, reject, or merge.");
+  const now = new Date().toISOString();
+  const artifacts: LoopSourceClosure["artifacts"] = { ...loop.sourceClosure.artifacts };
+  const evidence: string[] = [
+    `sourceClosure.reviewAction=${action}`,
+    `sourceClosure.provider=${loop.sourceClosure.repositoryProvider}`
+  ];
+
+  if (action === "approve") {
+    artifacts.reviewStatus = "APPROVED";
+    artifacts.approvedAt = now;
+    artifacts.approvedBy = actor;
+    evidence.push(`approvedBy=${actor}`);
+  }
+  if (action === "reject") {
+    artifacts.reviewStatus = "REJECTED";
+    artifacts.rejectedAt = now;
+    artifacts.rejectedBy = actor;
+    evidence.push(`rejectedBy=${actor}`);
+  }
+  if (action === "merge") {
+    if (artifacts.reviewStatus !== "APPROVED" && request.force !== true) {
+      throw httpError(409, "SOURCE_CLOSURE_REVIEW_NOT_APPROVED", "Release review must be approved before merge unless force=true.");
+    }
+    const merge = await mergeSourceClosureReview(project, loop, artifacts, actor, optionalTrimmedString(request.commitMessage));
+    artifacts.reviewStatus = "MERGED";
+    artifacts.mergedAt = now;
+    artifacts.mergedBy = actor;
+    artifacts.mergeCommitSha = merge.mergeCommitSha;
+    evidence.push(...merge.evidence);
+  }
+
+  const updatedClosure = normalizeLoopSourceClosure({
+    ...loop.sourceClosure,
+    artifacts
+  }, project, loop.controlPlaneUrl);
+  const updatedLoop = store.writeLoop({
+    ...loop,
+    sourceClosure: updatedClosure,
+    evidenceSets: [
+      ...loop.evidenceSets,
+      {
+        id: `${loop.id}-source-review-${Date.now()}`,
+        loopRunId: loop.id,
+        iterationId: loop.iterations.at(-1)?.id ?? `${loop.id}-source-review`,
+        validator: "evopilot-source-release-review",
+        status: action === "reject" ? "FAIL" : "PASS",
+        evidence,
+        artifacts: [],
+        createdAt: now
+      }
+    ],
+    timeline: [
+      ...loop.timeline,
+      loopTimelineEvent(action === "reject" ? "DECISION" : "EVIDENCE", `Source release review ${action} recorded.`, {
+        provider: updatedClosure.repositoryProvider,
+        reviewStatus: updatedClosure.artifacts.reviewStatus,
+        mergeCommitSha: updatedClosure.artifacts.mergeCommitSha
+      })
+    ],
+    updatedAt: now
+  });
+  const latestRun = store.listSourceReleaseClosureRuns(loop.id).at(-1);
+  const releaseRun = store.writeSourceReleaseClosureRun(buildSourceReleaseClosureRun(updatedLoop, actor, latestRun?.id, latestRun?.createdAt));
+  return { loop: updatedLoop, releaseRun, action };
+}
+
+async function mergeSourceClosureReview(project: StoredProject | undefined, loop: LoopRun, artifacts: LoopSourceClosure["artifacts"], actor: string, commitMessage?: string): Promise<{ mergeCommitSha?: string; evidence: string[] }> {
+  if (loop.sourceClosure.repositoryProvider === "github") {
+    if (!project?.repository || project.repository.provider !== "github") throw httpError(409, "SOURCE_CLOSURE_PROJECT_NOT_GITHUB", "Loop source project is not a GitHub repository.");
+    const token = repositoryToken(project.repository);
+    if (!token) throw httpError(409, "SOURCE_CLOSURE_TOKEN_REQUIRED", "GitHub merge requires a project token or tokenRef.");
+    if (!project.repository.owner || !project.repository.repo) throw httpError(409, "SOURCE_CLOSURE_GITHUB_COORDINATES_REQUIRED", "GitHub merge requires owner and repo.");
+    if (!artifacts.pullRequestNumber) throw httpError(409, "SOURCE_CLOSURE_PULL_REQUEST_NUMBER_REQUIRED", "GitHub merge requires pullRequestNumber.");
+    const adapter = new GitHubHttpAdapter({
+      apiBaseUrl: project.repository.baseUrl,
+      owner: project.repository.owner,
+      repo: project.repository.repo,
+      token
+    });
+    const result = await adapter.mergePullRequest(artifacts.pullRequestNumber, {
+      commitTitle: commitMessage ?? `EvoPilot merge ${loop.id}`
+    });
+    return {
+      mergeCommitSha: result.sha || artifacts.commitSha,
+      evidence: [
+        `github.pullRequestNumber=${artifacts.pullRequestNumber}`,
+        `github.mergeCommitSha=${result.sha || (artifacts.commitSha ?? "")}`,
+        `github.merged=${result.merged}`,
+        `mergedBy=${actor}`
+      ]
+    };
+  }
+  if (loop.sourceClosure.repositoryProvider === "gitlab") {
+    if (!project?.repository || project.repository.provider !== "gitlab") throw httpError(409, "SOURCE_CLOSURE_PROJECT_NOT_GITLAB", "Loop source project is not a GitLab repository.");
+    const token = repositoryToken(project.repository);
+    if (!token) throw httpError(409, "SOURCE_CLOSURE_TOKEN_REQUIRED", "GitLab merge requires a project token or tokenRef.");
+    if (!project.repository.baseUrl || !project.repository.projectId) throw httpError(409, "SOURCE_CLOSURE_GITLAB_COORDINATES_REQUIRED", "GitLab merge requires baseUrl and projectId.");
+    if (!artifacts.mergeRequestIid) throw httpError(409, "SOURCE_CLOSURE_MERGE_REQUEST_IID_REQUIRED", "GitLab merge requires mergeRequestIid.");
+    const adapter = new GitLabHttpAdapter({
+      baseUrl: project.repository.baseUrl,
+      projectId: project.repository.projectId,
+      token
+    });
+    const result = await adapter.mergeMergeRequest(artifacts.mergeRequestIid, {
+      commitMessage: commitMessage ?? `EvoPilot merge ${loop.id}`
+    });
+    return {
+      mergeCommitSha: result.mergeCommitSha || artifacts.commitSha,
+      evidence: [
+        `gitlab.mergeRequestIid=${artifacts.mergeRequestIid}`,
+        `gitlab.mergeCommitSha=${result.mergeCommitSha || (artifacts.commitSha ?? "")}`,
+        ...(result.webUrl ? [`gitlab.mergeRequest=${result.webUrl}`] : []),
+        `mergedBy=${actor}`
+      ]
+    };
+  }
+  if (loop.sourceClosure.repositoryProvider === "local-git") {
+    if (!project?.repository || project.repository.provider !== "local-git") throw httpError(409, "SOURCE_CLOSURE_PROJECT_NOT_LOCAL_GIT", "Loop source project is not a local Git repository.");
+    return mergeLocalGitSourceClosure(project.repository, loop, artifacts, commitMessage ?? `EvoPilot merge ${loop.id}`, actor);
+  }
+  throw httpError(409, "SOURCE_CLOSURE_PROVIDER_UNSUPPORTED", "Review merge supports GitHub, GitLab, and local-git repositories.");
+}
+
 function normalizeSourceClosureFiles(value: unknown): Array<{ path: string; content: string }> {
   if (!Array.isArray(value)) return [];
   return value
@@ -6505,17 +6703,9 @@ function buildSourceReleaseClosureRun(loop: LoopRun, actor?: string, id?: string
     targetVersion: closure.targetVersion,
     deploymentEnvironment: closure.deploymentEnvironment ?? "production",
     status: closure.closureState,
-    stages: closure.requiredGates.map((gate) => {
-      const row = closure.gateEvidence[gate];
-      return {
-        gate,
-        label: sourceClosureGateLabel(gate),
-        status: row?.status ?? "PENDING",
-        evidence: row?.evidence ?? [],
-        checkedAt: row?.checkedAt
-      };
-    }),
+    stages: buildSourceReleaseClosureStages(closure),
     artifacts: closure.artifacts,
+    review: sourceReleaseReviewState(closure),
     capabilities: sourceReleaseClosureCapabilities(closure),
     nextAction: sourceReleaseClosureNextAction(closure),
     createdAt: createdAt ?? now,
@@ -6524,13 +6714,72 @@ function buildSourceReleaseClosureRun(loop: LoopRun, actor?: string, id?: string
   };
 }
 
-function sourceClosureGateLabel(gate: LoopSourceClosureGate): string {
+function buildSourceReleaseClosureStages(closure: LoopSourceClosure): SourceReleaseClosureRun["stages"] {
+  const gateStages = closure.requiredGates.map((gate) => {
+    const row = closure.gateEvidence[gate];
+    return {
+      gate,
+      label: sourceClosureGateLabel(gate),
+      status: row?.status ?? "PENDING",
+      evidence: row?.evidence ?? [],
+      checkedAt: row?.checkedAt
+    };
+  });
+  const review = sourceReleaseReviewState(closure);
+  return [
+    ...gateStages,
+    {
+      gate: "review",
+      label: "Approve release review",
+      status: review.status === "REJECTED" ? "FAILED" : review.status === "APPROVED" || review.status === "MERGED" || review.status === "NOT_REQUIRED" ? "PASSED" : "PENDING",
+      evidence: [
+        `reviewStatus=${review.status}`,
+        ...(review.reviewUrl ? [`reviewUrl=${review.reviewUrl}`] : []),
+        ...(review.approvedBy ? [`approvedBy=${review.approvedBy}`] : []),
+        ...(review.rejectedBy ? [`rejectedBy=${review.rejectedBy}`] : [])
+      ],
+      checkedAt: review.approvedAt ?? review.rejectedAt
+    },
+    {
+      gate: "merge",
+      label: "Merge release review",
+      status: review.status === "MERGED" || review.status === "NOT_REQUIRED" ? "PASSED" : review.status === "REJECTED" ? "SKIPPED" : "PENDING",
+      evidence: [
+        `reviewStatus=${review.status}`,
+        ...(review.mergeCommitSha ? [`mergeCommitSha=${review.mergeCommitSha}`] : []),
+        ...(review.mergedBy ? [`mergedBy=${review.mergedBy}`] : [])
+      ],
+      checkedAt: review.mergedAt
+    }
+  ];
+}
+
+function sourceReleaseReviewState(closure: LoopSourceClosure): SourceReleaseClosureRun["review"] {
+  const artifacts = closure.artifacts;
+  const reviewUrl = artifacts.pullRequestUrl ?? artifacts.mergeRequestUrl;
+  const status = artifacts.reviewStatus ?? (reviewUrl ? "PENDING" : "NOT_REQUIRED");
+  return {
+    status,
+    reviewUrl,
+    approvedBy: artifacts.approvedBy,
+    approvedAt: artifacts.approvedAt,
+    rejectedBy: artifacts.rejectedBy,
+    rejectedAt: artifacts.rejectedAt,
+    mergedBy: artifacts.mergedBy,
+    mergedAt: artifacts.mergedAt,
+    mergeCommitSha: artifacts.mergeCommitSha
+  };
+}
+
+function sourceClosureGateLabel(gate: SourceReleaseClosureStage): string {
   return {
     "code-change": "Write source change",
     push: "Create release branch",
     tag: "Create release tag",
     deploy: "Deploy to environment",
-    "health-ready": "Probe health and ready"
+    "health-ready": "Probe health and ready",
+    review: "Approve release review",
+    merge: "Merge release review"
   }[gate];
 }
 
@@ -6539,6 +6788,8 @@ function sourceReleaseClosureCapabilities(closure: LoopSourceClosure): string[] 
     `${closure.repositoryProvider}-source`,
     closure.releaseStrategy,
     "branch-commit-review",
+    "review-approval",
+    "merge-tracking",
     ...(closure.requiredGates.includes("tag") ? ["version-tag"] : []),
     ...(closure.requiredGates.includes("deploy") ? ["deploy-connector"] : []),
     ...(closure.requiredGates.includes("health-ready") ? ["health-ready-probe"] : []),
@@ -6547,6 +6798,10 @@ function sourceReleaseClosureCapabilities(closure: LoopSourceClosure): string[] 
 }
 
 function sourceReleaseClosureNextAction(closure: LoopSourceClosure): SourceReleaseClosureRun["nextAction"] {
+  const review = sourceReleaseReviewState(closure);
+  if (review.status === "REJECTED") return "failed";
+  if (review.status === "PENDING") return "approve-review";
+  if (review.status === "APPROVED") return "merge-review";
   if (closure.closureState === "PROMOTED") return "promoted";
   if (closure.closureState === "FAILED" || closure.closureState === "HEALTH_FAILED") return "failed";
   if (closure.closureState === "ROLLED_BACK") return "rollback";
@@ -6616,6 +6871,46 @@ async function executeLocalGitSourceClosure(repository: ProjectRepositoryRegistr
       `localGit.root=${root}`,
       `localGit.branch=${input.branch}`,
       `localGit.commit=${commitSha}`,
+      ...commandEvidence(commandResults)
+    ]
+  };
+}
+
+async function mergeLocalGitSourceClosure(repository: ProjectRepositoryRegistration, loop: LoopRun, artifacts: LoopSourceClosure["artifacts"], commitMessage: string, actor: string): Promise<{ mergeCommitSha?: string; evidence: string[] }> {
+  if (!repository.root) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_ROOT_REQUIRED", "local-git merge requires repository.root.");
+  const root = path.resolve(repository.root);
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_ROOT_NOT_FOUND", `local-git root not found: ${root}`);
+  const branch = artifacts.branch;
+  if (!branch) throw httpError(409, "SOURCE_CLOSURE_RELEASE_BRANCH_REQUIRED", "local-git merge requires a release branch.");
+  const commandResults: Array<{ name: string; exitCode: number; output: string }> = [];
+  const status = await runBoundedCommand({ command: "git", args: ["status", "--porcelain"], cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git status", exitCode: status.exitCode, output: status.output });
+  if (status.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_STATUS_FAILED", status.output);
+  if (status.output.trim()) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_DIRTY", "local-git merge requires a clean worktree.");
+  const sourceBranch = loop.sourceClosure.sourceBranch;
+  const checkout = await runBoundedCommand({ command: "git", args: ["switch", sourceBranch], cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git switch source", exitCode: checkout.exitCode, output: checkout.output });
+  if (checkout.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_SWITCH_FAILED", checkout.output);
+  const merge = await runBoundedCommand({
+    command: "git",
+    args: ["-c", "user.name=EvoPilot", "-c", "user.email=evopilot@local", "merge", "--no-ff", branch, "-m", commitMessage],
+    cwd: root,
+    timeoutSeconds: 60
+  });
+  commandResults.push({ name: "git merge", exitCode: merge.exitCode, output: merge.output });
+  if (merge.exitCode !== 0 && !merge.output.includes("Already up to date")) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_MERGE_FAILED", merge.output);
+  const head = await runBoundedCommand({ command: "git", args: ["rev-parse", "--short", "HEAD"], cwd: root, timeoutSeconds: 30 });
+  commandResults.push({ name: "git rev-parse merged head", exitCode: head.exitCode, output: head.output });
+  if (head.exitCode !== 0) throw httpError(409, "SOURCE_CLOSURE_LOCAL_GIT_HEAD_FAILED", head.output);
+  const mergeCommitSha = head.output.trim().split(/\s+/)[0];
+  return {
+    mergeCommitSha,
+    evidence: [
+      `localGit.root=${root}`,
+      `localGit.sourceBranch=${sourceBranch}`,
+      `localGit.releaseBranch=${branch}`,
+      `localGit.mergeCommit=${mergeCommitSha}`,
+      `mergedBy=${actor}`,
       ...commandEvidence(commandResults)
     ]
   };

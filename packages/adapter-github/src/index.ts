@@ -13,7 +13,8 @@ export const gitHubAdapterCapability = {
   readRef: true,
   createBranch: true,
   upsertFile: true,
-  createTag: true
+  createTag: true,
+  mergePullRequest: true
 };
 
 export interface GitHubPullRequestDraft {
@@ -47,6 +48,18 @@ export class GitHubHttpAdapter {
     return {
       number: Number(response.number),
       htmlUrl: response.html_url ? String(response.html_url) : undefined
+    };
+  }
+
+  async mergePullRequest(number: number, input: { commitTitle?: string; commitMessage?: string } = {}): Promise<{ sha: string; merged: boolean; message?: string }> {
+    const response = await this.requestJson<any>("PUT", `/pulls/${encodeURIComponent(String(number))}/merge`, {
+      ...(input.commitTitle ? { commit_title: input.commitTitle } : {}),
+      ...(input.commitMessage ? { commit_message: input.commitMessage } : {})
+    });
+    return {
+      sha: String(response.sha ?? ""),
+      merged: Boolean(response.merged ?? true),
+      message: response.message ? String(response.message) : undefined
     };
   }
 

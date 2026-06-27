@@ -1280,6 +1280,8 @@ function renderLoopDetail(loop) {
           </div>
           <div class="table-actions">
             <button data-action="load-source-release-run" data-id="${escapeHtml(loop.id)}">刷新 Release Run</button>
+            <button data-action="approve-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "PENDING" ? "" : "disabled"}>批准 Release</button>
+            <button data-action="merge-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "APPROVED" ? "" : "disabled"}>合并 Release</button>
           </div>
         </div>
         <div>
@@ -1291,6 +1293,8 @@ function renderLoopDetail(loop) {
               ["Branch", releaseRun.sourceRef?.releaseBranch ?? artifacts.branch],
               ["Commit", releaseRun.artifacts?.commitSha ?? artifacts.commitSha],
               ["Review", releaseRun.artifacts?.pullRequestUrl ?? releaseRun.artifacts?.mergeRequestUrl ?? artifacts.pullRequestUrl ?? artifacts.mergeRequestUrl],
+              ["Review Status", releaseRun.review?.status],
+              ["Merge Commit", releaseRun.review?.mergeCommitSha ?? artifacts.mergeCommitSha],
               ["Deployment", releaseRun.artifacts?.deploymentUrl ?? artifacts.deploymentUrl]
             ].filter((row) => row[1]).map(([label, value]) => `
               <div class="timeline-item">
@@ -1877,7 +1881,7 @@ function bindLoopActions() {
       }
     });
   }
-  for (const button of content.querySelectorAll('[data-action="verify-sandbox-proof"], [data-action="load-trace-tree"], [data-action="load-loop-events"], [data-action="load-source-release-run"]')) {
+  for (const button of content.querySelectorAll('[data-action="verify-sandbox-proof"], [data-action="load-trace-tree"], [data-action="load-loop-events"], [data-action="load-source-release-run"], [data-action="approve-source-release"], [data-action="merge-source-release"]')) {
     button.addEventListener("click", async () => {
       const id = button.dataset.id;
       const action = button.dataset.action;
@@ -1910,6 +1914,21 @@ function bindLoopActions() {
             data
           ].filter(Boolean);
           state.authNotice = `Release Run 已刷新：${data?.status ?? "UNKNOWN"} / next ${data?.nextAction ?? "unknown"}。`;
+        }
+        if (action === "approve-source-release" || action === "merge-source-release") {
+          const response = await postJson(`/api/v1/loops/${encodeURIComponent(id)}/source-closure/review-decision`, {
+            action: action === "approve-source-release" ? "approve" : "merge"
+          });
+          const run = response.data?.sourceReleaseRun;
+          if (run) {
+            state.sourceReleaseRuns = [
+              ...(state.sourceReleaseRuns ?? []).filter((item) => item.id !== run.id),
+              run
+            ];
+          }
+          state.authNotice = action === "approve-source-release"
+            ? `Release 已批准：${run?.review?.status ?? "UNKNOWN"}。`
+            : `Release 已合并：${run?.review?.mergeCommitSha ?? "merge commit pending"}。`;
         }
         await loadLoops();
       } catch (error) {

@@ -589,9 +589,29 @@ test("Loop source closure executes GitHub source writeback gates", async () => {
     assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
     assert.equal(executed.body.data.sourceReleaseRun.schema, "evopilot-source-release-closure-run/v1");
     assert.equal(executed.body.data.sourceReleaseRun.status, "PROMOTED");
-    assert.equal(executed.body.data.sourceReleaseRun.nextAction, "promoted");
+    assert.equal(executed.body.data.sourceReleaseRun.nextAction, "approve-review");
+    assert.equal(executed.body.data.sourceReleaseRun.review.status, "PENDING");
     assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("auditable-release-run"));
+    assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("review-approval"));
     assert.ok(executed.body.data.evidenceSets.some((set) => set.validator === "evopilot-source-closure"));
+    const approved = await jsonFetch(`${baseUrl}/api/v1/loops/github-source-loop/source-closure/review-decision`, {
+      method: "POST",
+      token: "admin-token",
+      body: { action: "approve" }
+    });
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.data.sourceReleaseRun.review.status, "APPROVED");
+    assert.equal(approved.body.data.sourceReleaseRun.nextAction, "merge-review");
+    const merged = await jsonFetch(`${baseUrl}/api/v1/loops/github-source-loop/source-closure/review-decision`, {
+      method: "POST",
+      token: "admin-token",
+      body: { action: "merge" }
+    });
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.data.sourceReleaseRun.review.status, "MERGED");
+    assert.equal(merged.body.data.sourceReleaseRun.review.mergeCommitSha, "github-merge-sha");
+    assert.equal(merged.body.data.sourceClosure.artifacts.mergeCommitSha, "github-merge-sha");
+    assert.equal(merged.body.data.sourceReleaseRun.nextAction, "promoted");
     const runs = await jsonFetch(`${baseUrl}/api/v1/loops/github-source-loop/source-release-runs`, {
       token: "operator-token"
     });
@@ -1124,11 +1144,26 @@ test("Loop source closure executes GitLab source writeback gates", async () => {
     assert.equal(executed.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
     assert.equal(executed.body.data.sourceReleaseRun.provider, "gitlab");
     assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("gitlab-merge-request"));
+    const approved = await jsonFetch(`${baseUrl}/api/v1/loops/gitlab-source-loop/source-closure/review-decision`, {
+      method: "POST",
+      token: "admin-token",
+      body: { action: "approve" }
+    });
+    assert.equal(approved.status, 200);
+    const merged = await jsonFetch(`${baseUrl}/api/v1/loops/gitlab-source-loop/source-closure/review-decision`, {
+      method: "POST",
+      token: "admin-token",
+      body: { action: "merge" }
+    });
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.data.sourceReleaseRun.review.status, "MERGED");
+    assert.equal(merged.body.data.sourceReleaseRun.review.mergeCommitSha, "gitlab-merge-sha");
     const plan = await jsonFetch(`${baseUrl}/api/v1/loops/gitlab-source-loop/source-closure/plan`, {
       token: "operator-token"
     });
     assert.equal(plan.status, 200);
     assert.equal(plan.body.data.status, "PROMOTED");
+    assert.equal(plan.body.data.review.status, "MERGED");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await close(gitlab);
@@ -1144,6 +1179,7 @@ test("Loop source closure executes local-git source writeback gates", async () =
   fs.writeFileSync(path.join(repoRoot, "README.md"), "# fixture\n");
   git(repoRoot, ["add", "README.md"]);
   git(repoRoot, ["commit", "-m", "initial"]);
+  const defaultBranch = git(repoRoot, ["branch", "--show-current"]).trim();
   const server = createServer({
     dataRoot,
     runtimeMode: "debug",
@@ -1165,7 +1201,7 @@ test("Loop source closure executes local-git source writeback gates", async () =
         repository: {
           provider: "local-git",
           root: repoRoot,
-          defaultBranch: "master"
+          defaultBranch
         }
       }
     });
@@ -1183,7 +1219,7 @@ test("Loop source closure executes local-git source writeback gates", async () =
         sourceClosure: {
           sourceProjectId: "local-source",
           repositoryProvider: "local-git",
-          sourceBranch: "master",
+          sourceBranch: defaultBranch,
           targetVersion: "2.2.0",
           requiredGates: ["code-change", "push", "tag"]
         }
@@ -1208,6 +1244,21 @@ test("Loop source closure executes local-git source writeback gates", async () =
     assert.ok(executed.body.data.sourceReleaseRun.capabilities.includes("local-git-commit"));
     assert.equal(fs.readFileSync(path.join(repoRoot, "docs", "source-closure.md"), "utf8"), "closed by local EvoPilot");
     assert.equal(git(repoRoot, ["tag", "--list", "v2.2.0"]).trim(), "v2.2.0");
+    const approved = await jsonFetch(`${baseUrl}/api/v1/loops/local-source-loop/source-closure/review-decision`, {
+      method: "POST",
+      token: "admin-token",
+      body: { action: "approve" }
+    });
+    assert.equal(approved.status, 200);
+    const merged = await jsonFetch(`${baseUrl}/api/v1/loops/local-source-loop/source-closure/review-decision`, {
+      method: "POST",
+      token: "admin-token",
+      body: { action: "merge" }
+    });
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.data.sourceReleaseRun.review.status, "MERGED");
+    assert.match(merged.body.data.sourceReleaseRun.review.mergeCommitSha, /^[0-9a-f]+$/);
+    assert.equal(git(repoRoot, ["branch", "--show-current"]).trim(), defaultBranch);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -1249,6 +1300,9 @@ function createFakeSourceClosureGitHubServer() {
     if (request.url === "/repos/org/repo/pulls" && request.method === "POST") {
       return json(response, { number: 3, html_url: "http://github/pr/3" });
     }
+    if (request.url === "/repos/org/repo/pulls/3/merge" && request.method === "PUT") {
+      return json(response, { sha: "github-merge-sha", merged: true, message: "Pull Request successfully merged" });
+    }
     response.writeHead(404);
     response.end();
   });
@@ -1267,6 +1321,9 @@ function createFakeSourceClosureGitLabServer() {
     }
     if (request.url === "/api/v4/projects/group%2Fproject/merge_requests" && request.method === "POST") {
       return json(response, { iid: 7, web_url: "http://gitlab/mr/7" });
+    }
+    if (request.url === "/api/v4/projects/group%2Fproject/merge_requests/7/merge" && request.method === "PUT") {
+      return json(response, { id: "mr-7", iid: 7, merge_commit_sha: "gitlab-merge-sha", web_url: "http://gitlab/mr/7" });
     }
     if (request.url === "/api/v4/projects/group%2Fproject/repository/tags" && request.method === "POST") {
       return json(response, { name: "v2.1.0", target: "gitlab-commit-sha", web_url: "http://gitlab/tag/v2.1.0" });
