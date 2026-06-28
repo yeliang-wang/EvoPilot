@@ -556,9 +556,34 @@ POST /api/v1/loops/{loopId}/source-closure/preflight
 GET /api/v1/source-release-runs
 GET /api/v1/loops/{loopId}/source-release-runs
 GET /api/v1/loops/{loopId}/source-closure/plan
+GET /api/v1/source-release-runs/repair-candidates
+POST /api/v1/source-release-runs/repair-candidates/repair
 ```
 
 `source-closure/plan` 会返回该 loop 最新的 release run；如果还没有执行过，则根据当前 `sourceClosure` 生成计划视图。Dashboard 的 Release Closure Runtime 工作台使用这些接口展示阶段、next action、capabilities、source ref 和 artifacts。
+
+`repair-candidates` 会返回需要人工或自动修复的 release run，默认包含 `FAILED`、`HEALTH_FAILED`、`ROLLED_BACK` 等失败或陈旧状态，并排除已经被后续成功运行修复的候选。返回项包含 run、loop、project、provider、source ref、target version、失败 stage、failure signature、next action、capabilities 和推荐 repair request。Dashboard 的 Release Run Auto Repair Workbench 使用该接口展示队列。
+
+修复接口支持单条或批量修复：
+
+```json
+{
+  "runIds": ["loop-a-source-release-1782645327477"],
+  "execute": true,
+  "repairRequest": {
+    "allowDirtyWorktree": true,
+    "files": [
+      {
+        "path": "docs/release-evidence.md",
+        "content": "release evidence"
+      }
+    ],
+    "commitMessage": "Repair source release closure"
+  }
+}
+```
+
+当 `execute=true` 时，EvoPilot 复用同一条 source-closure 执行路径，而不是直接改写状态：重新运行 SCM 写回、deploy connector、health/ready、release policy 和 evidence 写入。成功后会创建新的 `evopilot-source-release-closure-run/v1`，原失败候选不再出现在 repair queue；失败时保留 blocker、stage evidence 和 next action。生产 ECS 演练已验证：一个本地 Git 项目先因 dirty worktree 产生 `FAILED` release run，随后在 Dashboard 点击单行“修复”后生成 `PROMOTED` release run，并从 repair candidates 队列移除。
 
 Release review 决策接口：
 
