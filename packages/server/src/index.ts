@@ -793,6 +793,26 @@ interface SourceReleaseClosureRun {
   actor?: string;
 }
 
+interface SourceReleaseDeployFinalizer {
+  schema: "evopilot-source-release-deploy-finalizer/v1";
+  id: string;
+  loopId: string;
+  releaseRunId?: string;
+  deployConnectorId: string;
+  actor: string;
+  status: "PENDING" | "SUCCEEDED" | "FAILED";
+  createdAt: string;
+  updatedAt: string;
+  artifacts: LoopSourceClosure["artifacts"];
+  deploymentEnvironment?: string;
+  healthUrl?: string;
+  readyUrl?: string;
+  attempts: number;
+  maxAttempts: number;
+  evidence: string[];
+  lastError?: string;
+}
+
 interface SourceClosurePreflightResult {
   schema: "evopilot-source-closure-preflight/v1";
   loopId: string;
@@ -1452,6 +1472,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       dashboardEnabled: Boolean(options.dashboardRoot)
     }
   });
+  void reconcilePendingSourceReleaseDeployFinalizers(store).catch((error) => logError("source-release.deploy-finalizer.reconcile-failed", error));
 
   return http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -2026,6 +2047,12 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       if (request.method === "GET" && url.pathname === "/api/v1/source-release-runs") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listSourceReleaseClosureRuns()));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/source-release-deploy-finalizers") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const status = optionalTrimmedString(url.searchParams.get("status"))?.toUpperCase() as SourceReleaseDeployFinalizer["status"] | undefined;
+        const filter = status === "PENDING" || status === "SUCCEEDED" || status === "FAILED" ? status : undefined;
+        return writeJson(response, 200, envelope(store.listSourceReleaseDeployFinalizers(filter)));
       }
       const loopMatch = url.pathname.match(/^\/api\/v1\/loops\/([^/]+)$/);
       if (request.method === "GET" && loopMatch) {
@@ -2836,6 +2863,7 @@ class FileStore {
     fs.mkdirSync(this.releaseTargetsDir, { recursive: true });
     fs.mkdirSync(this.releaseDecisionsDir, { recursive: true });
     fs.mkdirSync(this.sourceReleaseRunsDir, { recursive: true });
+    fs.mkdirSync(this.sourceReleaseDeployFinalizersDir, { recursive: true });
     fs.mkdirSync(this.targetLoopsDir, { recursive: true });
     fs.mkdirSync(this.loopsDir, { recursive: true });
     fs.mkdirSync(this.loopWorkspacesDir, { recursive: true });
@@ -2925,6 +2953,10 @@ class FileStore {
 
   get sourceReleaseRunsDir(): string {
     return path.join(this.dataRoot, "source-release-runs");
+  }
+
+  get sourceReleaseDeployFinalizersDir(): string {
+    return path.join(this.dataRoot, "source-release-deploy-finalizers");
   }
 
   get targetLoopsDir(): string {
@@ -3978,6 +4010,26 @@ class FileStore {
   writeSourceReleaseClosureRun(run: SourceReleaseClosureRun): SourceReleaseClosureRun {
     atomicWriteJson(path.join(this.sourceReleaseRunsDir, `${safeFileName(run.id)}.json`), run);
     return run;
+  }
+
+  listSourceReleaseDeployFinalizers(status?: SourceReleaseDeployFinalizer["status"]): SourceReleaseDeployFinalizer[] {
+    const finalizers = fs.readdirSync(this.sourceReleaseDeployFinalizersDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => JSON.parse(fs.readFileSync(path.join(this.sourceReleaseDeployFinalizersDir, file), "utf8")) as SourceReleaseDeployFinalizer)
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+    return status ? finalizers.filter((finalizer) => finalizer.status === status) : finalizers;
+  }
+
+  readSourceReleaseDeployFinalizer(id: string): SourceReleaseDeployFinalizer | undefined {
+    const file = path.join(this.sourceReleaseDeployFinalizersDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as SourceReleaseDeployFinalizer;
+  }
+
+  writeSourceReleaseDeployFinalizer(finalizer: SourceReleaseDeployFinalizer): SourceReleaseDeployFinalizer {
+    atomicWriteJson(path.join(this.sourceReleaseDeployFinalizersDir, `${safeFileName(finalizer.id)}.json`), finalizer);
+    return finalizer;
   }
 
   listTargetLoops(): TargetLoopRun[] {
@@ -7275,7 +7327,8 @@ async function applySourceClosureReviewDecision(store: FileStore, loopId: string
     artifacts.mergeCommitSha = merge.mergeCommitSha;
     evidence.push(...merge.evidence);
     if (request.postMergeDeploy !== false) {
-      const postMergeDeploy = await executePostMergeDeployment(store, loop, project, artifacts, actor, request);
+      const latestRun = store.listSourceReleaseClosureRuns(loop.id).at(-1);
+      const postMergeDeploy = await executePostMergeDeployment(store, loop, project, artifacts, actor, request, latestRun?.id);
       artifacts.postMergeDeployStatus = postMergeDeploy.status;
       artifacts.postMergeDeployAt = postMergeDeploy.deployedAt;
       artifacts.postMergeDeployBy = actor;
@@ -7426,7 +7479,7 @@ function evaluateSourceReleasePolicy(loop: LoopRun, artifacts: LoopSourceClosure
   };
 }
 
-async function executePostMergeDeployment(store: FileStore, loop: LoopRun, project: StoredProject | undefined, artifacts: LoopSourceClosure["artifacts"], actor: string, request: Record<string, unknown>): Promise<{
+async function executePostMergeDeployment(store: FileStore, loop: LoopRun, project: StoredProject | undefined, artifacts: LoopSourceClosure["artifacts"], actor: string, request: Record<string, unknown>, releaseRunId?: string): Promise<{
   status: SourceReleasePostMergeDeployStatus;
   deployedAt: string;
   evidence: string[];
@@ -7444,6 +7497,28 @@ async function executePostMergeDeployment(store: FileStore, loop: LoopRun, proje
     commitSha: artifacts.mergeCommitSha ?? artifacts.commitSha,
     deploymentConnectorId: deployConnectorId
   };
+  const finalizer = store.writeSourceReleaseDeployFinalizer({
+    schema: "evopilot-source-release-deploy-finalizer/v1",
+    id: `${loop.id}-${releaseRunId ?? "latest"}-${Date.now()}`,
+    loopId: loop.id,
+    releaseRunId,
+    deployConnectorId,
+    actor,
+    status: "PENDING",
+    createdAt: deployedAt,
+    updatedAt: deployedAt,
+    artifacts: deploymentArtifacts,
+    deploymentEnvironment: loop.sourceClosure.deploymentEnvironment ?? "production",
+    healthUrl: deploymentArtifacts.healthUrl,
+    readyUrl: deploymentArtifacts.readyUrl,
+    attempts: 0,
+    maxAttempts: 3,
+    evidence: [
+      "postMergeDeployFinalizer=PENDING",
+      `postMergeDeployConnector=${deployConnectorId}`,
+      `releaseRunId=${releaseRunId ?? "latest"}`
+    ]
+  });
   const deployResult = await executeDeployConnector(store, deployConnectorId, {
     loop: {
       ...loop,
@@ -7482,17 +7557,142 @@ async function executePostMergeDeployment(store: FileStore, loop: LoopRun, proje
     rollbackEvidence.push(...rollbackResult.evidence);
     status = rollbackResult.status === "SUCCEEDED" ? "ROLLED_BACK" : "FAILED";
   }
+  const evidence = [
+    `postMergeDeploy=${status}`,
+    `postMergeDeployConnector=${deployConnectorId}`,
+    ...deployResult.evidence,
+    ...health.evidence,
+    ...rollbackEvidence
+  ];
+  store.writeSourceReleaseDeployFinalizer({
+    ...finalizer,
+    status: status === "SUCCEEDED" ? "SUCCEEDED" : "FAILED",
+    updatedAt: new Date().toISOString(),
+    artifacts: { ...deploymentArtifacts, ...artifacts },
+    healthUrl: artifacts.healthUrl,
+    readyUrl: artifacts.readyUrl,
+    attempts: 1,
+    evidence: [
+      ...finalizer.evidence,
+      ...evidence,
+      status === "SUCCEEDED" ? "postMergeDeployFinalizer=SUCCEEDED" : "postMergeDeployFinalizer=FAILED"
+    ]
+  });
   return {
     status,
     deployedAt,
-    evidence: [
-      `postMergeDeploy=${status}`,
-      `postMergeDeployConnector=${deployConnectorId}`,
-      ...deployResult.evidence,
-      ...health.evidence,
-      ...rollbackEvidence
-    ]
+    evidence
   };
+}
+
+async function reconcilePendingSourceReleaseDeployFinalizers(store: FileStore): Promise<SourceReleaseDeployFinalizer[]> {
+  const reconciled: SourceReleaseDeployFinalizer[] = [];
+  for (const pending of store.listSourceReleaseDeployFinalizers("PENDING")) {
+    const loop = store.readLoop(pending.loopId);
+    const now = new Date().toISOString();
+    if (!loop) {
+      reconciled.push(store.writeSourceReleaseDeployFinalizer({
+        ...pending,
+        status: "FAILED",
+        attempts: pending.attempts + 1,
+        updatedAt: now,
+        lastError: "LOOP_NOT_FOUND",
+        evidence: [...pending.evidence, "postMergeDeployFinalizer=FAILED", "loop=missing"]
+      }));
+      continue;
+    }
+    const artifacts: LoopSourceClosure["artifacts"] = {
+      ...loop.sourceClosure.artifacts,
+      ...pending.artifacts,
+      deploymentConnectorId: pending.deployConnectorId,
+      postMergeDeployBy: pending.actor
+    };
+    const healthUrl = pending.healthUrl ?? artifacts.healthUrl;
+    const readyUrl = pending.readyUrl ?? artifacts.readyUrl;
+    const checks = await probeHealthReady(healthUrl, readyUrl);
+    const attempts = pending.attempts + 1;
+    if (!checks.passed && attempts < pending.maxAttempts) {
+      reconciled.push(store.writeSourceReleaseDeployFinalizer({
+        ...pending,
+        attempts,
+        updatedAt: now,
+        healthUrl,
+        readyUrl,
+        evidence: [...pending.evidence, ...checks.evidence, `postMergeDeployFinalizerAttempt=${attempts}`],
+        lastError: "health-ready probe failed"
+      }));
+      continue;
+    }
+    const gateEvidence: LoopSourceClosure["gateEvidence"] = { ...loop.sourceClosure.gateEvidence };
+    const deployEvidence = [
+      `postMergeDeployFinalizer=${checks.passed ? "SUCCEEDED" : "FAILED"}`,
+      `postMergeDeployConnector=${pending.deployConnectorId}`,
+      ...checks.evidence
+    ];
+    markGate(gateEvidence, "deploy", checks.passed ? "PASSED" : "FAILED", [
+      ...(gateEvidence.deploy?.evidence ?? []),
+      ...deployEvidence
+    ], now);
+    if (loop.sourceClosure.requiredGates.includes("health-ready")) {
+      markGate(gateEvidence, "health-ready", checks.passed ? "PASSED" : "FAILED", [
+        ...(gateEvidence["health-ready"]?.evidence ?? []),
+        ...checks.evidence
+      ], now);
+    }
+    artifacts.postMergeDeployStatus = checks.passed ? "SUCCEEDED" : "FAILED";
+    artifacts.postMergeDeployAt = now;
+    artifacts.postMergeDeployBy = pending.actor;
+    artifacts.healthUrl = healthUrl;
+    artifacts.readyUrl = readyUrl;
+    const closureState: LoopSourceClosureState = checks.passed && requiredSourceClosureGatesPassed(loop.sourceClosure.requiredGates, gateEvidence) ? "PROMOTED" : "FAILED";
+    const project = store.readProject(loop.sourceClosure.sourceProjectId) ?? store.readProject(loop.projectId);
+    const updatedClosure = normalizeLoopSourceClosure({
+      ...loop.sourceClosure,
+      closureState,
+      gateEvidence,
+      artifacts
+    }, project, loop.controlPlaneUrl);
+    const updatedLoop = store.writeLoop({
+      ...loop,
+      sourceClosure: updatedClosure,
+      evidenceSets: [
+        ...loop.evidenceSets,
+        {
+          id: `${loop.id}-post-merge-deploy-finalizer-${Date.now()}`,
+          loopRunId: loop.id,
+          iterationId: loop.iterations.at(-1)?.id ?? `${loop.id}-post-merge-deploy-finalizer`,
+          validator: "evopilot-source-release-deploy-finalizer",
+          status: checks.passed ? "PASS" : "FAIL",
+          evidence: deployEvidence,
+          artifacts: [],
+          createdAt: now
+        }
+      ],
+      timeline: [
+        ...loop.timeline,
+        loopTimelineEvent(checks.passed ? "EVIDENCE" : "DECISION", `Post-merge deploy finalizer reconciled as ${artifacts.postMergeDeployStatus}.`, {
+          deployConnectorId: pending.deployConnectorId,
+          releaseRunId: pending.releaseRunId,
+          closureState
+        })
+      ],
+      updatedAt: now
+    });
+    const latestRun = store.listSourceReleaseClosureRuns(loop.id).at(-1);
+    store.writeSourceReleaseClosureRun(buildSourceReleaseClosureRun(updatedLoop, pending.actor, pending.releaseRunId ?? latestRun?.id, latestRun?.createdAt));
+    reconciled.push(store.writeSourceReleaseDeployFinalizer({
+      ...pending,
+      status: checks.passed ? "SUCCEEDED" : "FAILED",
+      attempts,
+      updatedAt: now,
+      artifacts,
+      healthUrl,
+      readyUrl,
+      evidence: [...pending.evidence, ...deployEvidence],
+      lastError: checks.passed ? undefined : "health-ready probe failed"
+    }));
+  }
+  return reconciled;
 }
 
 function normalizeSourceClosureFiles(value: unknown): Array<{ path: string; content: string }> {
@@ -7856,6 +8056,7 @@ function sourceReleaseClosureCapabilities(closure: LoopSourceClosure): string[] 
     "safe-auto-merge",
     "merge-tracking",
     "post-merge-deploy-closure",
+    "durable-post-merge-deploy-finalizer",
     ...(closure.requiredGates.includes("tag") ? ["version-tag"] : []),
     ...(closure.requiredGates.includes("deploy") ? ["deploy-connector"] : []),
     ...(closure.requiredGates.includes("health-ready") ? ["health-ready-probe"] : []),

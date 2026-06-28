@@ -851,6 +851,124 @@ exit 0
   }
 });
 
+test("Post-merge deploy finalizer reconciles source release state after server restart", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-source-release-finalizer-"));
+  const probe = http.createServer((request, response) => {
+    if (request.url === "/health") return json(response, { status: "UP" });
+    if (request.url === "/ready") return json(response, { status: "READY" });
+    response.writeHead(404);
+    response.end();
+  });
+  await listen(probe);
+  const probePort = probe.address().port;
+  const firstServer = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ]
+  });
+  await listen(firstServer);
+  const firstBaseUrl = `http://127.0.0.1:${firstServer.address().port}`;
+  try {
+    const created = await jsonFetch(`${firstBaseUrl}/api/v1/loops`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        id: "self-deploy-finalizer-loop",
+        projectId: "evopilot",
+        objective: "Finalize self deploy after process restart.",
+        controlPlaneUrl: `http://127.0.0.1:${probePort}`,
+        sourceClosure: {
+          sourceProjectId: "evopilot",
+          repositoryProvider: "github",
+          sourceBranch: "main",
+          targetVersion: "2.3.0",
+          deploymentConnectorId: "ecs-compose",
+          requiredGates: ["deploy", "health-ready"]
+        }
+      }
+    });
+    assert.equal(created.status, 201);
+  } finally {
+    await close(firstServer);
+  }
+
+  const now = new Date().toISOString();
+  const finalizersDir = path.join(dataRoot, "source-release-deploy-finalizers");
+  fs.mkdirSync(finalizersDir, { recursive: true });
+  fs.writeFileSync(path.join(finalizersDir, "self-deploy-finalizer-loop-release-run-1.json"), JSON.stringify({
+    schema: "evopilot-source-release-deploy-finalizer/v1",
+    id: "self-deploy-finalizer-loop-release-run-1",
+    loopId: "self-deploy-finalizer-loop",
+    releaseRunId: "release-run-1",
+    deployConnectorId: "ecs-compose",
+    actor: "admin",
+    status: "PENDING",
+    createdAt: now,
+    updatedAt: now,
+    artifacts: {
+      mergeCommitSha: "merged-sha",
+      commitSha: "merged-sha",
+      reviewStatus: "MERGED",
+      mergedAt: now,
+      mergedBy: "admin",
+      policyStatus: "PASS",
+      policyEvaluatedAt: now,
+      deploymentConnectorId: "ecs-compose",
+      deploymentId: "self-deploy-1",
+      deploymentUrl: `http://127.0.0.1:${probePort}`,
+      healthUrl: `http://127.0.0.1:${probePort}/health`,
+      readyUrl: `http://127.0.0.1:${probePort}/ready`
+    },
+    deploymentEnvironment: "production",
+    healthUrl: `http://127.0.0.1:${probePort}/health`,
+    readyUrl: `http://127.0.0.1:${probePort}/ready`,
+    attempts: 0,
+    maxAttempts: 3,
+    evidence: ["postMergeDeployFinalizer=PENDING", "postMergeDeployConnector=ecs-compose"]
+  }, null, 2));
+
+  const secondServer = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    tokens: [
+      { name: "operator", token: "operator-token", role: "operator" },
+      { name: "admin", token: "admin-token", role: "admin" }
+    ]
+  });
+  await listen(secondServer);
+  const secondBaseUrl = `http://127.0.0.1:${secondServer.address().port}`;
+  try {
+    const finalizers = await waitFor(async () => {
+      const result = await jsonFetch(`${secondBaseUrl}/api/v1/source-release-deploy-finalizers`, { token: "operator-token" });
+      assert.equal(result.status, 200);
+      const finalizer = result.body.data.find((item) => item.id === "self-deploy-finalizer-loop-release-run-1");
+      return finalizer?.status === "SUCCEEDED" ? result : undefined;
+    });
+    assert.equal(finalizers.body.data.find((item) => item.id === "self-deploy-finalizer-loop-release-run-1").attempts, 1);
+
+    const loop = await jsonFetch(`${secondBaseUrl}/api/v1/loops/self-deploy-finalizer-loop`, { token: "operator-token" });
+    assert.equal(loop.status, 200);
+    assert.equal(loop.body.data.sourceClosure.closureState, "PROMOTED");
+    assert.equal(loop.body.data.sourceClosure.artifacts.postMergeDeployStatus, "SUCCEEDED");
+    assert.equal(loop.body.data.sourceClosure.gateEvidence.deploy.status, "PASSED");
+    assert.equal(loop.body.data.sourceClosure.gateEvidence["health-ready"].status, "PASSED");
+    assert.ok(loop.body.data.evidenceSets.some((set) => set.validator === "evopilot-source-release-deploy-finalizer"));
+
+    const runs = await jsonFetch(`${secondBaseUrl}/api/v1/loops/self-deploy-finalizer-loop/source-release-runs`, { token: "operator-token" });
+    assert.equal(runs.status, 200);
+    assert.equal(runs.body.data.at(-1).id, "release-run-1");
+    assert.equal(runs.body.data.at(-1).status, "PROMOTED");
+    assert.equal(runs.body.data.at(-1).postMergeDeployment.status, "SUCCEEDED");
+    assert.ok(runs.body.data.at(-1).capabilities.includes("durable-post-merge-deploy-finalizer"));
+  } finally {
+    await close(secondServer);
+    await close(probe);
+  }
+});
+
 test("ECS Docker Compose deploy connector rolls back after compose failure", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-ecs-compose-rollback-"));
   const deployRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-ecs-compose-rollback-workdir-"));
@@ -1730,6 +1848,22 @@ function listen(server) {
 
 function close(server) {
   return new Promise((resolve) => server.close(resolve));
+}
+
+async function waitFor(probe, timeoutMs = 2000) {
+  const startedAt = Date.now();
+  let lastError;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const result = await probe();
+      if (result) return result;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  if (lastError) throw lastError;
+  throw new Error("Timed out waiting for condition.");
 }
 
 function authHeaders(token, json = false) {
