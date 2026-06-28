@@ -403,6 +403,18 @@ td {
   grid-column: 1 / -1;
 }
 
+.project-form .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-form .checkbox-field input {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
 .form-actions {
   grid-column: 1 / -1;
   display: flex;

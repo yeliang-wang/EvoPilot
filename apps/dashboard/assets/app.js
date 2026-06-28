@@ -50,6 +50,8 @@ const state = {
     insights: []
   },
   showProjectRegistrationModal: false,
+  showSourceCredentialModal: false,
+  sourceCredentialProjectId: "",
   reviewingOpportunityId: "",
   editingProposalId: "",
   proposalNotice: "",
@@ -511,7 +513,7 @@ function renderProjects() {
         statusPill(project.validation),
         project.lastSignal,
         project.recommendedAction ?? "等待更多证据",
-        project.hasRepository ? `<button data-action="preflight-source-credentials" data-id="${escapeHtml(project.id)}">验证写回凭据</button>` : "-"
+        project.hasRepository ? `<div class="row-actions"><button data-action="open-source-credential-config" data-id="${escapeHtml(project.id)}">配置凭据</button><button data-action="preflight-source-credentials" data-id="${escapeHtml(project.id)}">验证写回凭据</button></div>` : "-"
       ]))}
     </section>
     <section class="card">
@@ -538,6 +540,66 @@ function renderProjects() {
       ]))}
     </section>
     ${state.showProjectRegistrationModal ? renderProjectRegistrationModal() : ""}
+    ${state.showSourceCredentialModal ? renderSourceCredentialModal() : ""}
+  `;
+}
+
+function renderSourceCredentialModal() {
+  const project = sourceCredentialModalProject();
+  if (!project) return "";
+  const tokenRef = project.repositoryMeta?.tokenRef ?? "";
+  const defaultBranch = project.repositoryMeta?.defaultBranch ?? "main";
+  const provider = project.repositoryMeta?.provider ?? "unknown";
+  const tokenRefResolved = project.repositoryMeta?.tokenRefResolved;
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="source-credential-title">
+        <div class="section-title">
+          <div>
+            <h2 id="source-credential-title">配置源码写回凭据</h2>
+            <p>为 GitHub/GitLab 项目绑定写权限凭据，保存后 EvoPilot 会立即执行只读预检并给出 READY/READ_ONLY/BLOCKED。</p>
+          </div>
+          <button data-action="close-source-credential-config" aria-label="关闭源码写回凭据弹窗">关闭</button>
+        </div>
+        <span class="pill ${tokenRefResolved === false ? "warn" : project.repositoryMeta?.credentialsConfigured ? "good" : "warn"} modal-status">${escapeHtml(provider)} / ${escapeHtml(project.credentials)}</span>
+        ${state.projectRegistration.message ? `<div class="notice ${state.projectRegistration.status}">${state.projectRegistration.message}</div>` : ""}
+        <form class="project-form" id="source-credential-form" data-id="${escapeHtml(project.id)}">
+          <label>
+            <span>项目</span>
+            <input value="${escapeHtml(project.name)} (${escapeHtml(project.id)})" disabled />
+          </label>
+          <label>
+            <span>默认分支</span>
+            <input name="defaultBranch" value="${escapeHtml(defaultBranch)}" />
+          </label>
+          <label class="wide-field">
+            <span>Token 环境变量（推荐）</span>
+            <input name="tokenRef" placeholder="EVOPILOT_GITHUB_TOKEN" value="${escapeHtml(tokenRef)}" autocomplete="off" />
+          </label>
+          <label>
+            <span>用户名（可选）</span>
+            <input name="username" autocomplete="username" />
+          </label>
+          <label>
+            <span>Inline Token（可选）</span>
+            <input name="token" type="password" autocomplete="off" placeholder="仅在无法使用 tokenRef 时填写" />
+          </label>
+          <label class="wide-field checkbox-field">
+            <input name="clearInlineToken" type="checkbox" value="true" />
+            <span>清除已保存的 inline token/password，仅保留 tokenRef</span>
+          </label>
+          <label class="wide-field checkbox-field">
+            <input name="clearTokenRef" type="checkbox" value="true" />
+            <span>清除 tokenRef</span>
+          </label>
+          <div class="form-actions">
+            <button data-action="close-source-credential-config" type="button">取消</button>
+            <button type="button" data-action="preflight-source-credentials" data-id="${escapeHtml(project.id)}">只验证</button>
+            <button class="primary" type="submit">保存并验证</button>
+          </div>
+        </form>
+      </section>
+    </div>
   `;
 }
 
@@ -2147,6 +2209,21 @@ function bindProjectRegistration() {
       render();
     });
   }
+  for (const button of content.querySelectorAll('[data-action="open-source-credential-config"]')) {
+    button.addEventListener("click", () => {
+      state.projectRegistration = { message: "", status: "" };
+      state.sourceCredentialProjectId = button.dataset.id;
+      state.showSourceCredentialModal = true;
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="close-source-credential-config"]')) {
+    button.addEventListener("click", () => {
+      state.showSourceCredentialModal = false;
+      state.sourceCredentialProjectId = "";
+      render();
+    });
+  }
   for (const button of content.querySelectorAll('[data-action="preflight-source-credentials"]')) {
     button.addEventListener("click", async () => {
       const id = button.dataset.id;
@@ -2164,6 +2241,38 @@ function bindProjectRegistration() {
           status: "bad",
           message: `源码写回凭据未就绪：${error.message}`
         };
+      } finally {
+        await loadProjects();
+        render();
+      }
+    });
+  }
+  const sourceCredentialForm = content.querySelector("#source-credential-form");
+  if (sourceCredentialForm) {
+    sourceCredentialForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const id = sourceCredentialForm.dataset.id;
+      const submit = sourceCredentialForm.querySelector("button[type='submit']");
+      submit.disabled = true;
+      state.projectRegistration = { status: "warn", message: `正在保存 ${id} 的源码写回凭据并验证...` };
+      render();
+      try {
+        const result = await postJson(`/api/v1/projects/${encodeURIComponent(id)}/source-credentials`, sourceCredentialPayload(new FormData(sourceCredentialForm)));
+        state.projectRegistration = {
+          status: "good",
+          message: sourceCredentialReadinessMessage(result.data?.readiness)
+        };
+        state.showSourceCredentialModal = false;
+        state.sourceCredentialProjectId = "";
+      } catch (error) {
+        const readiness = error.responseBody?.data?.readiness;
+        state.projectRegistration = {
+          status: readiness ? "warn" : "bad",
+          message: readiness
+            ? `凭据已保存但仍未就绪：${sourceCredentialReadinessMessage(readiness)}`
+            : `源码写回凭据保存失败：${error.message}`
+        };
+        state.showSourceCredentialModal = Boolean(readiness);
       } finally {
         await loadProjects();
         render();
@@ -2197,6 +2306,19 @@ function bindProjectRegistration() {
       render();
     }
   });
+}
+
+function sourceCredentialPayload(formData) {
+  const value = (name) => String(formData.get(name) ?? "").trim();
+  return {
+    defaultBranch: value("defaultBranch") || undefined,
+    username: value("username") || undefined,
+    token: value("token") || undefined,
+    tokenRef: value("tokenRef") || undefined,
+    clearInlineToken: formData.get("clearInlineToken") === "true",
+    clearPassword: formData.get("clearInlineToken") === "true",
+    clearTokenRef: formData.get("clearTokenRef") === "true"
+  };
 }
 
 function projectRegistrationPayload(formData) {
@@ -2242,6 +2364,10 @@ function projectRegistrationPayload(formData) {
       functionalCommands: commandList(value("functionalCommands"))
     }
   };
+}
+
+function sourceCredentialModalProject() {
+  return state.projects.find((project) => project.id === state.sourceCredentialProjectId);
 }
 
 function commandList(value) {
@@ -2428,6 +2554,7 @@ async function loadProjects() {
         validation: project.validation?.status === "VERIFIED" ? "已验证" : "验证失败",
         repository: project.repository?.gitUrl ?? project.repository?.root ?? project.repository?.projectId ?? "内置项目画像",
         credentials: project.repository ? sourceCredentialLabel(project.repository) : "无需凭据",
+        repositoryMeta: project.repository,
         hasRepository: Boolean(project.repository),
         cicd: project.cicd?.mode === "project-override"
           ? `项目独立 Jenkins：${project.cicd.job ?? project.cicd.connectorId ?? "已配置"}`
