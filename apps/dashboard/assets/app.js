@@ -6,6 +6,7 @@ const state = {
   apiStatus: "示例数据",
   apiToken: window.localStorage.getItem("evopilot.apiToken") ?? "",
   authNotice: "",
+  isLoading: true,
   operationNotice: "",
   projectRegistration: {
     message: "",
@@ -298,7 +299,59 @@ function renderPage(page) {
 
 function renderHome() {
   return `
+    ${renderHomeCommandCenter()}
+    ${renderFlowHeader()}
     ${renderEvolutionObservabilityMap()}
+  `;
+}
+
+function renderHomeCommandCenter() {
+  const runningPipelines = state.pipelines.filter((pipeline) => ["RUNNING", "QUEUED"].includes(pipeline.status)).length;
+  const targetCount = state.loopOrchestrationTargets.length;
+  const releaseBlocked = Number(state.intelligence.releaseBlockedCount ?? 0);
+  const actions = [
+    {
+      page: "接入项目",
+      label: "接入项目",
+      title: `${state.projects.length} 个项目`,
+      detail: `${state.projects.filter((project) => /已验证|健康/.test(`${project.validation}${project.status}`)).length} 个已验证`
+    },
+    {
+      page: "机会点",
+      label: "确认进化",
+      title: `${state.opportunities.length} 个机会点`,
+      detail: `${state.evaluationDatasets.length} 个评测集提供证据`
+    },
+    {
+      page: "Loop",
+      label: "进入自动驾驶",
+      title: `${targetCount || state.loops.length} 个 Loop target`,
+      detail: targetCount ? "Backlog 等待推进" : "创建 source-to-production loop"
+    },
+    {
+      page: "流水线",
+      label: "查看交付",
+      title: `${runningPipelines} 条运行中`,
+      detail: releaseBlocked ? `${releaseBlocked} 个发布阻断` : "CI/CD 与 release gate"
+    }
+  ];
+  return `
+    <section class="command-center" aria-label="任务工作台">
+      <div class="command-copy">
+        <span class="eyebrow">Operator home</span>
+        <h2>从项目接入到生产发布闭环</h2>
+        <p>按真实操作顺序处理接入、证据、机会点、Loop 自动驾驶和发布交付，不需要先理解完整拓扑。</p>
+      </div>
+      <div class="command-actions">
+        ${actions.map((action) => `
+          <button class="command-action" data-page="${action.page}">
+            <span>${action.label}</span>
+            <strong>${action.title}</strong>
+            <small>${action.detail}</small>
+          </button>
+        `).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -327,7 +380,7 @@ function renderFlowHeader() {
 function renderEvolutionObservabilityMap() {
   const model = evolutionObservabilityModel();
   return `
-    <section class="card observability-map" aria-label="进化观测图">
+    <section class="surface observability-map" aria-label="进化观测图">
       <div class="section-title observability-title">
         <div>
           <h2>进化观测图</h2>
@@ -1103,11 +1156,15 @@ function renderLoops() {
   const loops = state.loops;
   const store = state.loopStore;
   return `
-    ${renderLoopOrchestrationPanel()}
-    ${renderLoopTargetBacklogPanel()}
-    ${renderLoopWorkerQueuePanel()}
-    ${renderSourceReleaseRepairQueuePanel()}
-    ${renderSourceReleaseDeployFinalizersPanel()}
+    <div class="loop-command-grid">
+      ${renderLoopOrchestrationPanel()}
+      ${renderLoopTargetBacklogPanel()}
+    </div>
+    <div class="loop-operations-grid">
+      ${renderLoopWorkerQueuePanel()}
+      ${renderSourceReleaseRepairQueuePanel()}
+      ${renderSourceReleaseDeployFinalizersPanel()}
+    </div>
     <section class="card">
       <div class="section-title">
         <div>
@@ -1122,7 +1179,7 @@ function renderLoops() {
         <div><span>运行中</span><strong>${loops.filter((loop) => loop.status === "RUNNING").length}</strong><small>含 worker lease</small></div>
         <div><span>失败签名</span><strong>${state.loopTraces.reduce((sum, trace) => sum + (trace.failureSignatures?.length ?? 0), 0)}</strong><small>trace 聚合</small></div>
       </div>
-      ${loops.length === 0 ? `<div class="empty">暂无 LoopRun。生产模式请先输入 API Token；命令入口、IM、定时任务或 API 创建后会显示在这里。</div>` : table(["操作", "Loop", "状态", "轮次", "源码闭环", "执行图", "Sandbox", "Worker", "Trace"], loops.map((loop) => [
+      ${state.isLoading && loops.length === 0 ? renderLoadingSkeleton("正在读取 Loop runtime、worker lease 与 release evidence") : loops.length === 0 ? renderEmptyState("暂无 LoopRun", "生产模式请先输入 API Token；命令入口、IM、定时任务或 API 创建后会显示在这里。", "创建闭环 Loop 后会在这里展示 runtime、trace 和源码发布证据。") : table(["操作", "Loop", "状态", "轮次", "源码闭环", "执行图", "Sandbox", "Worker", "Trace"], loops.map((loop) => [
         renderLoopActions(loop),
         `<strong>${loop.objective}</strong><span class="subtext">${loop.id}</span>`,
         statusPill(loop.status),
@@ -1161,7 +1218,7 @@ function renderSourceReleaseRepairQueuePanel() {
         <button data-action="refresh-source-release-repair-candidates">刷新修复队列</button>
         <button data-action="repair-source-release-candidates" ${candidates.length ? "" : "disabled"}>一键修复队列</button>
       </div>
-      ${candidates.length === 0 ? `<div class="empty">暂无待修复 Release Run。失败 run 修复完成后会从默认队列中移除。</div>` : table(["操作", "Loop", "状态", "来源", "原因", "建议"], candidates.slice(0, 8).map((candidate) => [
+      ${state.isLoading && candidates.length === 0 ? renderLoadingSkeleton("正在同步 release repair candidates") : candidates.length === 0 ? renderEmptyState("暂无待修复 Release Run", "失败 run 修复完成后会从默认队列中移除。", "当 source release 进入 FAILED、HEALTH_FAILED 或 ROLLED_BACK 时会自动进入这里。") : table(["操作", "Loop", "状态", "来源", "原因", "建议"], candidates.slice(0, 8).map((candidate) => [
         `<button data-action="repair-source-release-candidate" data-run-id="${escapeHtml(candidate.runId)}">修复</button>`,
         `<strong>${escapeHtml(candidate.loopId)}</strong><span class="subtext">${escapeHtml(candidate.runId)}</span>`,
         statusPill(candidate.status),
@@ -1194,7 +1251,7 @@ function renderSourceReleaseDeployFinalizersPanel() {
         <div><span>Failed</span><strong>${counts.FAILED ?? 0}</strong><small>需人工处理</small></div>
         <div><span>Pending</span><strong>${counts.PENDING ?? 0}</strong><small>等待 reconcile</small></div>
       </div>
-      ${finalizers.length === 0 ? `<div class="empty">暂无 deploy finalizer。只有 post-merge deploy 被服务重启打断或完成后才会生成记录。</div>` : table(["Loop", "状态", "连接器", "尝试", "最后证据"], finalizers.slice(0, 8).map((finalizer) => [
+      ${state.isLoading && finalizers.length === 0 ? renderLoadingSkeleton("正在检查 post-merge deploy finalizers") : finalizers.length === 0 ? renderEmptyState("暂无 deploy finalizer", "只有 post-merge deploy 被服务重启打断或完成后才会生成记录。", "正常发布完成时这里保持为空；异常恢复会显示 connector、attempt 和最后证据。") : table(["Loop", "状态", "连接器", "尝试", "最后证据"], finalizers.slice(0, 8).map((finalizer) => [
         `<strong>${escapeHtml(finalizer.loopId)}</strong><span class="subtext">${escapeHtml(finalizer.releaseRunId ?? finalizer.id)}</span>`,
         statusPill(finalizer.status),
         finalizer.deployConnectorId,
@@ -1221,7 +1278,7 @@ function renderLoopWorkerQueuePanel() {
         <button class="primary" data-action="claim-loop-worker">Claim 下一 Loop</button>
         <button data-action="watchdog-loop">Watchdog</button>
       </div>
-      ${queue.length === 0 ? `<div class="empty">暂无 worker queue 数据。生产模式请先输入 API Token。</div>` : table(["Loop", "状态", "轮次", "Lease", "下一步", "副作用保护"], queue.map((item) => [
+      ${state.isLoading && queue.length === 0 ? renderLoadingSkeleton("正在读取 durable worker queue") : queue.length === 0 ? renderEmptyState("暂无 worker queue 数据", "生产模式请先输入 API Token。", "连接后这里会显示 claimable loop、lease 过期状态和 side-effect guard。") : table(["Loop", "状态", "轮次", "Lease", "下一步", "副作用保护"], queue.map((item) => [
         `<strong>${escapeHtml(item.loopId)}</strong><span class="subtext">${escapeHtml(item.objective ?? "")}</span>`,
         statusPill(item.status),
         `${item.currentIteration}/${item.maxIterations}`,
@@ -1235,6 +1292,7 @@ function renderLoopWorkerQueuePanel() {
 
 function renderLoopTargetBacklogPanel() {
   const targets = state.loopOrchestrationTargets;
+  const model = loopBacklogModel(targets);
   return `
     <section class="card">
       <div class="section-title">
@@ -1244,11 +1302,20 @@ function renderLoopTargetBacklogPanel() {
         </div>
         <span class="pill ${targets.some((target) => target.status === "RUNNING") ? "good" : "warn"}">${targets.length || 0} 个 Target</span>
       </div>
+      <div class="backlog-summary" aria-label="Target backlog 摘要">
+        ${model.cards.map((card) => `
+          <div>
+            <span>${card.label}</span>
+            <strong>${card.value}</strong>
+            <small>${card.detail}</small>
+          </div>
+        `).join("")}
+      </div>
       <div class="table-actions">
         <button class="primary" data-action="advance-loop-target" data-target-id="">推进下一 Target</button>
         <button data-action="autopilot-loop-target" data-target-id="">一键自动驾驶</button>
       </div>
-      ${targets.length === 0 ? `<div class="empty">暂无 target backlog。生产模式请先输入 API Token。</div>` : table(["Target", "层", "状态", "下一步", "验收", "证据", "操作"], targets.map((target) => [
+      ${state.isLoading && targets.length === 0 ? renderLoadingSkeleton("正在加载 target loop backlog") : targets.length === 0 ? renderEmptyState("暂无 target backlog", "生产模式请先输入 API Token。", "接入 GitHub/GitLab 或本地目录项目后，目标会按 Sandbox、Context、Harness、Loop 四层进入这里。") : table(["Target", "层", "状态", "下一步", "验收", "证据", "操作"], targets.map((target) => [
         `<strong>${escapeHtml(target.title)}</strong><span class="subtext">${escapeHtml(target.id)}${target.loopId ? ` / ${escapeHtml(target.loopId)}` : ""}</span>`,
         escapeHtml(target.layer),
         statusPill(target.status),
@@ -1265,14 +1332,34 @@ function renderLoopTargetBacklogPanel() {
         `<button data-action="advance-loop-target" data-target-id="${escapeHtml(target.id)}">推进</button><button data-action="autopilot-loop-target" data-target-id="${escapeHtml(target.id)}">自动驾驶</button>`
       ]))}
       ${(state.loopAutopilotRuns ?? []).slice(-1).map((run) => `
-        <div class="notice ${run.status === "SUCCEEDED" ? "good" : "warn"}">
-          Autopilot ${escapeHtml(run.status)}：${escapeHtml(run.target?.id ?? "unknown")} / next ${escapeHtml(run.nextAction ?? "unknown")}<br />
-          ${run.externalBlocker ? `外部阻塞：${escapeHtml(run.externalBlocker.type)} / ${escapeHtml(run.externalBlocker.recovery?.dashboardAction ?? run.externalBlocker.nextAction ?? "-")}<br />` : ""}
-          ${(run.stages ?? []).map((stage) => `${escapeHtml(stage.id)}=${escapeHtml(stage.status)} (${escapeHtml(stage.detail)})`).join("；")}
-        </div>
+        ${renderStatusNotice(run.status === "SUCCEEDED" ? "good" : "warn", `Autopilot ${run.status}`, `${escapeHtml(run.target?.id ?? "unknown")} / next ${escapeHtml(run.nextAction ?? "unknown")}<br />${run.externalBlocker ? `外部阻塞：${escapeHtml(run.externalBlocker.type)} / ${escapeHtml(run.externalBlocker.recovery?.dashboardAction ?? run.externalBlocker.nextAction ?? "-")}<br />` : ""}${(run.stages ?? []).map((stage) => `${escapeHtml(stage.id)}=${escapeHtml(stage.status)} (${escapeHtml(stage.detail)})`).join("；")}`)}
       `).join("")}
     </section>
   `;
+}
+
+function loopBacklogModel(targets) {
+  const byStatus = countBy(targets, (target) => target.status ?? "UNKNOWN");
+  const byLayer = countBy(targets, (target) => target.layer ?? "unknown");
+  const blocked = targets.filter((target) => target.externalBlocker).length;
+  const nextTarget = targets.find((target) => target.status === "RUNNING") ?? targets.find((target) => target.status === "PENDING") ?? targets[0];
+  return {
+    cards: [
+      { label: "待推进", value: byStatus.PENDING ?? 0, detail: "等待 advance/autopilot" },
+      { label: "运行中", value: byStatus.RUNNING ?? 0, detail: "正在执行 target loop" },
+      { label: "外部阻塞", value: blocked, detail: blocked ? "需要人工恢复动作" : "无阻塞" },
+      { label: "下一目标", value: nextTarget?.layer ?? "-", detail: nextTarget?.id ?? "暂无 target" },
+      { label: "覆盖层", value: Object.keys(byLayer).length, detail: Object.entries(byLayer).map(([layer, count]) => `${layer}:${count}`).join(" / ") || "无" }
+    ]
+  };
+}
+
+function countBy(items, keyFn) {
+  return items.reduce((acc, item) => {
+    const key = keyFn(item);
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
 }
 
 function renderLoopOrchestrationPanel() {
@@ -1386,97 +1473,7 @@ function renderLoopDetail(loop) {
         <div><span>Deploy</span><strong>${gateEvidence.deploy?.status ?? "PENDING"}</strong><small>${artifacts.deploymentConnectorId ?? "未绑定连接器"} / ${artifacts.deploymentId ?? "未发布"}</small></div>
         <div><span>Health</span><strong>${gateEvidence["health-ready"]?.status ?? "PENDING"}</strong><small>${artifacts.healthUrl ?? artifacts.readyUrl ?? "等待探测"}</small></div>
       </div>
-      <div class="loop-columns">
-        <div>
-          <h3>Source Closure Workbench</h3>
-          <div class="timeline">
-            ${(closure.requiredGates ?? []).map((gate) => renderGateEvidence(gate, gateEvidence[gate])).join("") || `<div class="empty">当前 Loop 未声明源码闭环 gate。</div>`}
-          </div>
-        </div>
-        <div>
-          <h3>Release Artifacts</h3>
-          <div class="timeline">
-            ${[
-              ["Branch", artifacts.branch],
-              ["Commit", artifacts.commitSha],
-              ["PR/MR", artifacts.pullRequestUrl ?? artifacts.mergeRequestUrl],
-              ["Tag", artifacts.tag],
-              ["Deployment", artifacts.deploymentUrl ?? artifacts.deployStatusUrl],
-              ["Probe", artifacts.healthUrl ?? artifacts.readyUrl]
-            ].filter((row) => row[1]).map(([label, value]) => `
-              <div class="timeline-item">
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(String(value))}</strong>
-                <small>source-to-production evidence</small>
-              </div>
-            `).join("") || `<div class="empty">等待执行闭环后生成分支、提交、PR/MR、部署和探测证据。</div>`}
-          </div>
-        </div>
-      </div>
-      <div class="loop-columns">
-        <div>
-          <h3>Release Closure Runtime</h3>
-          <div class="timeline">
-            <div class="timeline-item">
-              <span>${escapeHtml(releaseRun.status ?? "PLANNED")}</span>
-              <strong>${escapeHtml(releaseRun.provider ?? closure.repositoryProvider ?? "unknown")} / ${escapeHtml(releaseRun.releaseStrategy ?? closure.releaseStrategy ?? "none")}</strong>
-              <small>next ${escapeHtml(releaseRun.nextAction ?? "write-source")} / ${(releaseRun.capabilities ?? []).map(escapeHtml).join(", ")}</small>
-            </div>
-            ${(releaseRun.stages ?? []).map((stage) => `
-              <div class="timeline-item">
-                <span>${escapeHtml(stage.status ?? "PENDING")}</span>
-                <strong>${escapeHtml(stage.label ?? stage.gate)}</strong>
-                <small>${escapeHtml((stage.evidence ?? []).at(-1) ?? "waiting")}</small>
-              </div>
-            `).join("")}
-          </div>
-          <div class="table-actions">
-            <button data-action="load-source-release-run" data-id="${escapeHtml(loop.id)}">刷新 Release Run</button>
-            <button data-action="approve-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "PENDING" ? "" : "disabled"}>批准 Release</button>
-            <button data-action="merge-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "APPROVED" ? "" : "disabled"}>合并 Release</button>
-            <button data-action="auto-merge-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "PENDING" || releaseRun.review?.status === "APPROVED" ? "" : "disabled"}>安全自动合并</button>
-            <button data-action="repair-source-release-run" data-id="${escapeHtml(loop.id)}" data-run-id="${escapeHtml(releaseRun.id ?? "")}" ${releaseRun.id && ["FAILED", "HEALTH_FAILED", "ROLLED_BACK"].includes(releaseRun.status) ? "" : "disabled"}>修复 Release Run</button>
-          </div>
-        </div>
-        <div>
-          <h3>Deploy Finalizers</h3>
-          <div class="timeline">
-            ${deployFinalizers.map((finalizer) => `
-              <div class="timeline-item">
-                <span>${escapeHtml(finalizer.status ?? "PENDING")}</span>
-                <strong>${escapeHtml(finalizer.deployConnectorId ?? "unknown")} / ${escapeHtml(String(finalizer.attempts ?? 0))} attempts</strong>
-                <small>${escapeHtml((finalizer.evidence ?? []).at(-1) ?? finalizer.lastError ?? "waiting")}</small>
-              </div>
-            `).join("") || `<div class="empty">当前 Loop 暂无 deploy finalizer 记录。</div>`}
-          </div>
-        </div>
-      </div>
-      <div class="loop-columns">
-        <div>
-          <h3>Source Release Artifacts</h3>
-          <div class="timeline">
-            ${[
-              ["Release Run", releaseRun.id],
-              ["Source", releaseRun.sourceRef?.sourceUrl ?? releaseRun.sourceRef?.sourceRoot],
-              ["Branch", releaseRun.sourceRef?.releaseBranch ?? artifacts.branch],
-              ["Commit", releaseRun.artifacts?.commitSha ?? artifacts.commitSha],
-              ["Review", releaseRun.artifacts?.pullRequestUrl ?? releaseRun.artifacts?.mergeRequestUrl ?? artifacts.pullRequestUrl ?? artifacts.mergeRequestUrl],
-              ["Review Status", releaseRun.review?.status],
-              ["Policy", releaseRun.policy ? `${releaseRun.policy.status}${releaseRun.policy.autoMerge ? " / auto" : ""}` : undefined],
-              ["Policy Blocker", releaseRun.policy?.blockers?.join("; ")],
-              ["Merge Commit", releaseRun.review?.mergeCommitSha ?? artifacts.mergeCommitSha],
-              ["Post Merge Deploy", releaseRun.postMergeDeployment?.status],
-              ["Deployment", releaseRun.artifacts?.deploymentUrl ?? artifacts.deploymentUrl]
-            ].filter((row) => row[1]).map(([label, value]) => `
-              <div class="timeline-item">
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(String(value))}</strong>
-                <small>source-release-closure-runtime</small>
-              </div>
-            `).join("") || `<div class="empty">等待发布运行记录。</div>`}
-          </div>
-        </div>
-      </div>
+      ${renderReleaseInspector(loop, releaseRun, deployFinalizers)}
       <div class="loop-columns">
         <div>
           <h3>Iterations</h3>
@@ -1587,6 +1584,84 @@ function renderLoopDetail(loop) {
           </div>
         `).join("")}
       </div>
+    </section>
+  `;
+}
+
+function renderReleaseInspector(loop, releaseRun, deployFinalizers) {
+  const closure = loop.sourceClosure ?? {};
+  const artifacts = closure.artifacts ?? {};
+  const gateEvidence = closure.gateEvidence ?? {};
+  const artifactRows = [
+    ["Release Run", releaseRun.id],
+    ["Source", releaseRun.sourceRef?.sourceUrl ?? releaseRun.sourceRef?.sourceRoot ?? closure.sourceUrl ?? closure.sourceRoot],
+    ["Branch", releaseRun.sourceRef?.releaseBranch ?? artifacts.branch],
+    ["Commit", releaseRun.artifacts?.commitSha ?? artifacts.commitSha],
+    ["PR/MR", releaseRun.artifacts?.pullRequestUrl ?? releaseRun.artifacts?.mergeRequestUrl ?? artifacts.pullRequestUrl ?? artifacts.mergeRequestUrl],
+    ["Tag", releaseRun.artifacts?.tag ?? artifacts.tag],
+    ["Review Status", releaseRun.review?.status],
+    ["Policy", releaseRun.policy ? `${releaseRun.policy.status}${releaseRun.policy.autoMerge ? " / auto" : ""}` : undefined],
+    ["Policy Blocker", releaseRun.policy?.blockers?.join("; ")],
+    ["Merge Commit", releaseRun.review?.mergeCommitSha ?? artifacts.mergeCommitSha],
+    ["Post Merge Deploy", releaseRun.postMergeDeployment?.status],
+    ["Deployment", releaseRun.artifacts?.deploymentUrl ?? artifacts.deploymentUrl ?? artifacts.deployStatusUrl],
+    ["Probe", releaseRun.artifacts?.healthUrl ?? artifacts.healthUrl ?? artifacts.readyUrl]
+  ].filter((row) => row[1]);
+  return `
+    <section class="release-inspector" aria-label="Release flow detail inspector">
+      <div class="release-inspector-main">
+        <div class="section-title compact">
+          <div>
+            <h3>Release Closure Runtime</h3>
+            <p>Source Closure Workbench、Release Artifacts、Source Release Artifacts 和 Post Merge Deploy 统一在这里追踪。</p>
+          </div>
+          <span class="pill ${releaseRun.status === "SUCCEEDED" || releaseRun.status === "PROMOTED" ? "good" : releaseRun.status === "FAILED" || releaseRun.status === "HEALTH_FAILED" ? "bad" : "warn"}">${escapeHtml(releaseRun.status ?? "PLANNED")}</span>
+        </div>
+        <div class="release-flow">
+          <div class="timeline-item release-runtime-card">
+            <span>${escapeHtml(releaseRun.status ?? "PLANNED")}</span>
+            <strong>${escapeHtml(releaseRun.provider ?? closure.repositoryProvider ?? "unknown")} / ${escapeHtml(releaseRun.releaseStrategy ?? closure.releaseStrategy ?? "none")}</strong>
+            <small>next ${escapeHtml(releaseRun.nextAction ?? "write-source")} / ${(releaseRun.capabilities ?? []).map(escapeHtml).join(", ") || "capability pending"}</small>
+          </div>
+          ${(closure.requiredGates ?? []).map((gate) => renderGateEvidence(gate, gateEvidence[gate])).join("") || renderEmptyState("当前 Loop 未声明源码闭环 gate", "执行闭环前需要声明 write-source、review、merge、deploy、health-ready 等 gate。")}
+          ${(releaseRun.stages ?? []).map((stage) => `
+            <div class="timeline-item">
+              <span>${escapeHtml(stage.status ?? "PENDING")}</span>
+              <strong>${escapeHtml(stage.label ?? stage.gate)}</strong>
+              <small>${escapeHtml((stage.evidence ?? []).at(-1) ?? "waiting")}</small>
+            </div>
+          `).join("")}
+        </div>
+        <div class="table-actions release-actions">
+          <button data-action="load-source-release-run" data-id="${escapeHtml(loop.id)}">刷新 Release Run</button>
+          <button data-action="approve-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "PENDING" ? "" : "disabled"}>批准 Release</button>
+          <button data-action="merge-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "APPROVED" ? "" : "disabled"}>合并 Release</button>
+          <button data-action="auto-merge-source-release" data-id="${escapeHtml(loop.id)}" ${releaseRun.review?.status === "PENDING" || releaseRun.review?.status === "APPROVED" ? "" : "disabled"}>安全自动合并</button>
+          <button data-action="repair-source-release-run" data-id="${escapeHtml(loop.id)}" data-run-id="${escapeHtml(releaseRun.id ?? "")}" ${releaseRun.id && ["FAILED", "HEALTH_FAILED", "ROLLED_BACK"].includes(releaseRun.status) ? "" : "disabled"}>修复 Release Run</button>
+        </div>
+      </div>
+      <aside class="release-inspector-side" aria-label="Release evidence artifacts">
+        <h3>Source Release Artifacts</h3>
+        <div class="artifact-list">
+          ${artifactRows.map(([label, value]) => `
+            <div class="artifact-row">
+              <span>${escapeHtml(label)}</span>
+              <strong>${escapeHtml(String(value))}</strong>
+              <small>source-release-closure-runtime</small>
+            </div>
+          `).join("") || renderEmptyState("等待发布运行记录", "执行源码闭环后会生成分支、提交、PR/MR、部署和健康探测证据。")}
+        </div>
+        <h3>Deploy Finalizers</h3>
+        <div class="artifact-list">
+          ${deployFinalizers.map((finalizer) => `
+            <div class="artifact-row">
+              <span>${escapeHtml(finalizer.status ?? "PENDING")}</span>
+              <strong>${escapeHtml(finalizer.deployConnectorId ?? "unknown")} / ${escapeHtml(String(finalizer.attempts ?? 0))} attempts</strong>
+              <small>${escapeHtml((finalizer.evidence ?? []).at(-1) ?? finalizer.lastError ?? "waiting")}</small>
+            </div>
+          `).join("") || renderEmptyState("当前 Loop 暂无 deploy finalizer 记录", "Post Merge Deploy 被服务重启打断或完成后才会生成 finalizer。")}
+        </div>
+      </aside>
     </section>
   `;
 }
@@ -1723,10 +1798,45 @@ function historyId(item) {
 
 function table(headers, rows) {
   return `
-    <table>
-      <thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
-    </table>
+    <div class="table-shell" tabindex="0" aria-label="可横向滚动的数据表">
+      <table>
+        <thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((row) => `<tr>${row.map((cell, index) => `<td data-label="${escapeHtml(headers[index] ?? "")}"><div class="table-cell">${cell}</div></td>`).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderEmptyState(titleText, detail, meta = "") {
+  return `
+    <div class="empty-state" role="status">
+      <strong>${escapeHtml(titleText)}</strong>
+      <span>${escapeHtml(detail)}</span>
+      ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+    </div>
+  `;
+}
+
+function renderStatusNotice(tone, titleText, detail) {
+  return `
+    <div class="notice ${escapeHtml(tone)}">
+      <strong>${escapeHtml(titleText)}</strong>
+      <span>${detail}</span>
+    </div>
+  `;
+}
+
+function renderLoadingSkeleton(label) {
+  return `
+    <div class="skeleton-panel" role="status" aria-live="polite">
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        <span>正在连接 EvoPilot 控制面</span>
+      </div>
+      <i></i>
+      <i></i>
+      <i></i>
+    </div>
   `;
 }
 
@@ -3387,4 +3497,7 @@ function formatDate(value) {
 }
 
 render();
-refreshData().finally(render);
+refreshData().finally(() => {
+  state.isLoading = false;
+  render();
+});
