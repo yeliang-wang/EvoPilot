@@ -191,16 +191,49 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
         presetId: "source-release-closure",
         targetVersion: "2.0.1",
         objective: "Create a dashboard-orchestrated source release loop.",
-        controlPlaneUrl: baseUrl
+        controlPlaneUrl: baseUrl,
+        context: {
+          workflowCanvasEditor: {
+            routingMode: "fanout-evaluator",
+            releaseGate: "deploy-and-rollback",
+            humanGate: false,
+            visualEditorVersion: "dashboard-workflow-canvas/v1"
+          }
+        }
       }
     });
     assert.equal(orchestrated.status, 201);
     assert.equal(orchestrated.body.data.context.orchestrationPresetId, "source-release-closure");
-    assert.equal(orchestrated.body.data.executorGraphId, "dashboard-source-release-closure");
+    assert.match(orchestrated.body.data.executorGraphId, /^dashboard-workflow-workbuddy-/);
+    assert.equal(orchestrated.body.data.context.workflowCanvasEditor.routingMode, "fanout-evaluator");
+    assert.equal(orchestrated.body.data.context.workflowCanvasEditor.releaseGate, "deploy-and-rollback");
     assert.equal(orchestrated.body.data.sourceClosure.targetVersion, "2.0.1");
     assert.equal(orchestrated.body.data.sandboxEnforcement.status, "ENFORCED");
     assert.equal(orchestrated.body.data.coordination.mode, "parallel");
     assert.ok(orchestrated.body.data.coordination.nodes.some((node) => node.dependsOn.some((dependency) => dependency.includes("fan-in"))));
+    assert.ok(orchestrated.body.data.coordination.nodes.some((node) => node.nodeId === "release" && node.dependsOn.some((dependency) => dependency.includes("conditional"))));
+
+    const orchestratedGraph = await jsonFetch(`${baseUrl}/api/v1/loops/${encodeURIComponent(orchestrated.body.data.id)}/executor-graph`, {
+      token: "viewer-token"
+    });
+    assert.equal(orchestratedGraph.status, 200);
+    assert.equal(orchestratedGraph.body.data.loopId, orchestrated.body.data.id);
+    assert.equal(orchestratedGraph.body.data.executorGraph.validation.status, "PASSED");
+    assert.equal(orchestratedGraph.body.data.executorGraph.capabilities.conditionalRouting, true);
+    assert.equal(orchestratedGraph.body.data.executorGraph.capabilities.fanOutFanIn, true);
+    assert.equal(orchestratedGraph.body.data.executorGraph.capabilities.nestedSubgraphs, true);
+    assert.equal(orchestratedGraph.body.data.executorGraph.capabilities.schemaValidation, true);
+    assert.ok(orchestratedGraph.body.data.evidence.some((item) => item === "typedEdges=true"));
+
+    const orchestratedEvents = await jsonFetch(`${baseUrl}/api/v1/loops/${encodeURIComponent(orchestrated.body.data.id)}/events`, {
+      token: "viewer-token"
+    });
+    assert.equal(orchestratedEvents.status, 200);
+    const graphEvent = orchestratedEvents.body.data.find((event) => event.type === "executor-graph");
+    assert.ok(graphEvent);
+    assert.equal(graphEvent.payload.validation.status, "PASSED");
+    assert.ok(graphEvent.payload.edges.some((edge) => edge.type === "fan-out"));
+    assert.ok(graphEvent.payload.evidence.some((item) => item === "schemaValidation=true"));
 
     const targets = await jsonFetch(`${baseUrl}/api/v1/loop-orchestration/targets`, {
       token: "viewer-token"

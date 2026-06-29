@@ -1231,7 +1231,7 @@ interface LoopStreamEvent {
   schema: "evopilot-loop-stream-event/v1";
   id: string;
   loopId: string;
-  type: "timeline" | "executor-step" | "checkpoint" | "worker-lease" | "watchdog" | "cost" | "failure-group" | "replay-diff" | "sandbox-proof";
+  type: "timeline" | "executor-step" | "checkpoint" | "worker-lease" | "watchdog" | "cost" | "failure-group" | "replay-diff" | "sandbox-proof" | "executor-graph";
   timestamp: string;
   label: string;
   payload: Record<string, unknown>;
@@ -1248,7 +1248,7 @@ interface LoopTraceTree {
   nodes: Array<{
     id: string;
     parentId?: string;
-    type: "loop" | "iteration" | "executor-step" | "checkpoint" | "worker-lease" | "failure-group" | "replay-diff" | "sandbox-proof";
+    type: "loop" | "iteration" | "executor-step" | "checkpoint" | "worker-lease" | "failure-group" | "replay-diff" | "sandbox-proof" | "executor-graph";
     label: string;
     status: string;
     costUsd?: number;
@@ -1984,7 +1984,8 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const project = store.readProject(projectId);
         const deployConnectorId = optionalTrimmedString(body.deployConnectorId)
           ?? (store.listDeployConnectors().length === 1 ? store.listDeployConnectors()[0].id : undefined);
-        const graph = store.writeExecutorGraph(selfEvolutionExecutorGraph());
+        const graph = store.writeExecutorGraph(executorGraphFromLoopOrchestrationRequest(body, preset.id));
+        const workflowContext = workflowCanvasContextFromRequest(body);
         const loop = store.createLoop({
           id: body.id ? String(body.id) : undefined,
           source: "api",
@@ -2022,6 +2023,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           context: {
             orchestrationPresetId: preset.id,
             dashboardWorkbench: true,
+            ...(workflowContext ? { workflowCanvasEditor: workflowContext } : {}),
             unattendedProof: {
               watchdog: true,
               workerLease: true,
@@ -2030,7 +2032,13 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
             }
           }
         });
-        store.appendAudit(audit(auth, "loop-orchestration.instantiated", loop.id, { presetId: preset.id, projectId, executorGraphId: graph.id }));
+        store.appendAudit(audit(auth, "loop-orchestration.instantiated", loop.id, {
+          presetId: preset.id,
+          projectId,
+          executorGraphId: graph.id,
+          graphValidation: graph.validation.status,
+          graphCapabilities: graph.capabilities
+        }));
         return writeJson(response, 201, envelope(loop));
       }
       const executorGraphMatch = url.pathname.match(/^\/api\/v1\/executor-graphs\/([^/]+)$/);
@@ -2039,6 +2047,33 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const graph = store.readExecutorGraph(decodeURIComponent(executorGraphMatch[1]));
         if (!graph) return writeJson(response, 404, { error: "EXECUTOR_GRAPH_NOT_FOUND" });
         return writeJson(response, 200, envelope(graph));
+      }
+      const loopExecutorGraphMatch = url.pathname.match(/^\/api\/v1\/loops\/([^/]+)\/executor-graph$/);
+      if (request.method === "GET" && loopExecutorGraphMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const loop = store.readLoop(decodeURIComponent(loopExecutorGraphMatch[1]));
+        if (!loop) return writeJson(response, 404, { error: "LOOP_NOT_FOUND" });
+        const graph = store.readExecutorGraph(loop.executorGraphId);
+        if (!graph) return writeJson(response, 404, { error: "EXECUTOR_GRAPH_NOT_FOUND" });
+        return writeJson(response, 200, envelope({
+          loopId: loop.id,
+          executorGraph: graph,
+          coordination: loop.coordination,
+          validation: graph.validation,
+          capabilities: graph.capabilities,
+          evidence: [
+            `loop=${loop.id}`,
+            `executorGraph=${graph.id}`,
+            `nodes=${graph.nodes.length}`,
+            `edges=${graph.edges.length}`,
+            `validation=${graph.validation.status}`,
+            `typedEdges=${graph.capabilities.typedEdges}`,
+            `conditionalRouting=${graph.capabilities.conditionalRouting}`,
+            `fanOutFanIn=${graph.capabilities.fanOutFanIn}`,
+            `nestedSubgraphs=${graph.capabilities.nestedSubgraphs}`,
+            `schemaValidation=${graph.capabilities.schemaValidation}`
+          ]
+        }));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/loops") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -4716,13 +4751,13 @@ class FileStore {
   readLoopTraceTree(loopId: string): LoopTraceTree | undefined {
     const loop = this.readLoop(loopId);
     if (!loop) return undefined;
-    return buildLoopTraceTree(loop);
+    return buildLoopTraceTree(loop, this.readExecutorGraph(loop.executorGraphId));
   }
 
   listLoopStreamEvents(loopId: string): LoopStreamEvent[] | undefined {
     const loop = this.readLoop(loopId);
     if (!loop) return undefined;
-    return buildLoopStreamEvents(loop);
+    return buildLoopStreamEvents(loop, this.readExecutorGraph(loop.executorGraphId));
   }
 
   listLoopCheckpoints(loopId: string): LoopCheckpoint[] | undefined {
@@ -5066,6 +5101,10 @@ class FileStore {
       status: evidenceStatus,
       evidence: [
         `executorGraph=${graph.id}`,
+        `executorGraph.validation=${graph.validation.status}`,
+        `executorGraph.nodes=${graph.nodes.length}`,
+        `executorGraph.edges=${graph.edges.length}`,
+        `executorGraph.capabilities=${Object.entries(graph.capabilities).filter(([, enabled]) => enabled).map(([key]) => key).join(",")}`,
         `iteration=${nextIndex}`,
         `sourceClosure.project=${args.loop.sourceClosure.sourceProjectId}`,
         `sourceClosure.provider=${args.loop.sourceClosure.repositoryProvider}`,
@@ -5666,6 +5705,130 @@ function defaultExecutorGraph(): ExecutorGraph {
     createdAt: now,
     updatedAt: now
   };
+}
+
+function executorGraphFromLoopOrchestrationRequest(body: any, presetId: string): ExecutorGraph {
+  const context = workflowCanvasContextFromRequest(body);
+  if (!context) return selfEvolutionExecutorGraph();
+  const routingMode = context.routingMode;
+  const releaseGate = context.releaseGate;
+  const humanGate = context.humanGate;
+  const graphId = `dashboard-workflow-${safeFileName(String(body.projectId ?? "evopilot"))}-${Date.now()}`;
+  return normalizeExecutorGraph({
+    id: graphId,
+    name: `Dashboard Workflow Canvas (${routingMode})`,
+    mode: routingMode === "fanout-evaluator" ? "parallel" : "serial",
+    nodes: [
+      {
+        id: "target",
+        type: "llm",
+        name: "Target Contract",
+        config: {
+          adapterId: "evopilot.target-contract-adapter",
+          presetId,
+          inputSchema: { objective: "string", projectId: "string" },
+          outputSchema: { targetContract: "object", acceptanceCriteria: "array" },
+          visualRole: "target"
+        }
+      },
+      {
+        id: "discovery",
+        type: "validator",
+        name: "Discovery Evidence",
+        config: {
+          adapterId: "evopilot.discovery-runtime-adapter",
+          inputSchema: { targetContract: "object" },
+          outputSchema: { findings: "array", datasets: "array" },
+          visualRole: "discovery"
+        }
+      },
+      {
+        id: "executor",
+        type: "code-upgrader",
+        name: "Executor Runtime",
+        config: {
+          adapterId: "evopilot.code-upgrader-adapter",
+          inputSchema: { findings: "array" },
+          outputSchema: { files: "array", artifacts: "array" },
+          visualRole: "executor"
+        }
+      },
+      {
+        id: "evaluator",
+        type: "validator",
+        name: "Adversarial Evaluator",
+        config: {
+          adapterId: "evopilot.adversarial-evaluator-adapter",
+          inputSchema: { files: "array", artifacts: "array" },
+          outputSchema: { guardrails: "array", decision: "string" },
+          visualRole: "evaluator"
+        }
+      },
+      {
+        id: "human-gate",
+        type: "approval",
+        name: "Human Gate",
+        config: {
+          requiredForRelease: true,
+          policy: humanGate ? "human-first" : "conditional",
+          inputSchema: { decision: "string", guardrails: "array" },
+          outputSchema: { approval: "object" },
+          visualRole: "human-gate"
+        }
+      },
+      {
+        id: "release",
+        type: "release-action",
+        name: "Release Closure",
+        config: {
+          adapterId: "evopilot.source-release-adapter",
+          subgraphId: "source-closure/v1",
+          releaseGate,
+          inputSchema: { approval: "object", artifacts: "array" },
+          outputSchema: { sourceClosure: "object", deployment: "object" },
+          visualRole: "release"
+        }
+      }
+    ],
+    edges: [
+      { from: "target", to: "discovery", type: "sequence", outputSchemaRef: "target-contract/v1" },
+      { from: "discovery", to: "executor", type: routingMode === "fanout-evaluator" ? "fan-out" : "sequence", condition: routingMode === "fanout-evaluator" ? "findings.length > 0" : undefined, inputSchemaRef: "discovery-findings/v1", outputSchemaRef: "code-change-request/v1" },
+      { from: "executor", to: "evaluator", type: routingMode === "fanout-evaluator" ? "fan-out" : "sequence", condition: routingMode === "fanout-evaluator" ? "files.length > 0" : undefined, inputSchemaRef: "code-change-result/v1", outputSchemaRef: "evaluation-request/v1" },
+      { from: "evaluator", to: "human-gate", type: "conditional", condition: humanGate ? "always" : "releaseRisk != low || releaseGate != review-only", inputSchemaRef: "evaluation-result/v1", outputSchemaRef: "approval-request/v1" },
+      { from: "executor", to: "release", type: "conditional", condition: releaseGate === "review-only" ? "approval.status == APPROVED" : "sourceClosure.requiredGates includes deploy", inputSchemaRef: "code-change-result/v1", outputSchemaRef: "source-closure-request/v1" },
+      { from: "human-gate", to: "release", type: "fan-in", inputSchemaRef: "approval-result/v1", outputSchemaRef: "source-release-request/v1" }
+    ]
+  });
+}
+
+function workflowCanvasContextFromRequest(body: any): {
+  routingMode: "policy-gated" | "fanout-evaluator" | "human-first";
+  releaseGate: "source-closure" | "review-only" | "deploy-and-rollback";
+  humanGate: boolean;
+  visualEditorVersion: string;
+} | undefined {
+  if (!isRecord(body?.context) || !isRecord(body.context.workflowCanvasEditor)) return undefined;
+  const value = body.context.workflowCanvasEditor;
+  const routingMode = normalizeWorkflowRoutingMode(value.routingMode);
+  const releaseGate = normalizeWorkflowReleaseGate(value.releaseGate);
+  return {
+    routingMode,
+    releaseGate,
+    humanGate: value.humanGate === true || routingMode === "human-first",
+    visualEditorVersion: String(value.visualEditorVersion ?? "dashboard-workflow-canvas/v1")
+  };
+}
+
+function normalizeWorkflowRoutingMode(value: unknown): "policy-gated" | "fanout-evaluator" | "human-first" {
+  const mode = String(value ?? "policy-gated").trim();
+  if (mode === "fanout-evaluator" || mode === "human-first") return mode;
+  return "policy-gated";
+}
+
+function normalizeWorkflowReleaseGate(value: unknown): "source-closure" | "review-only" | "deploy-and-rollback" {
+  const gate = String(value ?? "source-closure").trim();
+  if (gate === "review-only" || gate === "deploy-and-rollback") return gate;
+  return "source-closure";
 }
 
 function selfEvolutionExecutorGraph(): ExecutorGraph {
@@ -7160,7 +7323,8 @@ function buildLoopReplayDiff(before: LoopRun, after: LoopRun, fromIteration: num
   };
 }
 
-function buildLoopTraceTree(loop: LoopRun): LoopTraceTree {
+function buildLoopTraceTree(loop: LoopRun, executorGraph?: ExecutorGraph): LoopTraceTree {
+  const graph = executorGraph ?? defaultExecutorGraph();
   const nodes: LoopTraceTree["nodes"] = [{
     id: loop.id,
     type: "loop",
@@ -7169,6 +7333,15 @@ function buildLoopTraceTree(loop: LoopRun): LoopTraceTree {
     evidence: [`project=${loop.projectId}`, `source=${loop.source}`, `sourceClosure=${loop.sourceClosure.closureState}`]
   }];
   const edges: LoopTraceTree["edges"] = [];
+  nodes.push({
+    id: `${loop.id}:executor-graph`,
+    parentId: loop.id,
+    type: "executor-graph",
+    label: graph.name,
+    status: graph.validation.status,
+    evidence: executorGraphEvidence(graph)
+  });
+  edges.push({ from: loop.id, to: `${loop.id}:executor-graph`, type: "guards" });
   for (const iteration of loop.iterations) {
     const iterationNodeId = iteration.id;
     nodes.push({
@@ -7251,7 +7424,7 @@ function buildLoopTraceTree(loop: LoopRun): LoopTraceTree {
     edges,
     summary: {
       checkpointCount: loop.iterations.length,
-      eventCount: buildLoopStreamEvents(loop).length,
+      eventCount: buildLoopStreamEvents(loop, graph).length,
       failureGroupCount: loop.trace.failureSignatures.length,
       replayDiffCount,
       sandboxProofStatus: loop.sandboxEnforcement.status
@@ -7260,8 +7433,27 @@ function buildLoopTraceTree(loop: LoopRun): LoopTraceTree {
   };
 }
 
-function buildLoopStreamEvents(loop: LoopRun): LoopStreamEvent[] {
+function buildLoopStreamEvents(loop: LoopRun, executorGraph?: ExecutorGraph): LoopStreamEvent[] {
   const events: LoopStreamEvent[] = [];
+  const graph = executorGraph ?? defaultExecutorGraph();
+  events.push({
+    schema: "evopilot-loop-stream-event/v1",
+    id: `${loop.id}:executor-graph`,
+    loopId: loop.id,
+    type: "executor-graph",
+    timestamp: loop.createdAt,
+    label: `Executor graph ${graph.id}`,
+    payload: {
+      graphId: graph.id,
+      name: graph.name,
+      mode: graph.mode,
+      nodes: graph.nodes.map((node) => ({ id: node.id, type: node.type, name: node.name, visualRole: node.config.visualRole })),
+      edges: graph.edges,
+      validation: graph.validation,
+      capabilities: graph.capabilities,
+      evidence: executorGraphEvidence(graph)
+    }
+  });
   for (const event of loop.timeline) {
     events.push({
       schema: "evopilot-loop-stream-event/v1",
@@ -7497,6 +7689,22 @@ function executorGraphCapabilities(nodes: ExecutorNode[], edges: ExecutorEdge[])
   };
 }
 
+function executorGraphEvidence(graph: ExecutorGraph): string[] {
+  return [
+    `executorGraph=${graph.id}`,
+    `graphMode=${graph.mode}`,
+    `graphNodes=${graph.nodes.length}`,
+    `graphEdges=${graph.edges.length}`,
+    `graphValidation=${graph.validation.status}`,
+    `typedEdges=${graph.capabilities.typedEdges}`,
+    `conditionalRouting=${graph.capabilities.conditionalRouting}`,
+    `fanOutFanIn=${graph.capabilities.fanOutFanIn}`,
+    `nestedSubgraphs=${graph.capabilities.nestedSubgraphs}`,
+    `schemaValidation=${graph.capabilities.schemaValidation}`,
+    ...graph.validation.evidence.map((item) => `graph.${item}`)
+  ];
+}
+
 function normalizeLoopArtifact(value: unknown): LoopArtifact {
   const item = isRecord(value) ? value : {};
   return loopArtifact(
@@ -7670,8 +7878,12 @@ function executeLoopNode(args: {
     `type=${args.node.type}`,
     `attempt=${args.attempt}`,
     `objective=${args.loop.objective}`,
+    `executorGraph=${args.loop.executorGraphId}`,
+    `coordinationMode=${args.coordination.mode}`,
     `workspace=${workspacePath}`,
     `dependsOn=${nodeCoordination?.dependsOn.join(",") ?? ""}`,
+    `inputSchema=${JSON.stringify(nodeCoordination?.inputSchema ?? {})}`,
+    `outputSchema=${JSON.stringify(nodeCoordination?.outputSchema ?? {})}`,
     `allowedPaths=${args.sandbox.allowedPaths.join(",")}`,
     `deniedPaths=${args.sandbox.deniedPaths.join(",")}`
   ];

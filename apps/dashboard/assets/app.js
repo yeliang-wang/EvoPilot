@@ -53,6 +53,7 @@ const state = {
   loopAutopilotRuns: [],
   loopOrchestrationPresets: [],
   loopOrchestrationTargets: [],
+  loopGraphContracts: {},
   loopTargetRuntime: {
     discoveryCandidates: [],
     findingHandoffs: [],
@@ -826,6 +827,11 @@ function renderInteractiveAgentRunConsole(loops) {
   const loop = loops.find((item) => ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(item.status)) ?? loops[0];
   const events = interactiveConsoleEvents(loop);
   const currentExecutor = loop?.timeline?.at(-1)?.type ?? loop?.iterations?.at(-1)?.decision ?? "waiting";
+  const graphContract = loop ? state.loopGraphContracts[loop.id] : undefined;
+  const graph = graphContract?.executorGraph;
+  const graphCapabilities = graph?.capabilities
+    ? Object.entries(graph.capabilities).filter(([, enabled]) => enabled).map(([key]) => key).join(" / ")
+    : `${loop?.coordination?.mode ?? "serial"} / ${loop?.coordination?.nodes?.length ?? 0} nodes`;
   return `
     <section class="run-console" aria-label="Interactive agent run console">
       <div class="run-console-head">
@@ -860,6 +866,11 @@ function renderInteractiveAgentRunConsole(loops) {
             <span>当前 executor</span>
             <strong>${escapeHtml(currentExecutor)}</strong>
             <small>${escapeHtml(loop?.coordination?.mode ?? "serial")} / ${loop?.coordination?.nodes?.length ?? 0} nodes</small>
+          </div>
+          <div>
+            <span>Graph validation</span>
+            <strong>${escapeHtml(graph?.validation?.status ?? "未读取")}</strong>
+            <small>${escapeHtml(graphCapabilities || "点击读取 Streaming Events 后显示 graph contract")}</small>
           </div>
           <div>
             <span>失败签名</span>
@@ -3224,10 +3235,18 @@ function bindLoopActions() {
           state.authNotice = `Trace Tree 已刷新：${data?.nodes?.length ?? 0} nodes / ${data?.edges?.length ?? 0} edges。`;
         }
         if (action === "load-loop-events") {
-          const response = await apiFetch(`/api/v1/loops/${encodeURIComponent(id)}/events`);
-          if (!response.ok) throw new Error(`Loop Events 接口状态 ${response.status}`);
-          const { data } = await response.json();
-          state.authNotice = `Streaming Events 已读取：${Array.isArray(data) ? data.length : 0} 条事件。`;
+          const [eventsResponse, graphResponse] = await Promise.all([
+            apiFetch(`/api/v1/loops/${encodeURIComponent(id)}/events`),
+            apiFetch(`/api/v1/loops/${encodeURIComponent(id)}/executor-graph`)
+          ]);
+          if (!eventsResponse.ok) throw new Error(`Loop Events 接口状态 ${eventsResponse.status}`);
+          const { data } = await eventsResponse.json();
+          if (graphResponse.ok) {
+            const { data: graphData } = await graphResponse.json();
+            state.loopGraphContracts = { ...state.loopGraphContracts, [id]: graphData };
+          }
+          const graph = state.loopGraphContracts[id]?.executorGraph;
+          state.authNotice = `Streaming Events 已读取：${Array.isArray(data) ? data.length : 0} 条事件；Graph ${graph?.validation?.status ?? "UNKNOWN"} / ${graph?.nodes?.length ?? 0} nodes。`;
         }
         if (action === "load-source-release-run") {
           const response = await apiFetch(`/api/v1/loops/${encodeURIComponent(id)}/source-closure/plan`);
