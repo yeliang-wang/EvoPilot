@@ -63,9 +63,21 @@ body {
 
 nav {
   display: grid;
-  gap: 2px;
+  gap: 14px;
   padding-top: 16px;
   overflow-y: auto;
+}
+
+.nav-section {
+  display: grid;
+  gap: 4px;
+}
+
+.nav-section-label {
+  padding: 0 10px 4px;
+  color: #7f8c99;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .nav-item {
@@ -75,16 +87,38 @@ nav {
   background: transparent;
   color: #dbe3ea;
   text-align: left;
-  padding: 10px 10px;
+  padding: 9px 10px;
   font-size: 14px;
   cursor: pointer;
   transition: background 180ms ease, color 180ms ease;
+}
+
+.nav-item strong,
+.nav-item small {
+  display: block;
+}
+
+.nav-item strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.nav-item small {
+  margin-top: 2px;
+  color: #97a5b2;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .nav-item.active,
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
+}
+
+.nav-item.active small,
+.nav-item:hover small {
+  color: #cbd5df;
 }
 
 .shell {
@@ -235,6 +269,46 @@ th {
 .dashboard-stats,
 .dashboard-overview {
   margin-bottom: 16px;
+}
+
+.target-runtime-panel,
+.release-guardrail-panel {
+  margin-bottom: 16px;
+}
+
+.target-runtime-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.target-runtime-lists h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.runtime-row {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafb;
+}
+
+.runtime-row + .runtime-row {
+  margin-top: 8px;
+}
+
+.runtime-row strong,
+.runtime-row span {
+  overflow-wrap: anywhere;
+}
+
+.runtime-row span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .command-center {
@@ -737,7 +811,7 @@ td {
 
 .flow-header {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -781,6 +855,54 @@ td {
 .flow-card.active span {
   background: var(--accent);
   color: #ffffff;
+}
+
+.page-brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.48fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.page-brief h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.page-brief p {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+}
+
+.brief-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.brief-metrics div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 76px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f3f6f8;
+}
+
+.brief-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.brief-metrics strong {
+  font-size: 24px;
 }
 
 .observability-map {
@@ -1861,6 +1983,16 @@ td {
     padding-top: 10px;
   }
 
+  .nav-section {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .nav-section-label {
+    display: none;
+  }
+
   .nav-item {
     flex: 0 0 auto;
     width: auto;
@@ -1897,6 +2029,16 @@ td {
   }
 
   .dashboard-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page-brief,
+  .target-runtime-lists {
+    grid-template-columns: 1fr;
+  }
+
+  .brief-metrics,
+  .flow-header {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

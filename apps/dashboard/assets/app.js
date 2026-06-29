@@ -1,8 +1,42 @@
-const navItems = ["首页", "接入项目", "证据策略", "评测集", "机会点", "Loop", "流水线", "历史记录"];
+const navSections = [
+  {
+    label: "驾驶舱",
+    items: [
+      { id: "工作台", title: "工作台", detail: "全局状态与下一步" }
+    ]
+  },
+  {
+    label: "产品闭环",
+    items: [
+      { id: "项目接入", title: "项目接入", detail: "Git、凭据、部署连接器" },
+      { id: "发现与目标", title: "发现与目标", detail: "证据、机会点、Target Runtime" },
+      { id: "Loop 执行", title: "Loop 执行", detail: "编排、worker、trace、replay" },
+      { id: "评估与发布", title: "评估与发布", detail: "CI/CD、guardrail、release closure" }
+    ]
+  },
+  {
+    label: "治理",
+    items: [
+      { id: "历史审计", title: "历史审计", detail: "历史、证据、审计线索" }
+    ]
+  }
+];
+const navItems = navSections.flatMap((section) => section.items.map((item) => item.id));
+const pageAliases = {
+  首页: "工作台",
+  接入项目: "项目接入",
+  证据策略: "发现与目标",
+  评测集: "发现与目标",
+  机会点: "发现与目标",
+  Loop: "Loop 执行",
+  流水线: "评估与发布",
+  历史记录: "历史审计"
+};
 const requestedPage = new URLSearchParams(window.location.search).get("page");
+const initialPage = normalizePage(requestedPage);
 
 const state = {
-  active: navItems.includes(requestedPage) ? requestedPage : "首页",
+  active: navItems.includes(initialPage) ? initialPage : "工作台",
   apiStatus: "示例数据",
   apiToken: window.localStorage.getItem("evopilot.apiToken") ?? "",
   authNotice: "",
@@ -19,6 +53,14 @@ const state = {
   loopAutopilotRuns: [],
   loopOrchestrationPresets: [],
   loopOrchestrationTargets: [],
+  loopTargetRuntime: {
+    discoveryCandidates: [],
+    findingHandoffs: [],
+    adversarialEvaluations: [],
+    recurringSchedules: [],
+    memoryInbox: [],
+    guardrailEvaluations: []
+  },
   loopWorkerQueue: [],
   serviceScorecards: [],
   intelligence: {
@@ -273,27 +315,42 @@ const nav = document.querySelector("#nav");
 const content = document.querySelector("#content");
 const title = document.querySelector("#page-title");
 
+function normalizePage(page) {
+  return pageAliases[page] ?? page;
+}
+
+function setActivePage(page) {
+  state.active = normalizePage(page);
+}
+
 function renderNav() {
-  nav.innerHTML = navItems.map((item) => `
-    <button class="nav-item ${state.active === item ? "active" : ""}" data-page="${item}">${item}</button>
+  nav.innerHTML = navSections.map((section) => `
+    <div class="nav-section">
+      <span class="nav-section-label">${section.label}</span>
+      ${section.items.map((item) => `
+        <button class="nav-item ${state.active === item.id ? "active" : ""}" data-page="${item.id}">
+          <strong>${item.title}</strong>
+          <small>${item.detail}</small>
+        </button>
+      `).join("")}
+    </div>
   `).join("");
   for (const button of nav.querySelectorAll("button")) {
     button.addEventListener("click", () => {
-      state.active = button.dataset.page;
+      setActivePage(button.dataset.page);
       render();
     });
   }
 }
 
 function renderPage(page) {
-  if (page === "首页") return renderHome();
-  if (page === "接入项目") return renderProjects();
-  if (page === "证据策略") return renderRules();
-  if (page === "评测集") return renderEvaluationDatasets();
-  if (page === "机会点") return renderOpportunities();
-  if (page === "Loop") return renderLoops();
-  if (page === "流水线") return renderPipelines();
-  if (page === "历史记录") return renderHistory();
+  const normalized = normalizePage(page);
+  if (normalized === "工作台") return renderHome();
+  if (normalized === "项目接入") return renderProjects();
+  if (normalized === "发现与目标") return renderDiscoveryAndTargets();
+  if (normalized === "Loop 执行") return renderLoopExecution();
+  if (normalized === "评估与发布") return renderEvaluationAndRelease();
+  if (normalized === "历史审计") return renderHistory();
   return "";
 }
 
@@ -311,25 +368,25 @@ function renderHomeCommandCenter() {
   const releaseBlocked = Number(state.intelligence.releaseBlockedCount ?? 0);
   const actions = [
     {
-      page: "接入项目",
+      page: "项目接入",
       label: "接入项目",
       title: `${state.projects.length} 个项目`,
       detail: `${state.projects.filter((project) => /已验证|健康/.test(`${project.validation}${project.status}`)).length} 个已验证`
     },
     {
-      page: "机会点",
-      label: "确认进化",
-      title: `${state.opportunities.length} 个机会点`,
-      detail: `${state.evaluationDatasets.length} 个评测集提供证据`
+      page: "发现与目标",
+      label: "发现目标",
+      title: `${state.opportunities.length + state.loopOrchestrationTargets.length} 个候选`,
+      detail: `${state.evaluationDatasets.length} 个评测集，${state.loopTargetRuntime.discoveryCandidates.length} 个 discovery`
     },
     {
-      page: "Loop",
+      page: "Loop 执行",
       label: "进入自动驾驶",
       title: `${targetCount || state.loops.length} 个 Loop target`,
       detail: targetCount ? "Backlog 等待推进" : "创建 source-to-production loop"
     },
     {
-      page: "流水线",
+      page: "评估与发布",
       label: "查看交付",
       title: `${runningPipelines} 条运行中`,
       detail: releaseBlocked ? `${releaseBlocked} 个发布阻断` : "CI/CD 与 release gate"
@@ -357,23 +414,99 @@ function renderHomeCommandCenter() {
 
 function renderFlowHeader() {
   const steps = [
-    ["接入项目", "接入状态与证据采集"],
-    ["证据策略", "用户 Prompt 到执行规则"],
-    ["评测集", "证据沉淀与回归集合"],
-    ["机会点", "多评测集形成进化方案"],
-    ["流水线", "代码升级成功后进入 CI/CD"],
-    ["历史记录", "已完成进化与结果"]
+    ["项目接入", "Git、凭据、部署边界"],
+    ["发现与目标", "证据、机会点、Target Runtime"],
+    ["Loop 执行", "编排、worker、trace、replay"],
+    ["评估与发布", "CI/CD、guardrail、source closure"],
+    ["历史审计", "完成记录与审计证据"]
   ];
   return `
     <section class="flow-header">
       ${steps.map(([name, desc], index) => `
-        <button class="flow-card ${state.active === name ? "active" : ""}" data-page="${name}">
+        <button class="flow-card ${normalizePage(state.active) === name ? "active" : ""}" data-page="${name}">
           <span>${index + 1}</span>
           <strong>${name}</strong>
           <small>${desc}</small>
         </button>
       `).join("")}
     </section>
+  `;
+}
+
+function renderDiscoveryAndTargets() {
+  return `
+    ${renderFlowHeader()}
+    <div class="page-brief">
+      <div>
+        <span class="eyebrow">Discovery and target control</span>
+        <h2>从运行证据到可执行 target loop</h2>
+        <p>这里把证据策略、评测集、机会点、Target Backlog 和 Target Runtime 放在同一条产品链路里。</p>
+      </div>
+      <div class="brief-metrics">
+        <div><span>Discovery</span><strong>${state.loopTargetRuntime.discoveryCandidates.length}</strong></div>
+        <div><span>Inbox</span><strong>${state.loopTargetRuntime.memoryInbox.length}</strong></div>
+        <div><span>Targets</span><strong>${state.loopOrchestrationTargets.length}</strong></div>
+      </div>
+    </div>
+    ${renderLoopTargetRuntimePanel()}
+    ${renderLoopTargetBacklogPanel()}
+    ${renderRules()}
+    ${renderEvaluationDatasets()}
+    ${renderOpportunities()}
+  `;
+}
+
+function renderLoopExecution() {
+  const loops = state.loops;
+  const store = state.loopStore;
+  return `
+    ${renderFlowHeader()}
+    <div class="loop-command-grid">
+      ${renderLoopOrchestrationPanel()}
+      ${renderLoopWorkerQueuePanel()}
+    </div>
+    <section class="card">
+      <div class="section-title">
+        <div>
+          <h2>Loop Runtime</h2>
+          <p>长任务的跨轮状态、executor graph、独立证据、worker lease、replay、sandbox、trace 与 watchdog 决策。</p>
+        </div>
+        <span class="pill ${loops.some((loop) => loop.status === "RUNNING") ? "good" : "warn"}">${loops.length} 个 Loop</span>
+      </div>
+      <div class="dashboard-stats">
+        <div><span>Store</span><strong>${store?.backend ?? "file"}</strong><small>${store?.lockProvider ?? "file-lease"}</small></div>
+        <div><span>恢复语义</span><strong>${store?.recovery ?? "idempotent-replay"}</strong><small>幂等恢复</small></div>
+        <div><span>运行中</span><strong>${loops.filter((loop) => loop.status === "RUNNING").length}</strong><small>含 worker lease</small></div>
+        <div><span>失败签名</span><strong>${state.loopTraces.reduce((sum, trace) => sum + (trace.failureSignatures?.length ?? 0), 0)}</strong><small>trace 聚合</small></div>
+      </div>
+      ${renderLoopRunTable(loops)}
+    </section>
+    ${loops.slice(0, 3).map(renderLoopDetail).join("")}
+  `;
+}
+
+function renderEvaluationAndRelease() {
+  return `
+    ${renderFlowHeader()}
+    <div class="page-brief">
+      <div>
+        <span class="eyebrow">Evaluation and release gates</span>
+        <h2>把代码升级、CI/CD、评估和源码发布放在同一页</h2>
+        <p>发布不是流水线的附属步骤；guardrail、adversarial evaluation、release policy 和 source closure 共同决定是否继续。</p>
+      </div>
+      <div class="brief-metrics">
+        <div><span>Adversarial</span><strong>${state.loopTargetRuntime.adversarialEvaluations.length}</strong></div>
+        <div><span>Guardrails</span><strong>${state.loopTargetRuntime.guardrailEvaluations.length}</strong></div>
+        <div><span>Release Runs</span><strong>${state.sourceReleaseRuns.length}</strong></div>
+      </div>
+    </div>
+    ${renderReleaseGuardrailPanel()}
+    ${renderPipelines({ includeFlowHeader: false })}
+    <div class="loop-operations-grid">
+      ${renderSourceReleaseRepairQueuePanel()}
+      ${renderSourceReleaseDeployFinalizersPanel()}
+    </div>
+    ${state.loops.slice(0, 2).map(renderLoopDetail).join("")}
   `;
 }
 
@@ -1025,12 +1158,13 @@ function renderConfirmEvolutionModal(opportunity) {
   `;
 }
 
-function renderPipelines() {
+function renderPipelines(options = {}) {
+  const includeFlowHeader = options.includeFlowHeader !== false;
   const confirmed = state.pipelines;
   const codeUpgrades = state.codeUpgrades;
   if (confirmed.length === 0 && codeUpgrades.length === 0) {
     return `
-      ${renderFlowHeader()}
+      ${includeFlowHeader ? renderFlowHeader() : ""}
       <section class="card">
         <div class="section-title"><h2>流水线</h2></div>
         <div class="empty">暂无执行中的进化方案，请先在机会点查看方案并确认进化。</div>
@@ -1041,7 +1175,7 @@ function renderPipelines() {
   const activeCodeUpgrade = codeUpgrades[0] ?? codeUpgradeFromPipeline(confirmed[0]);
   const hasSuccessfulUpgrade = activeCodeUpgrade?.status === "SUCCEEDED";
   return `
-    ${renderFlowHeader()}
+    ${includeFlowHeader ? renderFlowHeader() : ""}
     <div class="pipeline-layout">
       <aside class="jenkins-panel card">
         <div class="delivery-context">
@@ -1179,19 +1313,103 @@ function renderLoops() {
         <div><span>运行中</span><strong>${loops.filter((loop) => loop.status === "RUNNING").length}</strong><small>含 worker lease</small></div>
         <div><span>失败签名</span><strong>${state.loopTraces.reduce((sum, trace) => sum + (trace.failureSignatures?.length ?? 0), 0)}</strong><small>trace 聚合</small></div>
       </div>
-      ${state.isLoading && loops.length === 0 ? renderLoadingSkeleton("正在读取 Loop runtime、worker lease 与 release evidence") : loops.length === 0 ? renderEmptyState("暂无 LoopRun", "生产模式请先输入 API Token；命令入口、IM、定时任务或 API 创建后会显示在这里。", "创建闭环 Loop 后会在这里展示 runtime、trace 和源码发布证据。") : table(["操作", "Loop", "状态", "轮次", "源码闭环", "执行图", "Sandbox", "Worker", "Trace"], loops.map((loop) => [
-        renderLoopActions(loop),
-        `<strong>${loop.objective}</strong><span class="subtext">${loop.id}</span>`,
-        statusPill(loop.status),
-        `${loop.currentIteration}/${loop.stopPolicy?.maxIterations ?? "-"}`,
-        renderLoopSourceClosure(loop),
-        `${loop.executorGraphId}<span class="subtext">${loop.coordination?.mode ?? "serial"}</span>`,
-        `${loop.sandbox?.runtime ?? "host"}<span class="subtext">${loop.sandbox?.network ?? "restricted"} / ${loop.sandbox?.credentialScope ?? "loop"}</span>`,
-        loop.workerLease ? `${loop.workerLease.workerId}<span class="subtext">到期 ${formatDate(loop.workerLease.expiresAt)}</span>` : "未持有",
-        `${loop.trace?.executorStepCount ?? 0} steps / ${loop.trace?.failedStepCount ?? 0} failed<span class="subtext">${loop.timeline?.at(-1)?.message ?? "等待启动"}</span>`
-      ]))}
+      ${renderLoopRunTable(loops)}
     </section>
     ${loops.slice(0, 3).map(renderLoopDetail).join("")}
+  `;
+}
+
+function renderLoopRunTable(loops) {
+  return state.isLoading && loops.length === 0
+    ? renderLoadingSkeleton("正在读取 Loop runtime、worker lease 与 release evidence")
+    : loops.length === 0
+      ? renderEmptyState("暂无 LoopRun", "生产模式请先输入 API Token；命令入口、IM、定时任务或 API 创建后会显示在这里。", "创建闭环 Loop 后会在这里展示 runtime、trace 和源码发布证据。")
+      : table(["操作", "Loop", "状态", "轮次", "源码闭环", "执行图", "Sandbox", "Worker", "Trace"], loops.map((loop) => [
+          renderLoopActions(loop),
+          `<strong>${loop.objective}</strong><span class="subtext">${loop.id}</span>`,
+          statusPill(loop.status),
+          `${loop.currentIteration}/${loop.stopPolicy?.maxIterations ?? "-"}`,
+          renderLoopSourceClosure(loop),
+          `${loop.executorGraphId}<span class="subtext">${loop.coordination?.mode ?? "serial"}</span>`,
+          `${loop.sandbox?.runtime ?? "host"}<span class="subtext">${loop.sandbox?.network ?? "restricted"} / ${loop.sandbox?.credentialScope ?? "loop"}</span>`,
+          loop.workerLease ? `${loop.workerLease.workerId}<span class="subtext">到期 ${formatDate(loop.workerLease.expiresAt)}</span>` : "未持有",
+          `${loop.trace?.executorStepCount ?? 0} steps / ${loop.trace?.failedStepCount ?? 0} failed<span class="subtext">${loop.timeline?.at(-1)?.message ?? "等待启动"}</span>`
+        ]));
+}
+
+function renderLoopTargetRuntimePanel() {
+  const runtime = state.loopTargetRuntime;
+  const inboxOpen = (runtime.memoryInbox ?? []).filter((item) => ["NEW", "ACCEPTED"].includes(item.status)).length;
+  return `
+    <section class="card target-runtime-panel">
+      <div class="section-title">
+        <div>
+          <h2>Target Runtime</h2>
+          <p>六个 target loop 的通用产品对象：discovery、handoff、evaluator、schedule、memory inbox 和 guardrail。</p>
+        </div>
+        <span class="pill ${runtime.discoveryCandidates.length ? "good" : "warn"}">${runtime.discoveryCandidates.length} candidates</span>
+      </div>
+      <div class="backlog-summary">
+        <div><span>Discovery</span><strong>${runtime.discoveryCandidates.length}</strong><small>候选 target</small></div>
+        <div><span>Handoff</span><strong>${runtime.findingHandoffs.length}</strong><small>隔离 workspace</small></div>
+        <div><span>Evaluator</span><strong>${runtime.adversarialEvaluations.length}</strong><small>独立评估</small></div>
+        <div><span>Schedules</span><strong>${runtime.recurringSchedules.length}</strong><small>周期 loop</small></div>
+        <div><span>Inbox</span><strong>${inboxOpen}</strong><small>待处理记忆</small></div>
+        <div><span>Guardrails</span><strong>${runtime.guardrailEvaluations.length}</strong><small>预算判断</small></div>
+      </div>
+      <div class="table-actions">
+        <button class="primary" data-action="run-discovery-runtime">运行 Discovery</button>
+        <button data-action="create-recurring-loop-schedule">创建每日 Target Schedule</button>
+      </div>
+      <div class="target-runtime-lists">
+        <div>
+          <h3>Discovery candidates</h3>
+          ${(runtime.discoveryCandidates ?? []).slice(0, 6).map((item) => `
+            <div class="runtime-row">
+              <strong>${escapeHtml(item.title ?? item.targetId)}</strong>
+              <span>${escapeHtml(item.projectId)} / ${escapeHtml(item.source ?? "manual")} / ${Math.round(Number(item.confidence ?? 0) * 100)}%</span>
+            </div>
+          `).join("") || renderEmptyState("暂无 discovery candidate", "点击运行 Discovery 后会从项目、trace、evaluation 和生产信号生成候选 target。")}
+        </div>
+        <div>
+          <h3>Memory inbox</h3>
+          ${(runtime.memoryInbox ?? []).slice(0, 6).map((item) => `
+            <div class="runtime-row">
+              <strong>${escapeHtml(item.title ?? item.id)}</strong>
+              <span>${escapeHtml(item.status)} / ${escapeHtml(item.targetId ?? item.type ?? "-")}</span>
+            </div>
+          `).join("") || renderEmptyState("暂无 memory inbox", "Discovery、评估失败和发布经验会进入 inbox，随后可转为 target loop。")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderReleaseGuardrailPanel() {
+  const runtime = state.loopTargetRuntime;
+  const latestEvaluation = runtime.adversarialEvaluations[0];
+  const latestGuardrail = runtime.guardrailEvaluations[0];
+  const firstLoop = state.loops[0];
+  return `
+    <section class="card release-guardrail-panel">
+      <div class="section-title">
+        <div>
+          <h2>评估与发布门禁</h2>
+          <p>发布前先看独立 evaluator 和预算判断，避免把 executor 进度误判为产品可发布。</p>
+        </div>
+        <span class="pill ${latestGuardrail?.status === "BLOCK" || latestEvaluation?.status === "BLOCK" ? "warn" : "good"}">${latestGuardrail?.releaseJudgment ?? latestEvaluation?.status ?? "等待评估"}</span>
+      </div>
+      <div class="dashboard-stats">
+        <div><span>Adversarial</span><strong>${latestEvaluation?.status ?? "-"}</strong><small>${latestEvaluation?.missingEvidence?.[0] ?? "尚未运行"}</small></div>
+        <div><span>Guardrail</span><strong>${latestGuardrail?.status ?? "-"}</strong><small>${latestGuardrail?.releaseJudgment ?? "尚未评估"}</small></div>
+        <div><span>Release Runs</span><strong>${state.sourceReleaseRuns.length}</strong><small>source closure records</small></div>
+        <div><span>Repair Queue</span><strong>${state.sourceReleaseRepairCandidates.length}</strong><small>failed/stale release</small></div>
+      </div>
+      <div class="table-actions">
+        <button data-action="run-adversarial-evaluation" data-id="${escapeHtml(firstLoop?.id ?? "")}" ${firstLoop ? "" : "disabled"}>运行独立评估</button>
+        <button class="primary" data-action="evaluate-loop-guardrail" data-id="${escapeHtml(firstLoop?.id ?? "")}" ${firstLoop ? "" : "disabled"}>评估预算门禁</button>
+      </div>
+    </section>
   `;
 }
 
@@ -1360,6 +1578,17 @@ function countBy(items, keyFn) {
     acc[key] = (acc[key] ?? 0) + 1;
     return acc;
   }, {});
+}
+
+function normalizeLoopTargetRuntime(value = {}) {
+  return {
+    discoveryCandidates: Array.isArray(value.discoveryCandidates) ? value.discoveryCandidates : [],
+    findingHandoffs: Array.isArray(value.findingHandoffs) ? value.findingHandoffs : [],
+    adversarialEvaluations: Array.isArray(value.adversarialEvaluations) ? value.adversarialEvaluations : [],
+    recurringSchedules: Array.isArray(value.recurringSchedules) ? value.recurringSchedules : [],
+    memoryInbox: Array.isArray(value.memoryInbox) ? value.memoryInbox : [],
+    guardrailEvaluations: Array.isArray(value.guardrailEvaluations) ? value.guardrailEvaluations : []
+  };
 }
 
 function renderLoopOrchestrationPanel() {
@@ -1983,16 +2212,16 @@ async function refreshData() {
 function bindPageLinks() {
   for (const button of content.querySelectorAll("[data-page-link]")) {
     button.addEventListener("click", () => {
-      state.active = button.dataset.pageLink;
+      setActivePage(button.dataset.pageLink);
       render();
     });
   }
 }
 
 function bindFlowHeader() {
-  for (const button of content.querySelectorAll(".flow-card")) {
+  for (const button of content.querySelectorAll(".flow-card, .command-action")) {
     button.addEventListener("click", () => {
-      state.active = button.dataset.page;
+      setActivePage(button.dataset.page);
       render();
     });
   }
@@ -2032,14 +2261,14 @@ function bindOpportunityActions() {
       }
       if (action === "start-evolution-now") {
         await confirmOpportunity(id, { scheduled: false });
-        state.active = "流水线";
+        setActivePage("流水线");
         await loadPipelines();
         await loadSummary();
       }
       if (action === "schedule-evolution") {
         const scheduledAt = content.querySelector("#schedule-at")?.value;
         await confirmOpportunity(id, { scheduled: true, scheduledAt });
-        state.active = "流水线";
+        setActivePage("流水线");
         await loadPipelines();
         await loadSummary();
       }
@@ -2090,6 +2319,93 @@ function bindLoopActions() {
       } catch (error) {
         state.authNotice = `闭环编排失败：${error.message}`;
       } finally {
+        render();
+      }
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="run-discovery-runtime"]')) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      state.authNotice = "";
+      try {
+        const response = await postJson("/api/v1/loop-target-runtime/discovery/run", {
+          projectId: state.projects[0]?.id
+        });
+        state.authNotice = `Discovery Runtime 已运行：${response.data?.length ?? 0} 个候选。`;
+        await loadLoops();
+      } catch (error) {
+        state.authNotice = `Discovery Runtime 失败：${error.message}`;
+      } finally {
+        render();
+      }
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="create-recurring-loop-schedule"]')) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      state.authNotice = "";
+      try {
+        const response = await postJson("/api/v1/loop-target-runtime/schedules", {
+          projectId: state.projects[0]?.id ?? "evopilot",
+          targetId: "discovery-skill-runtime",
+          cadence: "daily",
+          maxBudgetUsd: 3,
+          triggerRules: ["new-evidence", "release-window-open", "budget-pass"]
+        });
+        state.authNotice = `Target Schedule 已创建：${response.data?.id ?? "schedule"} / ${response.data?.nextRunAt ?? "next run pending"}。`;
+        await loadLoops();
+      } catch (error) {
+        state.authNotice = `Target Schedule 创建失败：${error.message}`;
+      } finally {
+        render();
+      }
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="run-adversarial-evaluation"]')) {
+    button.addEventListener("click", async () => {
+      const loopId = button.dataset.id;
+      if (!loopId) return;
+      button.disabled = true;
+      state.authNotice = "";
+      try {
+        const response = await postJson("/api/v1/loop-target-runtime/adversarial-evaluations", {
+          loopId,
+          targetId: "adversarial-evaluator-agent"
+        });
+        state.authNotice = `独立评估完成：${response.data?.status ?? "UNKNOWN"}。`;
+      } catch (error) {
+        const evaluation = error.responseBody?.data;
+        state.authNotice = evaluation?.schema === "evopilot-adversarial-evaluation/v1"
+          ? `独立评估阻断：${evaluation.status} / ${(evaluation.missingEvidence ?? []).join(", ") || "missing evidence"}。`
+          : `独立评估失败：${error.message}`;
+      } finally {
+        await loadLoops();
+        render();
+      }
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="evaluate-loop-guardrail"]')) {
+    button.addEventListener("click", async () => {
+      const loopId = button.dataset.id;
+      if (!loopId) return;
+      button.disabled = true;
+      state.authNotice = "";
+      try {
+        const response = await postJson(`/api/v1/loop-target-runtime/guardrails/${encodeURIComponent(loopId)}/evaluate`, {
+          maxCostUsd: 5,
+          maxTokens: 100000,
+          maxDurationSeconds: 86400,
+          maxChangedFiles: 20,
+          minConfidence: 0.6
+        });
+        state.authNotice = `预算门禁完成：${response.data?.status ?? "UNKNOWN"} / ${response.data?.releaseJudgment ?? "UNKNOWN"}。`;
+      } catch (error) {
+        const evaluation = error.responseBody?.data;
+        state.authNotice = evaluation?.schema === "evopilot-budget-judgment-guardrail/v1"
+          ? `预算门禁阻断：${evaluation.releaseJudgment} / ${(evaluation.blockers ?? []).join(", ") || "policy block"}。`
+          : `预算门禁失败：${error.message}`;
+      } finally {
+        await loadLoops();
         render();
       }
     });
@@ -2438,7 +2754,7 @@ function bindEvaluationDatasets() {
     state.opportunities.unshift(opportunityFromDraft(draft));
     state.opportunityDraftNotice = "机会点已生成，可在机会点列表中查看并编辑进化方案。";
     state.showOpportunityComposer = false;
-    state.active = "机会点";
+    setActivePage("机会点");
     render();
   });
 }
@@ -3025,6 +3341,11 @@ async function loadLoops() {
       const { data: finalizerData } = await finalizersResponse.json();
       state.sourceReleaseDeployFinalizers = Array.isArray(finalizerData) ? finalizerData : [];
     }
+    const targetRuntimeResponse = await apiFetch("/api/v1/loop-target-runtime/summary");
+    if (targetRuntimeResponse.ok) {
+      const { data: runtimeData } = await targetRuntimeResponse.json();
+      state.loopTargetRuntime = normalizeLoopTargetRuntime(runtimeData);
+    }
     const response = await apiFetch("/api/v1/loops");
     if (!response.ok) throw new Error(`Loop 接口状态 ${response.status}`);
     const { data } = await response.json();
@@ -3038,6 +3359,7 @@ async function loadLoops() {
     state.sourceReleaseDeployFinalizers = [];
     state.loopOrchestrationPresets = [];
     state.loopOrchestrationTargets = [];
+    state.loopTargetRuntime = normalizeLoopTargetRuntime();
     state.authNotice = `Loop 数据读取失败：${error.message}`;
   }
 }
