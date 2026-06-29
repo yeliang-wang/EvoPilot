@@ -1350,6 +1350,113 @@ interface LoopOrchestrationAutopilotResult {
   createdAt: string;
 }
 
+interface DiscoverySkillCandidate {
+  schema: "evopilot-discovery-skill-candidate/v1";
+  id: string;
+  projectId: string;
+  targetId: string;
+  title: string;
+  source: "repository" | "trace" | "evaluation" | "production" | "manual";
+  confidence: number;
+  affectedFiles: string[];
+  acceptanceCriteria: string[];
+  evidence: string[];
+  status: "CANDIDATE" | "ACCEPTED" | "REJECTED" | "CONVERTED";
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface FindingWorktreeHandoff {
+  schema: "evopilot-finding-worktree-handoff/v1";
+  id: string;
+  findingId: string;
+  projectId: string;
+  provider: ProjectRepositoryProvider | "unknown";
+  workspaceRoot: string;
+  sourceBranch: string;
+  targetBranch: string;
+  allowedPaths: string[];
+  validationCommands: string[];
+  rollbackRef?: string;
+  status: "ALLOCATED" | "RESUMABLE" | "ARCHIVED";
+  evidence: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AdversarialEvaluation {
+  schema: "evopilot-adversarial-evaluation/v1";
+  id: string;
+  loopId?: string;
+  projectId: string;
+  targetId?: string;
+  status: "PASS" | "WARN" | "BLOCK";
+  checkedInputs: string[];
+  missingEvidence: string[];
+  failureSignatures: string[];
+  suggestedActions: string[];
+  evidence: string[];
+  createdAt: string;
+}
+
+interface RecurringLoopSchedule {
+  schema: "evopilot-recurring-loop-schedule/v1";
+  id: string;
+  projectId: string;
+  targetId: string;
+  cadence: "manual" | "hourly" | "daily" | "weekly";
+  maxBudgetUsd: number;
+  triggerRules: string[];
+  status: "ACTIVE" | "PAUSED" | "BLOCKED";
+  lastRunAt?: string;
+  nextRunAt: string;
+  idempotencyKey: string;
+  evidence: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface LoopMemoryInboxItem {
+  schema: "evopilot-loop-memory-inbox-item/v1";
+  id: string;
+  projectId: string;
+  type: "finding" | "evaluation" | "feedback" | "release-learning" | "operator-note";
+  title: string;
+  body: string;
+  status: "NEW" | "ACCEPTED" | "MERGED" | "SNOOZED" | "REJECTED" | "CONVERTED";
+  targetId?: string;
+  provenance: string[];
+  evidence: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface LoopGuardrailEvaluation {
+  schema: "evopilot-budget-judgment-guardrail/v1";
+  id: string;
+  loopId: string;
+  projectId: string;
+  status: "PASS" | "WARN" | "BLOCK";
+  budgets: {
+    maxCostUsd: number;
+    maxTokens: number;
+    maxDurationSeconds: number;
+    maxChangedFiles: number;
+    minConfidence: number;
+  };
+  actual: {
+    costUsd: number;
+    tokens: number;
+    durationSeconds: number;
+    changedFiles: number;
+    confidence: number;
+  };
+  releaseJudgment: "ALLOW" | "HUMAN_REVIEW" | "BLOCK";
+  blockers: string[];
+  evidence: string[];
+  createdAt: string;
+}
+
 interface ProjectEvolutionCursor {
   projectId: string;
   lastProcessedDatasetTriggeredAt?: string;
@@ -1775,6 +1882,98 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           releaseRunId: result.releaseRun?.id
         }));
         return writeJson(response, result.status === "SUCCEEDED" ? 200 : 409, envelope(result));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/summary") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.loopTargetRuntimeSummary()));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/loop-target-runtime/discovery/run") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const candidates = store.runDiscoverySkillRuntime(optionalTrimmedString(body.projectId));
+        store.appendAudit(audit(auth, "loop-target-runtime.discovery-run", "discovery-skill-runtime", { candidateCount: candidates.length, projectId: body.projectId }));
+        return writeJson(response, 201, envelope(candidates));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/discovery/candidates") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listDiscoverySkillCandidates().slice(-100).reverse()));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/loop-target-runtime/handoffs") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const handoff = store.allocateFindingWorktreeHandoff({
+          findingId: optionalTrimmedString(body.findingId),
+          projectId: optionalTrimmedString(body.projectId),
+          targetId: optionalTrimmedString(body.targetId),
+          allowedPaths: Array.isArray(body.allowedPaths) ? body.allowedPaths.map(String) : undefined,
+          validationCommands: Array.isArray(body.validationCommands) ? body.validationCommands.map(String) : undefined
+        });
+        store.appendAudit(audit(auth, "loop-target-runtime.handoff-allocated", handoff.id, { projectId: handoff.projectId, targetBranch: handoff.targetBranch }));
+        return writeJson(response, 201, envelope(handoff));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/handoffs") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listFindingWorktreeHandoffs().slice(-100).reverse()));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/loop-target-runtime/adversarial-evaluations") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const evaluation = store.runAdversarialEvaluation({
+          loopId: optionalTrimmedString(body.loopId),
+          projectId: optionalTrimmedString(body.projectId),
+          targetId: optionalTrimmedString(body.targetId)
+        });
+        store.appendAudit(audit(auth, "loop-target-runtime.adversarial-evaluated", evaluation.id, { status: evaluation.status, loopId: evaluation.loopId }));
+        return writeJson(response, evaluation.status === "BLOCK" ? 409 : 201, envelope(evaluation));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/adversarial-evaluations") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listAdversarialEvaluations().slice(-100).reverse()));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/loop-target-runtime/schedules") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const schedule = store.upsertRecurringLoopSchedule({
+          id: optionalTrimmedString(body.id),
+          projectId: optionalTrimmedString(body.projectId),
+          targetId: optionalTrimmedString(body.targetId),
+          cadence: optionalTrimmedString(body.cadence),
+          maxBudgetUsd: body.maxBudgetUsd === undefined ? undefined : Number(body.maxBudgetUsd),
+          triggerRules: Array.isArray(body.triggerRules) ? body.triggerRules.map(String) : undefined
+        });
+        store.appendAudit(audit(auth, "loop-target-runtime.schedule-upserted", schedule.id, { cadence: schedule.cadence, nextRunAt: schedule.nextRunAt }));
+        return writeJson(response, 201, envelope(schedule));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/schedules") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listRecurringLoopSchedules().slice(-100).reverse()));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/memory-inbox") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listLoopMemoryInboxItems().slice(-100).reverse()));
+      }
+      const memoryInboxTriageMatch = url.pathname.match(/^\/api\/v1\/loop-target-runtime\/memory-inbox\/([^/]+)\/triage$/);
+      if (request.method === "POST" && memoryInboxTriageMatch) {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const status = normalizeMemoryInboxStatus(body.status);
+        const item = store.triageLoopMemoryInboxItem(decodeURIComponent(memoryInboxTriageMatch[1]), status, optionalTrimmedString(body.targetId));
+        if (!item) return writeJson(response, 404, { error: "MEMORY_INBOX_ITEM_NOT_FOUND" });
+        store.appendAudit(audit(auth, "loop-target-runtime.memory-triaged", item.id, { status: item.status, targetId: item.targetId }));
+        return writeJson(response, 200, envelope(item));
+      }
+      const guardrailEvaluateMatch = url.pathname.match(/^\/api\/v1\/loop-target-runtime\/guardrails\/([^/]+)\/evaluate$/);
+      if (request.method === "POST" && guardrailEvaluateMatch) {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const evaluation = store.evaluateBudgetAndJudgmentGuardrails(decodeURIComponent(guardrailEvaluateMatch[1]), isRecord(body) ? body : {});
+        if (!evaluation) return writeJson(response, 404, { error: "LOOP_NOT_FOUND" });
+        store.appendAudit(audit(auth, "loop-target-runtime.guardrail-evaluated", evaluation.id, { status: evaluation.status, releaseJudgment: evaluation.releaseJudgment }));
+        return writeJson(response, evaluation.status === "BLOCK" ? 409 : 200, envelope(evaluation));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/loop-target-runtime/guardrails") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listGuardrailEvaluations().slice(-100).reverse()));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/loop-orchestration/instantiate") {
         if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -2938,6 +3137,12 @@ class FileStore {
     fs.mkdirSync(this.loopsDir, { recursive: true });
     fs.mkdirSync(this.loopWorkspacesDir, { recursive: true });
     fs.mkdirSync(this.executorGraphsDir, { recursive: true });
+    fs.mkdirSync(this.discoveryCandidatesDir, { recursive: true });
+    fs.mkdirSync(this.findingHandoffsDir, { recursive: true });
+    fs.mkdirSync(this.adversarialEvaluationsDir, { recursive: true });
+    fs.mkdirSync(this.recurringLoopSchedulesDir, { recursive: true });
+    fs.mkdirSync(this.loopMemoryInboxDir, { recursive: true });
+    fs.mkdirSync(this.guardrailEvaluationsDir, { recursive: true });
     this.ensureMetadata();
   }
 
@@ -3045,6 +3250,30 @@ class FileStore {
     return path.join(this.dataRoot, "executor-graphs");
   }
 
+  get discoveryCandidatesDir(): string {
+    return path.join(this.dataRoot, "loop-target-runtime", "discovery-candidates");
+  }
+
+  get findingHandoffsDir(): string {
+    return path.join(this.dataRoot, "loop-target-runtime", "finding-handoffs");
+  }
+
+  get adversarialEvaluationsDir(): string {
+    return path.join(this.dataRoot, "loop-target-runtime", "adversarial-evaluations");
+  }
+
+  get recurringLoopSchedulesDir(): string {
+    return path.join(this.dataRoot, "loop-target-runtime", "recurring-schedules");
+  }
+
+  get loopMemoryInboxDir(): string {
+    return path.join(this.dataRoot, "loop-target-runtime", "memory-inbox");
+  }
+
+  get guardrailEvaluationsDir(): string {
+    return path.join(this.dataRoot, "loop-target-runtime", "guardrail-evaluations");
+  }
+
   get metadataFile(): string {
     return path.join(this.dataRoot, "metadata.json");
   }
@@ -3145,8 +3374,290 @@ class FileStore {
       releaseDecisionCount: this.listReleaseDecisions().length,
       latestReleaseDecision: this.listReleaseDecisions().slice(-1)[0],
       targetLoopCount: this.listTargetLoops().length,
-      latestTargetLoop: this.listTargetLoops().slice(-1)[0]
+      latestTargetLoop: this.listTargetLoops().slice(-1)[0],
+      discoveryCandidateCount: this.listDiscoverySkillCandidates().length,
+      memoryInboxCount: this.listLoopMemoryInboxItems().filter((item) => item.status === "NEW" || item.status === "ACCEPTED").length,
+      recurringLoopScheduleCount: this.listRecurringLoopSchedules().length,
+      latestGuardrailEvaluation: this.listGuardrailEvaluations().slice(-1)[0]
     };
+  }
+
+  loopTargetRuntimeSummary(): object {
+    return {
+      discoveryCandidates: this.listDiscoverySkillCandidates().slice(-20).reverse(),
+      findingHandoffs: this.listFindingWorktreeHandoffs().slice(-20).reverse(),
+      adversarialEvaluations: this.listAdversarialEvaluations().slice(-20).reverse(),
+      recurringSchedules: this.listRecurringLoopSchedules().slice(-20).reverse(),
+      memoryInbox: this.listLoopMemoryInboxItems().slice(-50).reverse(),
+      guardrailEvaluations: this.listGuardrailEvaluations().slice(-20).reverse()
+    };
+  }
+
+  listDiscoverySkillCandidates(): DiscoverySkillCandidate[] {
+    return readJsonDir<DiscoverySkillCandidate>(this.discoveryCandidatesDir);
+  }
+
+  writeDiscoverySkillCandidate(candidate: DiscoverySkillCandidate): DiscoverySkillCandidate {
+    atomicWriteJson(path.join(this.discoveryCandidatesDir, `${safeFileName(candidate.id)}.json`), candidate);
+    return candidate;
+  }
+
+  runDiscoverySkillRuntime(projectId?: string): DiscoverySkillCandidate[] {
+    const now = new Date().toISOString();
+    const projects = projectId ? this.listProjects().filter((project) => project.id === safeFileName(projectId)) : this.listProjects();
+    const selectedProjects = projects.length > 0 ? projects : [this.readProject("evopilot") ?? syntheticEvoPilotProject()];
+    const definitions = loopOrchestrationTargetDefinitions().filter((target) => [
+      "discovery-skill-runtime",
+      "per-finding-worktree-handoff",
+      "adversarial-evaluator-agent",
+      "recurring-loop-scheduler",
+      "loop-memory-inbox",
+      "budget-and-judgment-guardrails"
+    ].includes(target.id));
+    const insights = this.discoverOpportunityInsights();
+    const traces = this.listLoopTraces();
+    const datasets = this.listEvaluationDatasets();
+    const candidates: DiscoverySkillCandidate[] = [];
+    for (const project of selectedProjects) {
+      for (const target of definitions) {
+        const projectInsights = insights.filter((insight) => insight.projectId === project.id);
+        const candidate: DiscoverySkillCandidate = {
+          schema: "evopilot-discovery-skill-candidate/v1",
+          id: `candidate-${safeFileName(project.id)}-${safeFileName(target.id)}`,
+          projectId: project.id,
+          targetId: target.id,
+          title: target.title,
+          source: project.repository ? "repository" : projectInsights.length > 0 ? "production" : "manual",
+          confidence: Math.min(0.95, 0.55 + projectInsights.length * 0.08 + traces.filter((trace) => trace.loopId.includes(project.id)).length * 0.03),
+          affectedFiles: discoveryAffectedFilesForTarget(target.id, project),
+          acceptanceCriteria: target.acceptanceCriteria,
+          evidence: [
+            `project=${project.id}`,
+            `provider=${project.repository?.provider ?? "unknown"}`,
+            `repository=${project.repository?.gitUrl ?? project.repository?.root ?? sourceUrlFromRepository(project.repository) ?? "unconfigured"}`,
+            `insightCount=${projectInsights.length}`,
+            `evaluationDatasetCount=${datasets.filter((dataset) => dataset.projectId === project.id).length}`,
+            `traceCount=${traces.filter((trace) => trace.loopId.includes(project.id)).length}`
+          ],
+          status: "CANDIDATE",
+          createdAt: this.listDiscoverySkillCandidates().find((item) => item.id === `candidate-${safeFileName(project.id)}-${safeFileName(target.id)}`)?.createdAt ?? now,
+          updatedAt: now
+        };
+        candidates.push(this.writeDiscoverySkillCandidate(candidate));
+        this.writeLoopMemoryInboxItem(memoryInboxItemFromDiscoveryCandidate(candidate));
+      }
+    }
+    return candidates;
+  }
+
+  listFindingWorktreeHandoffs(): FindingWorktreeHandoff[] {
+    return readJsonDir<FindingWorktreeHandoff>(this.findingHandoffsDir);
+  }
+
+  writeFindingWorktreeHandoff(handoff: FindingWorktreeHandoff): FindingWorktreeHandoff {
+    atomicWriteJson(path.join(this.findingHandoffsDir, `${safeFileName(handoff.id)}.json`), handoff);
+    return handoff;
+  }
+
+  allocateFindingWorktreeHandoff(input: {
+    findingId?: string;
+    projectId?: string;
+    targetId?: string;
+    allowedPaths?: string[];
+    validationCommands?: string[];
+  }): FindingWorktreeHandoff {
+    const now = new Date().toISOString();
+    const projectId = safeFileName(String(input.projectId ?? "evopilot"));
+    const project = this.readProject(projectId);
+    const findingId = safeFileName(String(input.findingId ?? input.targetId ?? `finding-${Date.now()}`));
+    const sourceBranch = project?.repository?.defaultBranch ?? "main";
+    const targetBranch = `evopilot/${findingId}`;
+    const workspaceRoot = path.join(this.loopWorkspacesDir, "findings", findingId);
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    return this.writeFindingWorktreeHandoff({
+      schema: "evopilot-finding-worktree-handoff/v1",
+      id: `handoff-${findingId}`,
+      findingId,
+      projectId,
+      provider: project?.repository?.provider ?? "unknown",
+      workspaceRoot,
+      sourceBranch,
+      targetBranch,
+      allowedPaths: normalizeStringList(input.allowedPaths, ["packages", "apps", "docs", "tests"]),
+      validationCommands: normalizeStringList(input.validationCommands, ["npm run check"]),
+      rollbackRef: sourceBranch,
+      status: "ALLOCATED",
+      evidence: [
+        `workspaceRoot=${workspaceRoot}`,
+        `sourceBranch=${sourceBranch}`,
+        `targetBranch=${targetBranch}`,
+        `provider=${project?.repository?.provider ?? "unknown"}`
+      ],
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  listAdversarialEvaluations(): AdversarialEvaluation[] {
+    return readJsonDir<AdversarialEvaluation>(this.adversarialEvaluationsDir);
+  }
+
+  writeAdversarialEvaluation(evaluation: AdversarialEvaluation): AdversarialEvaluation {
+    atomicWriteJson(path.join(this.adversarialEvaluationsDir, `${safeFileName(evaluation.id)}.json`), evaluation);
+    return evaluation;
+  }
+
+  runAdversarialEvaluation(input: { loopId?: string; projectId?: string; targetId?: string }): AdversarialEvaluation {
+    const now = new Date().toISOString();
+    const loop = input.loopId ? this.readLoop(input.loopId) : undefined;
+    const projectId = safeFileName(String(input.projectId ?? loop?.projectId ?? "evopilot"));
+    const latestDecision = this.listReleaseDecisions().slice(-1)[0];
+    const missingEvidence = [
+      ...(loop && loop.iterations.length > 0 ? [] : ["loop-iteration-evidence"]),
+      ...(loop?.sourceClosure.closureState === "PROMOTED" ? [] : ["source-closure-promotion"]),
+      ...(latestDecision ? [] : ["release-decision"])
+    ];
+    const failureSignatures = loop?.trace.failureSignatures.map((item) => item.signature) ?? [];
+    const status: AdversarialEvaluation["status"] = missingEvidence.includes("source-closure-promotion") ? "BLOCK" : missingEvidence.length > 0 || failureSignatures.length > 0 ? "WARN" : "PASS";
+    return this.writeAdversarialEvaluation({
+      schema: "evopilot-adversarial-evaluation/v1",
+      id: `adv-${safeFileName(input.loopId ?? projectId)}-${Date.now()}`,
+      loopId: loop?.id,
+      projectId,
+      targetId: input.targetId,
+      status,
+      checkedInputs: ["proposed-diff", "tests", "runtime-evidence", "budget-impact", "release-gates"],
+      missingEvidence,
+      failureSignatures,
+      suggestedActions: status === "PASS" ? ["continue-source-closure"] : ["route-policy-review", "collect-missing-evidence", "replay-or-repair-loop"],
+      evidence: [
+        `project=${projectId}`,
+        `loop=${loop?.id ?? "not-bound"}`,
+        `iterations=${loop?.iterations.length ?? 0}`,
+        `releaseDecision=${latestDecision?.id ?? "missing"}`,
+        `sourceClosure=${loop?.sourceClosure.closureState ?? "unknown"}`
+      ],
+      createdAt: now
+    });
+  }
+
+  listRecurringLoopSchedules(): RecurringLoopSchedule[] {
+    return readJsonDir<RecurringLoopSchedule>(this.recurringLoopSchedulesDir);
+  }
+
+  writeRecurringLoopSchedule(schedule: RecurringLoopSchedule): RecurringLoopSchedule {
+    atomicWriteJson(path.join(this.recurringLoopSchedulesDir, `${safeFileName(schedule.id)}.json`), schedule);
+    return schedule;
+  }
+
+  upsertRecurringLoopSchedule(input: { id?: string; projectId?: string; targetId?: string; cadence?: string; maxBudgetUsd?: number; triggerRules?: string[] }): RecurringLoopSchedule {
+    const now = new Date().toISOString();
+    const projectId = safeFileName(String(input.projectId ?? "evopilot"));
+    const targetId = safeFileName(String(input.targetId ?? "discovery-skill-runtime"));
+    const id = safeFileName(String(input.id ?? `schedule-${projectId}-${targetId}`));
+    const existing = this.listRecurringLoopSchedules().find((item) => item.id === id);
+    const cadence = normalizeRecurringCadence(input.cadence);
+    return this.writeRecurringLoopSchedule({
+      schema: "evopilot-recurring-loop-schedule/v1",
+      id,
+      projectId,
+      targetId,
+      cadence,
+      maxBudgetUsd: Math.max(0, Number(input.maxBudgetUsd ?? existing?.maxBudgetUsd ?? 5)),
+      triggerRules: normalizeStringList(input.triggerRules, existing?.triggerRules ?? ["new-evidence", "release-window-open", "budget-pass"]),
+      status: "ACTIVE",
+      lastRunAt: existing?.lastRunAt,
+      nextRunAt: nextRunAtForCadence(cadence, now),
+      idempotencyKey: `recurring:${projectId}:${targetId}:${cadence}`,
+      evidence: [`cadence=${cadence}`, `project=${projectId}`, `target=${targetId}`],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    });
+  }
+
+  listLoopMemoryInboxItems(): LoopMemoryInboxItem[] {
+    return readJsonDir<LoopMemoryInboxItem>(this.loopMemoryInboxDir);
+  }
+
+  writeLoopMemoryInboxItem(item: LoopMemoryInboxItem): LoopMemoryInboxItem {
+    const existing = this.listLoopMemoryInboxItems().find((entry) => entry.id === item.id);
+    atomicWriteJson(path.join(this.loopMemoryInboxDir, `${safeFileName(item.id)}.json`), {
+      ...item,
+      createdAt: existing?.createdAt ?? item.createdAt,
+      updatedAt: item.updatedAt
+    });
+    return item;
+  }
+
+  triageLoopMemoryInboxItem(id: string, status: LoopMemoryInboxItem["status"], targetId?: string): LoopMemoryInboxItem | undefined {
+    const existing = this.listLoopMemoryInboxItems().find((item) => item.id === safeFileName(id));
+    if (!existing) return undefined;
+    return this.writeLoopMemoryInboxItem({
+      ...existing,
+      status,
+      targetId: targetId ?? existing.targetId,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  listGuardrailEvaluations(): LoopGuardrailEvaluation[] {
+    return readJsonDir<LoopGuardrailEvaluation>(this.guardrailEvaluationsDir);
+  }
+
+  writeGuardrailEvaluation(evaluation: LoopGuardrailEvaluation): LoopGuardrailEvaluation {
+    atomicWriteJson(path.join(this.guardrailEvaluationsDir, `${safeFileName(evaluation.id)}.json`), evaluation);
+    return evaluation;
+  }
+
+  evaluateBudgetAndJudgmentGuardrails(loopId: string, input: Record<string, unknown> = {}): LoopGuardrailEvaluation | undefined {
+    const loop = this.readLoop(loopId);
+    if (!loop) return undefined;
+    const now = new Date().toISOString();
+    const budgets = {
+      maxCostUsd: Math.max(0, Number(input.maxCostUsd ?? loop.context?.maxCostUsd ?? 5)),
+      maxTokens: Math.max(0, Number(input.maxTokens ?? loop.context?.maxTokens ?? 100000)),
+      maxDurationSeconds: Math.max(1, Number(input.maxDurationSeconds ?? loop.stopPolicy.maxDurationSeconds)),
+      maxChangedFiles: Math.max(1, Number(input.maxChangedFiles ?? 20)),
+      minConfidence: Math.max(0, Math.min(1, Number(input.minConfidence ?? 0.7)))
+    };
+    const durationSeconds = Math.max(0, Math.round((Date.now() - Date.parse(loop.createdAt)) / 1000));
+    const changedFiles = new Set(loop.artifacts.map((artifact) => artifact.path).filter(Boolean)).size;
+    const confidence = loop.evidenceSets.some((set) => set.status === "FAIL") ? 0.35 : loop.status === "SUCCEEDED" ? 0.9 : 0.65;
+    const actual = {
+      costUsd: loop.trace.cost.estimatedUsd,
+      tokens: loop.trace.cost.totalTokens,
+      durationSeconds,
+      changedFiles,
+      confidence
+    };
+    const blockers = [
+      actual.costUsd > budgets.maxCostUsd ? `costUsd>${budgets.maxCostUsd}` : "",
+      actual.tokens > budgets.maxTokens ? `tokens>${budgets.maxTokens}` : "",
+      actual.durationSeconds > budgets.maxDurationSeconds ? `durationSeconds>${budgets.maxDurationSeconds}` : "",
+      actual.changedFiles > budgets.maxChangedFiles ? `changedFiles>${budgets.maxChangedFiles}` : "",
+      actual.confidence < budgets.minConfidence ? `confidence<${budgets.minConfidence}` : ""
+    ].filter(Boolean);
+    const status: LoopGuardrailEvaluation["status"] = blockers.length > 0 ? "BLOCK" : actual.confidence < 0.85 ? "WARN" : "PASS";
+    return this.writeGuardrailEvaluation({
+      schema: "evopilot-budget-judgment-guardrail/v1",
+      id: `guardrail-${safeFileName(loop.id)}-${Date.now()}`,
+      loopId: loop.id,
+      projectId: loop.projectId,
+      status,
+      budgets,
+      actual,
+      releaseJudgment: status === "PASS" ? "ALLOW" : status === "WARN" ? "HUMAN_REVIEW" : "BLOCK",
+      blockers,
+      evidence: [
+        `loop=${loop.id}`,
+        `status=${loop.status}`,
+        `costUsd=${actual.costUsd}`,
+        `tokens=${actual.tokens}`,
+        `durationSeconds=${actual.durationSeconds}`,
+        `confidence=${actual.confidence}`
+      ],
+      createdAt: now
+    });
   }
 
   listRuns(): StoredRun[] {
@@ -6273,12 +6784,92 @@ function optionalTrimmedString(value: unknown): string | undefined {
   return text || undefined;
 }
 
+function readJsonDir<T>(dir: string): T[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((file) => file.endsWith(".json"))
+    .sort()
+    .map((file) => JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as T);
+}
+
+function normalizeStringList(value: unknown, fallback: string[]): string[] {
+  const list = Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+  return list.length > 0 ? [...new Set(list)] : fallback;
+}
+
+function discoveryAffectedFilesForTarget(targetId: string, project: StoredProject): string[] {
+  const repositoryHint = project.repository?.provider === "local-git" ? project.repository.root : project.repository?.gitUrl ?? sourceUrlFromRepository(project.repository);
+  const base = repositoryHint ? [`repository:${repositoryHint}`] : [];
+  if (targetId === "discovery-skill-runtime" || targetId === "loop-memory-inbox") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js"];
+  if (targetId === "per-finding-worktree-handoff" || targetId === "adversarial-evaluator-agent") return [...base, "packages/server/src/index.ts", "tests/functional/loop-runtime.test.mjs"];
+  return [...base, "docs/architecture/loop-runtime.md", "docs/user-guide.md"];
+}
+
+function memoryInboxItemFromDiscoveryCandidate(candidate: DiscoverySkillCandidate): LoopMemoryInboxItem {
+  const now = new Date().toISOString();
+  return {
+    schema: "evopilot-loop-memory-inbox-item/v1",
+    id: `memory-${safeFileName(candidate.id)}`,
+    projectId: candidate.projectId,
+    type: "finding",
+    title: candidate.title,
+    body: candidate.acceptanceCriteria.join("\n"),
+    status: "NEW",
+    targetId: candidate.targetId,
+    provenance: [`discoveryCandidate=${candidate.id}`, `source=${candidate.source}`],
+    evidence: candidate.evidence,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function normalizeRecurringCadence(value: unknown): RecurringLoopSchedule["cadence"] {
+  const cadence = String(value ?? "manual").toLowerCase();
+  if (cadence === "hourly" || cadence === "daily" || cadence === "weekly") return cadence;
+  return "manual";
+}
+
+function nextRunAtForCadence(cadence: RecurringLoopSchedule["cadence"], nowIso: string): string {
+  const now = Date.parse(nowIso);
+  const deltaMs = cadence === "hourly" ? 60 * 60 * 1000 : cadence === "daily" ? 24 * 60 * 60 * 1000 : cadence === "weekly" ? 7 * 24 * 60 * 60 * 1000 : 0;
+  return new Date(now + deltaMs).toISOString();
+}
+
+function normalizeMemoryInboxStatus(value: unknown): LoopMemoryInboxItem["status"] {
+  const status = String(value ?? "ACCEPTED").trim().toUpperCase();
+  if (status === "NEW" || status === "ACCEPTED" || status === "MERGED" || status === "SNOOZED" || status === "REJECTED" || status === "CONVERTED") return status;
+  return "ACCEPTED";
+}
+
 function sourceUrlFromRepository(repository?: ProjectRepositoryRegistration): string | undefined {
   if (!repository) return undefined;
   if (repository.gitUrl) return repository.gitUrl;
   if (repository.provider === "github" && repository.owner && repository.repo) return `https://github.com/${repository.owner}/${repository.repo}.git`;
   if (repository.provider === "gitlab" && repository.baseUrl && repository.projectId) return `${repository.baseUrl.replace(/\/+$/, "")}/${repository.projectId}.git`;
   return undefined;
+}
+
+function syntheticEvoPilotProject(): StoredProject {
+  const now = new Date().toISOString();
+  return {
+    id: "evopilot",
+    name: "EvoPilot",
+    profileId: "evopilot",
+    repository: {
+      provider: "github",
+      owner: "yeliang-wang",
+      repo: "EvoPilot",
+      gitUrl: "https://github.com/yeliang-wang/EvoPilot.git",
+      defaultBranch: "main"
+    },
+    validation: {
+      status: "VERIFIED",
+      checkedAt: now,
+      message: "Synthetic EvoPilot self-project used when no project has been registered yet."
+    },
+    createdAt: now,
+    updatedAt: now
+  };
 }
 
 function normalizeSandboxNetwork(value: unknown): LoopSandboxPolicy["network"] {

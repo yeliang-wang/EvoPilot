@@ -280,6 +280,94 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
     assert.equal(discoveryAdvanced.body.data.loop.context.orchestrationTargetId, "discovery-skill-runtime");
     assert.equal(discoveryAdvanced.body.data.loop.sourceClosure.targetVersion, "2.0.3");
 
+    const discovered = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/discovery/run`, {
+      method: "POST",
+      token: "operator-token",
+      body: {}
+    });
+    assert.equal(discovered.status, 201);
+    assert.ok(discovered.body.data.some((candidate) => candidate.schema === "evopilot-discovery-skill-candidate/v1"));
+    assert.ok(discovered.body.data.some((candidate) => candidate.targetId === "discovery-skill-runtime"));
+    assert.ok(discovered.body.data.every((candidate) => Array.isArray(candidate.acceptanceCriteria)));
+
+    const handoff = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/handoffs`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        findingId: "finding-discovery-skill-runtime",
+        projectId: "workbuddy",
+        targetId: "discovery-skill-runtime",
+        allowedPaths: ["packages/server/src/index.ts", "tests/functional/loop-runtime.test.mjs"],
+        validationCommands: ["npm run check"]
+      }
+    });
+    assert.equal(handoff.status, 201);
+    assert.equal(handoff.body.data.schema, "evopilot-finding-worktree-handoff/v1");
+    assert.equal(handoff.body.data.targetBranch, "evopilot/finding-discovery-skill-runtime");
+    assert.ok(handoff.body.data.validationCommands.includes("npm run check"));
+
+    const adversarial = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/adversarial-evaluations`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        loopId: "workbuddy-long-task",
+        targetId: "adversarial-evaluator-agent"
+      }
+    });
+    assert.equal(adversarial.status, 409);
+    assert.equal(adversarial.body.data.schema, "evopilot-adversarial-evaluation/v1");
+    assert.equal(adversarial.body.data.status, "BLOCK");
+    assert.ok(adversarial.body.data.missingEvidence.includes("source-closure-promotion"));
+
+    const schedule = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/schedules`, {
+      method: "POST",
+      token: "operator-token",
+      body: {
+        projectId: "workbuddy",
+        targetId: "recurring-loop-scheduler",
+        cadence: "daily",
+        maxBudgetUsd: 3,
+        triggerRules: ["new-evidence", "release-window-open"]
+      }
+    });
+    assert.equal(schedule.status, 201);
+    assert.equal(schedule.body.data.schema, "evopilot-recurring-loop-schedule/v1");
+    assert.equal(schedule.body.data.cadence, "daily");
+    assert.match(schedule.body.data.idempotencyKey, /recurring:workbuddy:recurring-loop-scheduler:daily/);
+
+    const inbox = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/memory-inbox`, {
+      token: "viewer-token"
+    });
+    assert.equal(inbox.status, 200);
+    const memoryItem = inbox.body.data.find((item) => item.targetId === "discovery-skill-runtime");
+    assert.ok(memoryItem);
+    const triaged = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/memory-inbox/${memoryItem.id}/triage`, {
+      method: "POST",
+      token: "operator-token",
+      body: { status: "CONVERTED", targetId: "discovery-skill-runtime" }
+    });
+    assert.equal(triaged.status, 200);
+    assert.equal(triaged.body.data.status, "CONVERTED");
+
+    const guardrail = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/guardrails/workbuddy-long-task/evaluate`, {
+      method: "POST",
+      token: "operator-token",
+      body: { maxCostUsd: 1, maxTokens: 100000, maxDurationSeconds: 86400, maxChangedFiles: 20, minConfidence: 0.5 }
+    });
+    assert.equal(guardrail.status, 200);
+    assert.equal(guardrail.body.data.schema, "evopilot-budget-judgment-guardrail/v1");
+    assert.notEqual(guardrail.body.data.releaseJudgment, "BLOCK");
+
+    const runtimeSummary = await jsonFetch(`${baseUrl}/api/v1/loop-target-runtime/summary`, {
+      token: "viewer-token"
+    });
+    assert.equal(runtimeSummary.status, 200);
+    assert.ok(runtimeSummary.body.data.discoveryCandidates.length >= 6);
+    assert.ok(runtimeSummary.body.data.findingHandoffs.some((item) => item.id === "handoff-finding-discovery-skill-runtime"));
+    assert.ok(runtimeSummary.body.data.adversarialEvaluations.some((item) => item.status === "BLOCK"));
+    assert.ok(runtimeSummary.body.data.recurringSchedules.some((item) => item.targetId === "recurring-loop-scheduler"));
+    assert.ok(runtimeSummary.body.data.guardrailEvaluations.some((item) => item.loopId === "workbuddy-long-task"));
+
     const trace = await jsonFetch(`${baseUrl}/api/v1/loops/workbuddy-long-task/trace`, {
       token: "viewer-token"
     });
