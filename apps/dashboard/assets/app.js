@@ -17,7 +17,8 @@ const navSections = [
   {
     label: "治理",
     items: [
-      { id: "历史审计", title: "历史审计", detail: "历史、证据、审计线索" }
+      { id: "历史审计", title: "历史审计", detail: "历史、证据、审计线索" },
+      { id: "帮助手册", title: "帮助手册", detail: "场景向导与截图步骤" }
     ]
   }
 ];
@@ -30,7 +31,9 @@ const pageAliases = {
   机会点: "发现与目标",
   Loop: "Loop 执行",
   流水线: "评估与发布",
-  历史记录: "历史审计"
+  历史记录: "历史审计",
+  帮助: "帮助手册",
+  操作手册: "帮助手册"
 };
 const requestedPage = new URLSearchParams(window.location.search).get("page");
 const initialPage = normalizePage(requestedPage);
@@ -352,6 +355,7 @@ function renderPage(page) {
   if (normalized === "Loop 执行") return renderLoopExecution();
   if (normalized === "评估与发布") return renderEvaluationAndRelease();
   if (normalized === "历史审计") return renderHistory();
+  if (normalized === "帮助手册") return renderGuidedHelpManual();
   return "";
 }
 
@@ -1909,6 +1913,243 @@ function renderHistory() {
     </section>
     ${detail ? renderHistoryDetailModal(detail) : ""}
   `;
+}
+
+function renderGuidedHelpManual() {
+  const scenarios = helpManualScenarios();
+  const totalSteps = scenarios.reduce((sum, scenario) => sum + scenario.steps.length, 0);
+  const categories = new Set(scenarios.map((scenario) => scenario.category));
+  return `
+    <section class="manual-hero" aria-label="EvoPilot guided help manual">
+      <div>
+        <span class="eyebrow">Guided manual</span>
+        <h2>EvoPilot 端到端主链路手册</h2>
+        <p>按真实用户任务组织：从 GitHub demo project 接入生产控制面，到 Discovery、Target、Loop、Autopilot、Release Closure、修复和审计复盘。功能页只作为每一步的落点。</p>
+      </div>
+      <div class="manual-hero-stats">
+        <div><strong>${scenarios.length}</strong><span>主链路场景</span></div>
+        <div><strong>${totalSteps}</strong><span>截图步骤</span></div>
+        <div><strong>${categories.size}</strong><span>任务类型</span></div>
+      </div>
+    </section>
+    <section class="manual-scene-map" aria-label="手册场景目录">
+      ${scenarios.map((scenario, index) => `
+        <a class="manual-scene-link" href="#manual-${escapeHtml(scenario.id)}">
+          <span>${String(index + 1).padStart(2, "0")}</span>
+          <strong>${escapeHtml(scenario.title)}</strong>
+          <small>${escapeHtml(scenario.category)} / ${escapeHtml(scenario.outcome)}</small>
+        </a>
+      `).join("")}
+    </section>
+    ${scenarios.map(renderHelpManualScenario).join("")}
+  `;
+}
+
+function renderHelpManualScenario(scenario, index) {
+  return `
+    <section class="manual-scenario" id="manual-${escapeHtml(scenario.id)}" aria-label="${escapeHtml(scenario.title)}">
+      <div class="manual-scenario-head">
+        <div>
+          <span class="eyebrow">${escapeHtml(scenario.category)} / Scenario ${index + 1}</span>
+          <h2>${escapeHtml(scenario.title)}</h2>
+          <p>${escapeHtml(scenario.goal)}</p>
+        </div>
+        <button data-page-link="${escapeHtml(scenario.page)}">打开${escapeHtml(scenario.page)}</button>
+      </div>
+      <div class="manual-scenario-meta">
+        <div><span>适用用户</span><strong>${escapeHtml(scenario.persona)}</strong></div>
+        <div><span>前置条件</span><strong>${scenario.prerequisites.map(escapeHtml).join(" / ")}</strong></div>
+        <div><span>最终结果</span><strong>${escapeHtml(scenario.outcome)}</strong></div>
+      </div>
+      <div class="manual-step-list">
+        ${scenario.steps.map((step, stepIndex) => renderHelpManualStep(step, stepIndex, scenario.page)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderHelpManualStep(step, index, page) {
+  return `
+    <article class="manual-step">
+      <div class="manual-step-copy">
+        <span class="manual-step-number">步骤 ${index + 1}</span>
+        <h3>${escapeHtml(step.title)}</h3>
+        <p>${escapeHtml(step.detail)}</p>
+        <div class="manual-step-meta">
+          <span>入口：${escapeHtml(step.page ?? page)}</span>
+          <span>完成标志：${escapeHtml(step.done)}</span>
+          <span>常见阻塞：${escapeHtml(step.blocker)}</span>
+        </div>
+      </div>
+      ${renderManualScreenshot(step)}
+    </article>
+  `;
+}
+
+function renderManualScreenshot(step) {
+  return `
+    <figure class="manual-screenshot" aria-label="截图：${escapeHtml(step.screenTitle)}">
+      <figcaption>
+        <span>截图</span>
+        <strong>${escapeHtml(step.screenTitle)}</strong>
+      </figcaption>
+      <div class="manual-browser-frame">
+        <div class="manual-browser-top">
+          <i></i><i></i><i></i>
+          <span>${escapeHtml(step.screenPath)}</span>
+        </div>
+        <div class="manual-screen-body">
+          <div class="manual-screen-sidebar">
+            ${step.nav.map((item) => `<b class="${item.active ? "active" : ""}">${escapeHtml(item.label)}</b>`).join("")}
+          </div>
+          <div class="manual-screen-main">
+            <span>${escapeHtml(step.screenEyebrow)}</span>
+            <strong>${escapeHtml(step.screenTitle)}</strong>
+            <small>${escapeHtml(step.screenNote)}</small>
+            <div class="manual-screen-grid">
+              ${step.panels.map((panel) => `<em>${escapeHtml(panel)}</em>`).join("")}
+            </div>
+          </div>
+        </div>
+      </div>
+    </figure>
+  `;
+}
+
+function helpManualScenarios() {
+  const navBase = [
+    { label: "工作台" },
+    { label: "项目接入" },
+    { label: "发现与目标" },
+    { label: "Loop 执行" },
+    { label: "评估与发布" },
+    { label: "历史审计" }
+  ];
+  const navFor = (active) => navBase.map((item) => ({ ...item, active: item.label === active }));
+  return [
+    {
+      id: "github-demo-ga-release",
+      category: "新手主线",
+      title: "GitHub Demo Project 到 GA Release",
+      page: "项目接入",
+      persona: "第一次接入 EvoPilot 的发布负责人",
+      prerequisites: ["生产控制面 API Token", "GitHub demo 仓库", "GitHub tokenRef", "Jenkins 或 Deploy connector"],
+      outcome: "demo project 形成 source-to-production Loop，并留下 GA Release / GO 证据",
+      goal: "把一个 GitHub demo project 从零接入 EvoPilot 生产环境，跑出可审计的 target loop、Release Run、artifacts 和 release decision。",
+      steps: [
+        manualStep("连接生产控制面", "在顶部生产控制面输入 EvoPilot API Token。没有 Token 时 Dashboard 只能使用示例数据，不能读写真正项目、Target 和 Release Run。", "顶部提示已配置 API Token，Dashboard 使用真实 EvoPilot API", "生产控制面", "工作台", "Production control", "API Token 解锁真实控制面数据", navFor("工作台"), ["API Token", "实时数据", "项目", "Release Runs"], "工作台", "API Token 缺失或权限不足"),
+        manualStep("注册 GitHub demo project", "进入项目接入，点击注册项目，Provider 选择 GitHub，填写 demo project 的 Git URL、默认分支、项目名和 Jenkins 模式。", "项目列表出现 GitHub demo project，validation 显示已验证或明确阻塞原因", "注册项目弹窗", "项目接入", "GitHub onboarding", "Git URL、默认分支、Jenkins Job", navFor("项目接入"), ["Provider=GitHub", "Git URL", "默认分支", "Jenkins"], "项目接入", "Git URL 不可达、默认分支错误"),
+        manualStep("配置 GitHub 写回 tokenRef", "打开源码写回凭据，保存 GitHub tokenRef 或 inline token，并执行只读预检。生产环境优先使用服务器端 tokenRef。", "凭据状态为 READY，或显示 READ_ONLY/BLOCKED 的具体原因", "源码写回凭据", "项目接入", "SCM credentials", "tokenRef、默认分支、只读预检", navFor("项目接入"), ["Token 环境变量", "只验证", "保存并验证", "READY"], "项目接入", "tokenRef 未解析、token 无写权限"),
+        manualStep("确认交付连接器 ready", "在连接器市场确认 GitHub、Jenkins、Deploy、LLM Route、Sandbox 至少覆盖本次 demo 发布所需边界。", "SCM、CI/CD、Deploy、Runtime 边界都能看到 READY 或明确 CONFIGURE", "连接器市场与设置", "项目接入", "Connector readiness", "源码、流水线、部署、运行时统一检查", navFor("项目接入"), ["GitHub", "Jenkins", "Deploy", "LLM Route", "Sandbox"], "项目接入", "缺少 Jenkins 或 Deploy connector"),
+        manualStep("运行 Discovery 生成 Target", "进入发现与目标，运行 Discovery，把 demo project 的 trace、evaluation、production 或 manual 信号转成 candidate 和 Target Backlog。", "Target Backlog 出现 demo project 的 target，nextAction 可推进", "Discovery Runtime", "发现与目标", "Target discovery", "从项目运行信号生成候选目标", navFor("发现与目标"), ["Discovery", "Candidate", "Target Backlog", "nextAction"], "发现与目标", "没有可用信号或评测集不足"),
+        manualStep("创建 source-to-production Loop", "进入 Loop 执行，用 Workflow Canvas Editor 选择 source-to-production 模板、release gate、stop policy 和 targetVersion。", "Loop Runtime 出现新 Loop，sourceClosure 带 code-change、push、tag、deploy、health-ready gate", "Workflow Canvas Editor", "Loop 执行", "Source-to-production loop", "typed executor graph 和 release gate 入库", navFor("Loop 执行"), ["Graph template", "Release gate", "targetVersion", "创建闭环 Loop"], "Loop 执行", "release gate 或 targetVersion 缺失"),
+        manualStep("启动 Autopilot 推进目标", "在 Autopilot cockpit 或 Target Backlog 点击一键自动驾驶。Autopilot 会推进 bounded loop，遇到 human gate 或外部阻塞时停下。", "Autopilot run 写入阶段证据；必要时提示 configure-source-credentials 或等待批准", "Autopilot cockpit", "工作台", "Autopilot run", "Connect、Discover、Loop、Evaluate、Release", navFor("工作台"), ["启动一键自动驾驶", "Human gate", "External blocker", "阶段证据"], "工作台", "凭据、审批、预算或策略门禁阻塞"),
+        manualStep("执行 Release Closure", "进入评估与发布，刷新 Release Run，按策略批准 Release、合并 Release 或执行安全自动合并。", "Release Run 晋级到 promoted/succeeded，或留下 policy blocker 和 nextAction", "Release Closure Runtime", "评估与发布", "Release closure", "审批、策略、merge、post-merge deploy", navFor("评估与发布"), ["刷新 Release Run", "批准 Release", "合并 Release", "安全自动合并"], "评估与发布", "policy blocker、健康探测失败、merge 冲突"),
+        manualStep("复盘 GA Release 证据", "进入历史审计，打开历史详情，确认 release decision、release artifacts、source release artifacts、audit 和验证证据齐全。", "能够用历史详情说明该 demo project 是否达到 GA Release / GO", "历史详情", "历史审计", "GA evidence", "release decision 与 artifacts 可复盘", navFor("历史审计"), ["Release Decision", "Artifacts", "Audit", "验证证据"], "历史审计", "只有 CI 成功但没有 release decision")
+      ]
+    },
+    {
+      id: "signals-to-code-upgrade",
+      category: "日常进化",
+      title: "已有项目从运行信号到代码升级",
+      page: "发现与目标",
+      persona: "负责日常演进的项目维护者",
+      prerequisites: ["项目已接入", "有 Trace/Eval/生产/人工信号", "代码升级连接器可用"],
+      outcome: "运行信号转成机会点、进化方案、code upgrade 和 CI/CD 证据",
+      goal: "用户不从注册项目开始，而是从已有项目的运行证据出发，完成一次可评审、可验证的代码升级。",
+      steps: [
+        manualStep("读取项目运行证据", "进入发现与目标，查看 Discovery Runtime、Eval Dataset、Regression Suite 和运行证据来源。", "能看到触发来源、触发时间、IP、证据摘要或评测集", "运行证据", "发现与目标", "Evidence intake", "Trace、Eval、生产信号进入机会点链路", navFor("发现与目标"), ["触发来源", "触发时间", "IP", "证据摘要"], "发现与目标", "证据不足或样本未标注"),
+        manualStep("形成机会点", "勾选相关评测集，点击形成机会点，生成带目标、影响、置信度和归因的候选演进。", "机会点进入待确认或可排期状态", "形成机会点", "发现与目标", "Opportunity draft", "评测集变成可执行机会点", navFor("发现与目标"), ["Eval Dataset", "Regression Suite", "形成机会点", "置信度"], "发现与目标", "评测集和目标不匹配"),
+        manualStep("评审 Markdown 方案", "打开查看方案，阅读问题、决策、替代方案、影响和验证契约，必要时编辑 Markdown 方案正文。", "方案被确认，进入交付执行入口", "编辑进化方案", "发现与目标", "Review plan", "Markdown 方案正文和验证契约", navFor("发现与目标"), ["查看方案", "编辑进化方案", "提交方案修改", "确认进化"], "发现与目标", "方案缺少验证命令或范围过大"),
+        manualStep("触发代码升级", "确认进化后选择马上开始或保存排期。EvoPilot 会启动 code upgrade run 并记录白盒执行事件。", "代码升级过程出现 execution-transcript 和 changed files", "代码升级过程", "评估与发布", "Code upgrade", "白盒执行、文件变更、验证命令", navFor("评估与发布"), ["根据方案进行代码升级", "白盒执行", "查看原始执行事件", "execution-transcript"], "评估与发布", "allowed paths 或连接器权限不足"),
+        manualStep("检查 CI/CD 阶段", "在 CI/CD 阶段视图查看单元测试、冒烟测试、功能闭环测试和质量报告。", "每个阶段有状态、耗时和失败原因", "CI/CD 阶段视图", "评估与发布", "Delivery pipeline", "代码升级进入流水线验证", navFor("评估与发布"), ["单元测试", "冒烟测试", "功能闭环测试", "质量报告"], "评估与发布", "测试失败或 Jenkins Job 配置错误")
+      ]
+    },
+    {
+      id: "target-backlog-autopilot",
+      category: "自动驾驶",
+      title: "Target Backlog 到 Autopilot 自动驾驶",
+      page: "发现与目标",
+      persona: "持续演进负责人",
+      prerequisites: ["Target Backlog 已有目标", "项目凭据和连接器就绪", "允许 human gate 暂停"],
+      outcome: "target 被推进到 Loop Runtime，并通过 Autopilot 形成阶段证据",
+      goal: "从已经存在的 Target Backlog 出发，用户只处理 nextAction、human gate 和 external blocker，不重复描述上下文。",
+      steps: [
+        manualStep("筛选下一目标", "进入 Target Loop Backlog，按 Sandbox、Context、Harness、Loop 层查看目标、验收标准、证据和 nextAction。", "能识别下一目标和 stop condition", "Target Loop Backlog", "发现与目标", "Backlog", "按层推进 Codex target loop", navFor("发现与目标"), ["Target", "层", "下一步", "验收"], "发现与目标", "目标缺少验收标准"),
+        manualStep("推进下一 Target", "点击推进下一 Target，让 EvoPilot 创建或推进 Codex-backed target loop，保留 acceptance criteria 和上下文。", "Loop Runtime 显示最新轮次、证据和 stop condition", "推进下一 Target", "发现与目标", "Advance target", "创建或推进目标循环", navFor("发现与目标"), ["推进下一 Target", "Loop Runtime", "证据", "stop condition"], "发现与目标", "目标已被其他 worker claim"),
+        manualStep("启动一键自动驾驶", "对目标点击自动驾驶，观察返回的 Autopilot run：阶段状态、nextAction、external blocker 和 releaseRun。", "Autopilot 状态写入页面，source release run 同步到发布页", "一键自动驾驶", "发现与目标", "Autopilot", "bounded loop 不绕过 human gate", navFor("发现与目标"), ["自动驾驶", "nextAction", "External blocker", "releaseRun"], "发现与目标", "没有 human gate 授权或缺少源码凭据"),
+        manualStep("处理人工待办", "回到工作台人工待办中心，处理待补凭据、待批准、待修复或待发布动作。", "待办队列对应阻塞项被清理或转入下一步", "人工待办中心", "工作台", "Human action", "集中处理 Autopilot 阻塞", navFor("工作台"), ["待补凭据", "待批准", "待修复", "待发布"], "工作台", "审批人不明确或缺少权限")
+      ]
+    },
+    {
+      id: "failed-release-repair",
+      category: "生产修复",
+      title: "失败 Release Run 修复闭环",
+      page: "评估与发布",
+      persona: "发布负责人或值班运维",
+      prerequisites: ["存在 FAILED/HEALTH_FAILED/ROLLED_BACK/stale release run", "修复权限", "部署连接器可用"],
+      outcome: "失败发布进入 repair candidate，修复后从队列移除并写回 promoted 或明确失败原因",
+      goal: "当 source release 失败时，用户从 repair queue 出发，完成诊断、修复、deploy finalizer 和复验。",
+      steps: [
+        manualStep("刷新修复队列", "进入评估与发布，刷新 Release Run Auto Repair Workbench，查看 failed/stale release run 的来源、原因和建议。", "修复队列列出候选项和建议动作", "Release Run Auto Repair Workbench", "评估与发布", "Repair queue", "失败发布进入默认修复队列", navFor("评估与发布"), ["FAILED", "HEALTH_FAILED", "原因", "建议"], "评估与发布", "release run 没有进入候选队列"),
+        manualStep("执行单项或批量修复", "对具体 release run 点击修复，或使用一键修复队列。EvoPilot 会复用 source-closure path，避免重复副作用。", "修复结果显示成功、失败或跳过数量", "一键修复队列", "评估与发布", "Repair execution", "复用 source-to-production closure", navFor("评估与发布"), ["修复", "一键修复队列", "duplicate guard", "结果"], "评估与发布", "工作区脏、merge 冲突、健康检查失败"),
+        manualStep("检查 Deploy Finalizer", "查看 Deploy Finalizer Workbench，确认 post-merge deploy、health-ready、rollback 或 finalizer 状态。", "post-merge deploy 有明确成功、失败或回滚证据", "Deploy Finalizer Workbench", "评估与发布", "Post merge deploy", "部署闭环与健康探测", navFor("评估与发布"), ["Post Merge Deploy", "health-ready", "rollback", "finalizer"], "评估与发布", "部署连接器超时或健康路径错误"),
+        manualStep("复盘修复结果", "打开历史审计和 Release Artifacts，确认修复后的 release run 是否 promoted，失败时保留 blocker 证据。", "审计记录能解释失败原因或晋级证据", "历史详情", "历史审计", "Repair audit", "修复闭环可审计", navFor("历史审计"), ["Artifacts", "Audit", "Promoted", "Blocker"], "历史审计", "修复成功但审计证据缺失")
+      ]
+    },
+    {
+      id: "runtime-recovery",
+      category: "运维恢复",
+      title: "长任务中断后的 Worker / Replay / Sandbox / Trace 恢复",
+      page: "Loop 执行",
+      persona: "Loop 运维和值班工程师",
+      prerequisites: ["存在运行中或阻塞 Loop", "可读取 worker queue 和 trace", "允许 replay 或 watchdog"],
+      outcome: "卡住的 Loop 被定位到 worker、context、sandbox、trace 或 release gate，并继续或形成人工阻塞",
+      goal: "当长任务中断或状态不清时，用 Dashboard 的 runtime workbench 找到当前阻塞点并恢复。",
+      steps: [
+        manualStep("查看运行图定位阻塞", "打开 Visual Loop Run Canvas，用 target、executor graph、sandbox、worker、trace、release 六个节点判断卡点。", "能定位阻塞类型和当前节点", "Visual Loop Run Canvas", "Loop 执行", "Run canvas", "长任务状态合成一张运行图", navFor("Loop 执行"), ["Target", "Executor graph", "Sandbox", "Worker", "Trace", "Release"], "Loop 执行", "状态数据未刷新"),
+        manualStep("Claim worker 或执行 Watchdog", "在 Worker Queue Workbench 中 claim 下一 Loop，或触发 Watchdog 检查 expired lease、crash-resume 和 side-effect guard。", "worker lease 更新或 watchdog 给出恢复动作", "Worker Queue Workbench", "Loop 执行", "Worker recovery", "claimable loop 和 lease 过期恢复", navFor("Loop 执行"), ["Claim 下一 Loop", "Watchdog", "Lease", "side-effect guard"], "Loop 执行", "已有 worker 持有有效 lease"),
+        manualStep("执行 Context Time Travel Replay", "在 Context Time Travel Workbench 选择 checkpoint，编辑 context JSON 并 Replay 生成 Diff。", "出现 replay diff，Loop 从指定 checkpoint 继续", "Context Time Travel Workbench", "Loop 执行", "Replay", "修改上下文后继续执行", navFor("Loop 执行"), ["Checkpoint", "Replay 并生成 Diff", "contextPatch", "diff"], "Loop 执行", "context JSON 无效或 checkpoint 不存在"),
+        manualStep("验证 Sandbox 和 Trace", "用 Sandbox Boundary Workbench 验证 Docker/K8s 边界，用 Streaming Trace Workbench 读取 trace tree 和 events。", "sandbox proof、trace tree、events 都有可读证据", "Sandbox Boundary Workbench", "Loop 执行", "Runtime proof", "沙箱边界、trace tree 和事件流", navFor("Loop 执行"), ["验证 Sandbox Proof", "刷新 Trace Tree", "/events", "failure-group"], "Loop 执行", "沙箱权限不足或事件流断开")
+      ]
+    },
+    {
+      id: "evopilot-self-governance",
+      category: "自举治理",
+      title: "EvoPilot 接入 EvoPilot 的受控自演进",
+      page: "项目接入",
+      persona: "EvoPilot 管理员",
+      prerequisites: ["EvoPilot 仓库路径或远程仓库", "明确允许的改动范围", "独立审批人"],
+      outcome: "EvoPilot 作为目标项目被治理，而不是运行中的 controller 直接自改",
+      goal: "把当前 EvoPilot 仓库作为被治理项目接入自身控制面，形成受控 self-evolution loop，并明确自举边界。",
+      steps: [
+        manualStep("注册 EvoPilot 仓库为目标项目", "在项目接入中选择 Local Git 或 GitHub，把 EvoPilot 仓库作为目标项目接入，并配置默认分支和凭据。", "项目工作区显示 EvoPilot 项目和源码凭据状态", "Project workspace", "项目接入", "Self target", "EvoPilot 作为被治理项目接入", navFor("项目接入"), ["Local Git", "GitHub", "默认分支", "Credentials"], "项目接入", "把 controller 运行目录和目标改动范围混淆"),
+        manualStep("限定自演进范围", "在方案或 Loop 创建时明确 allowed paths、validation commands、rollback metadata 和人工审批边界。", "Loop 的上下文包含允许路径、验证命令和 rollback 信息", "Workflow Canvas Editor", "Loop 执行", "Governed self-loop", "自演进必须受限并可回滚", navFor("Loop 执行"), ["allowed paths", "validation commands", "rollback", "human gate"], "Loop 执行", "范围过大或没有审批人"),
+        manualStep("执行自举 Loop", "启动 source-to-production loop，但在 human gate、release policy 和 safe merge 前必须停下等待审批。", "Loop Runtime 显示 WAITING_APPROVAL 或 release policy 状态", "Loop Runtime", "Loop 执行", "Self-evolution loop", "不绕过治理的自举执行", navFor("Loop 执行"), ["WAITING_APPROVAL", "Release policy", "safe merge", "evidence"], "Loop 执行", "自动合并绕过审批"),
+        manualStep("审计自举结果", "在历史审计中确认自举变更的 release decision、artifact、audit 和回滚证据。", "能区分目标项目自演进和控制器进程自修改", "历史详情", "历史审计", "Self audit", "自举 Loop 可审计", navFor("历史审计"), ["release decision", "artifact", "audit", "rollback"], "历史审计", "只看到文件变更，没有 release decision")
+      ]
+    },
+    {
+      id: "release-evidence-review",
+      category: "审计复盘",
+      title: "发布后证据复盘",
+      page: "历史审计",
+      persona: "审计者、发布负责人或治理负责人",
+      prerequisites: ["至少完成一次 Loop 或 Release Run", "可读取历史、artifacts、audit"],
+      outcome: "能够判断一次交付是否真正达到 GO / CONDITIONAL-GO / NO-GO，而不是只看健康检查",
+      goal: "从历史记录、release artifacts、source release artifacts、audit 和 evaluation evidence 复盘发布是否可信。",
+      steps: [
+        manualStep("打开历史详情", "在历史记录中查看项目、完成时间、结果、验证证据、产物、关联评测集和流水线。", "可以复盘一次完整演进的证据链", "历史详情", "历史审计", "Audit detail", "完成记录和审计证据", navFor("历史审计"), ["完成时间", "结果", "验证证据", "产物"], "历史审计", "历史记录缺少 artifact"),
+        manualStep("对照 release decision", "回到评估与发布，确认 Release Cockpit、Release Closure Runtime 和 release decision 是否给出 GO / CONDITIONAL-GO / NO-GO。", "发布结论来自 release decision，而不是单次 CI 成功", "Release cockpit", "评估与发布", "Release decision", "产品原生发布判断", navFor("评估与发布"), ["GO", "CONDITIONAL-GO", "NO-GO", "release decision"], "评估与发布", "只有健康检查，没有发布判断"),
+        manualStep("检查 artifacts 和 audit", "查看 Release Artifacts、Source Release Artifacts、audit、评测集和流水线证据是否能闭合。", "证据能覆盖代码变更、测试、部署、健康探测和审批", "Source Release Artifacts", "评估与发布", "Artifacts", "发布证据闭环", navFor("评估与发布"), ["Release Artifacts", "Source Release Artifacts", "Audit", "评测集"], "评估与发布", "artifact 链路断裂或审批记录缺失"),
+        manualStep("回跳补齐缺失证据", "如果发现缺口，从历史审计回到发现与目标、Loop 执行或评估与发布补齐证据或重新执行修复。", "缺失证据进入对应工作台处理", "历史审计回放", "历史审计", "Evidence gap", "从复盘回到执行工作台", navFor("历史审计"), ["发现与目标", "Loop 执行", "评估与发布", "修复"], "历史审计", "无法定位缺失证据归属")
+      ]
+    }
+  ];
+}
+
+function manualStep(title, detail, done, screenTitle, screenPath, screenEyebrow, screenNote, nav, panels, page, blocker) {
+  return { title, detail, done, screenTitle, screenPath, screenEyebrow, screenNote, nav, panels, page, blocker };
 }
 
 function renderLoops() {

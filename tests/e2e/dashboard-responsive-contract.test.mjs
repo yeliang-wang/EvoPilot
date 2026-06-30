@@ -48,6 +48,8 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
     assert.match(app, /loopBacklogModel/);
     assert.match(app, /backlog-summary/);
     assert.match(app, /renderReleaseInspector/);
+    assert.match(app, /renderGuidedHelpManual/);
+    assert.match(app, /helpManualScenarios/);
     assert.match(app, /release-inspector/);
     assert.match(app, /renderEmptyState/);
     assert.match(app, /renderStatusNotice/);
@@ -76,6 +78,8 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
     assert.match(css, /\.runtime-row/);
     assert.match(css, /\.backlog-summary/);
     assert.match(css, /\.release-inspector/);
+    assert.match(css, /\.manual-scenario/);
+    assert.match(css, /\.manual-screenshot/);
     assert.match(css, /\.empty-state/);
     assert.match(css, /\.skeleton-panel/);
     assert.match(css, /@media \(max-width: 640px\)/);
