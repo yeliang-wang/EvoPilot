@@ -54,7 +54,7 @@ Dashboard loop orchestration is a productized control plane surface, not a separ
 
 ## Source-to-GA Dynamic Ontology Chain
 
-The Loop execution page renders the Source-to-GA chain as a live ontology view over the runtime contract. It is not a separate graph store and should not become a Dashboard-only state model. Each node is derived from persisted control-plane objects:
+The Loop execution workspace is split into overview, detail, and creation surfaces. The overview keeps queue-level objects such as Target Backlog, Loop Runtime rows, and Worker Queue summaries. The detail surface renders the Source-to-GA chain as a live ontology view over one selected LoopRun. The creation surface owns the Workflow Canvas Editor and orchestration form. The Source-to-GA chain is not a separate graph store and should not become a Dashboard-only state model. Each node is derived from persisted control-plane objects:
 
 | Chain node | Runtime object | Meaning |
 |---|---|---|
@@ -69,7 +69,7 @@ The Loop execution page renders the Source-to-GA chain as a live ontology view o
 | Release Decision | release policy, `GET /api/v1/release/decisions` | The product-native `GO` / `CONDITIONAL-GO` / `NO-GO` verdict. |
 | GA Release | promoted source release run, merge commit, release evidence | The final auditable state after source closure, deploy, policy, and release decision agree. |
 
-The adjacent Workflow Canvas Editor uses a second ontology for authoring a new or adjusted loop: `Target -> Discovery -> Executor -> Evaluator -> Human gate -> Release`. Submitting the canvas must persist an `evopilot-executor-graph/v1` contract and a `sourceClosure` contract; the UI text alone is not the source of truth.
+The Workflow Canvas Editor uses a second ontology for authoring a new or adjusted loop: `Target -> Discovery -> Executor -> Evaluator -> Human gate -> Release`. It belongs to the creation surface, not the runtime detail surface. Submitting the canvas must persist an `evopilot-executor-graph/v1` contract and a `sourceClosure` contract; the UI text alone is not the source of truth.
 
 The chain is intentionally stateful. A healthy-looking executor node does not imply GA readiness unless the source-closure, deploy, release-decision, and GA nodes all have required evidence. A blocked release path should route the operator to source credentials, preflight, policy review, repair candidates, merge approval, post-merge deploy, or release evidence depending on `nextAction` and `policy.blockers`. A blocked worker/sandbox path should route to queue claim, watchdog, sandbox proof, time-travel replay, or failure-group evidence before source closure is retried.
 

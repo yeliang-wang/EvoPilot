@@ -57,6 +57,7 @@ const state = {
   loopOrchestrationPresets: [],
   loopOrchestrationTargets: [],
   loopGraphContracts: {},
+  loopWorkspaceView: "overview",
   sourceToGaLoopId: "",
   sourceToGaNodeId: "executor",
   sourceToGaRefreshing: false,
@@ -614,17 +615,65 @@ function renderDiscoveryAndTargets() {
 
 function renderLoopExecution() {
   const loops = state.loops;
-  const store = state.loopStore;
+  const view = loopWorkspaceView();
+  const selectedLoop = selectedSourceToGaLoop(loops);
   return `
     ${renderFlowHeader()}
+    ${renderLoopWorkspaceHeader(loops, selectedLoop, view)}
+    ${view === "detail"
+      ? renderLoopDetailWorkspace(selectedLoop)
+      : view === "create"
+        ? renderLoopCreateWorkspace(loops)
+        : renderLoopOverviewWorkspace(loops)}
+  `;
+}
+
+function loopWorkspaceView() {
+  if (state.loopWorkspaceView === "detail" && !selectedSourceToGaLoop(state.loops)) return "overview";
+  return ["overview", "detail", "create"].includes(state.loopWorkspaceView) ? state.loopWorkspaceView : "overview";
+}
+
+function renderLoopWorkspaceHeader(loops, selectedLoop, view) {
+  const blocked = loops.filter((loop) => ["BLOCKED", "WAITING_APPROVAL", "FAILED"].includes(loop.status)).length;
+  const releasePending = loops.filter((loop) => loop.sourceClosure?.closureState && loop.sourceClosure.closureState !== "PROMOTED").length;
+  const running = loops.filter((loop) => loop.status === "RUNNING").length;
+  return `
+    <section class="loop-workspace-hero" aria-label="Loop execution workspace">
+      <div>
+        <span class="eyebrow">Loop workspace</span>
+        <h2>Loop 执行工作区</h2>
+        <p>总览页只处理队列和调度；进入单个 Loop 后再查看 Source-to-GA 动态链路、trace、sandbox、replay 和 release evidence；创建页只负责新建或调整 graph。</p>
+      </div>
+      <div class="loop-workspace-metrics">
+        <div><span>全部 Loop</span><strong>${loops.length}</strong></div>
+        <div><span>运行中</span><strong>${running}</strong></div>
+        <div><span>需处理</span><strong>${blocked}</strong></div>
+        <div><span>Release 待闭合</span><strong>${releasePending}</strong></div>
+      </div>
+      <div class="loop-workspace-tabs" role="tablist" aria-label="Loop 工作区视图">
+        ${[
+          ["overview", "总览", "队列、Target、Worker"],
+          ["detail", "Loop 详情", selectedLoop?.id ?? "选择一个 Loop"],
+          ["create", "创建 Loop", "Workflow Canvas"]
+        ].map(([id, label, detail]) => `
+          <button class="${view === id ? "active" : ""}" data-loop-workspace-view="${id}" ${id === "detail" && !selectedLoop ? "disabled" : ""}>
+            <strong>${escapeHtml(label)}</strong>
+            <span>${escapeHtml(detail)}</span>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderLoopOverviewWorkspace(loops) {
+  const store = state.loopStore;
+  return `
     ${renderAutopilotCommandCenter()}
-    <div class="loop-command-grid">
-      ${renderLoopOrchestrationPanel()}
+    <div class="loop-overview-grid">
       ${renderLoopWorkerQueuePanel()}
+      ${renderLoopTargetBacklogPanel()}
     </div>
-    ${renderVisualLoopRunCanvas(loops)}
-    ${renderWorkflowCanvasEditor(loops)}
-    ${renderInteractiveAgentRunConsole(loops)}
     <section class="card">
       <div class="section-title">
         <div>
@@ -641,7 +690,30 @@ function renderLoopExecution() {
       </div>
       ${renderLoopRunTable(loops)}
     </section>
-    ${loops.slice(0, 3).map(renderLoopDetail).join("")}
+  `;
+}
+
+function renderLoopDetailWorkspace(loop) {
+  if (!loop) {
+    return `
+      <section class="card">
+        ${renderEmptyState("请选择一个 Loop", "总览列表中点击“详情”后，会进入单个 Loop 的运行控制台。", "这里不再堆叠所有 Loop 的运行细节。")}
+      </section>
+    `;
+  }
+  return `
+    ${renderVisualLoopRunCanvas(state.loops)}
+    ${renderInteractiveAgentRunConsole([loop])}
+    ${renderLoopDetail(loop)}
+  `;
+}
+
+function renderLoopCreateWorkspace(loops) {
+  return `
+    <div class="loop-create-grid">
+      ${renderLoopOrchestrationPanel()}
+      ${renderWorkflowCanvasEditor(loops)}
+    </div>
   `;
 }
 
@@ -2698,7 +2770,7 @@ function renderLoopOrchestrationPanel() {
 function renderLoopActions(loop) {
   const encodedId = escapeHtml(loop.id);
   const finalGate = Number(loop.currentIteration ?? 0) >= Number(loop.stopPolicy?.maxIterations ?? Number.POSITIVE_INFINITY);
-  const buttons = [];
+  const buttons = [`<button data-loop-detail-id="${encodedId}">详情</button>`];
   if (loop.status === "WAITING_APPROVAL") {
     buttons.push(`<button class="primary" data-action="approve-loop" data-id="${encodedId}" data-final-gate="${finalGate ? "true" : "false"}">${finalGate ? "批准完成" : "批准并继续"}</button>`);
     buttons.push(`<button data-action="resume-loop" data-id="${encodedId}">继续</button>`);
@@ -3209,6 +3281,7 @@ function render() {
   content.innerHTML = `${renderAuthBar()}${renderPage(state.active)}`;
   bindAuthBar();
   bindFlowHeader();
+  bindLoopWorkspace();
   bindPageLinks();
   bindProjectRegistration();
   bindEvaluationDatasets();
@@ -3278,11 +3351,29 @@ function bindPageLinks() {
   }
 }
 
+function bindLoopWorkspace() {
+  for (const button of content.querySelectorAll("[data-loop-workspace-view]")) {
+    button.addEventListener("click", () => {
+      state.loopWorkspaceView = button.dataset.loopWorkspaceView ?? "overview";
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll("[data-loop-detail-id]")) {
+    button.addEventListener("click", () => {
+      state.sourceToGaLoopId = button.dataset.loopDetailId ?? "";
+      state.sourceToGaNodeId = "executor";
+      state.loopWorkspaceView = "detail";
+      render();
+    });
+  }
+}
+
 function bindSourceToGaMap() {
   for (const button of content.querySelectorAll("[data-source-ga-loop-id]")) {
     button.addEventListener("click", () => {
       state.sourceToGaLoopId = button.dataset.sourceGaLoopId ?? "";
       state.sourceToGaNodeId = "executor";
+      state.loopWorkspaceView = "detail";
       render();
     });
   }

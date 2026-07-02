@@ -195,9 +195,9 @@ GET /api/v1/loops/{loopId}/artifacts
 
 Loop Runtime 负责长任务连续性：durable run state、heartbeat lease、watchdog、retry/stop policy、timeline 和 artifacts。EvoPilot 的产品控制面负责证据、决策、治理和发布判断。
 
-Dashboard 的“闭环编排”会调用 `POST /api/v1/loop-orchestration/instantiate`，从标准预设创建 source-to-production target loop。该 loop 会自动带上 typed executor graph、Docker sandbox enforcement、sourceClosure、worker/watchdog 语义、deploy connector 和 health-ready rollback。创建后，用户可以在同一页启动、继续、批准、watchdog、执行源码闭环，并查看 Source Closure Workbench、Release Closure Runtime、Release Run Auto Repair Workbench 和 Release Artifacts。Release Closure Runtime 还提供“批准 Release”“合并 Release”和“安全自动合并”，用于把 PR/MR 或本地 release branch 的审批、策略门禁、merge、post-merge deploy 证据写回 release run。
+Dashboard 的“闭环编排”会调用 `POST /api/v1/loop-orchestration/instantiate`，从标准预设创建 source-to-production target loop。该 loop 会自动带上 typed executor graph、Docker sandbox enforcement、sourceClosure、worker/watchdog 语义、deploy connector 和 health-ready rollback。Loop 执行页拆成三个工作区：`总览` 只放 Target Backlog、Loop Runtime 列表和 Worker Queue 摘要；`Loop 详情` 只放当前 loopId 的 Source-to-GA 动态链路、Interactive Run Console、trace、replay、sandbox 和 release evidence；`创建 Loop` 只放闭环编排和 Workflow Canvas Editor。Release Closure Runtime 还提供“批准 Release”“合并 Release”和“安全自动合并”，用于把 PR/MR 或本地 release branch 的审批、策略门禁、merge、post-merge deploy 证据写回 release run。
 
-Loop 执行页顶部的 Source-to-GA 动态本体链路图用于快速判断“从源码到 GA”卡在哪一类边界。读图顺序是：
+Loop 详情页的 Source-to-GA 动态本体链路图用于快速判断“从源码到 GA”卡在哪一类边界。读图顺序是：
 
 1. `SCM / Git Project`：确认项目、仓库、默认分支和源码写回凭据是否可用。
 2. `Discovery Candidate`：确认 trace、evaluation、production 或 manual signal 是否已经形成候选证据。

@@ -576,11 +576,92 @@ td {
   gap: 16px;
 }
 
+.loop-workspace-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 0.48fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.loop-workspace-hero h2 {
+  margin: 4px 0 8px;
+  font-size: 24px;
+}
+
+.loop-workspace-hero p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.loop-workspace-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.loop-workspace-metrics div {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f8fafb;
+}
+
+.loop-workspace-metrics span,
+.loop-workspace-tabs span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.loop-workspace-metrics strong {
+  font-size: 22px;
+}
+
+.loop-workspace-tabs {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.loop-workspace-tabs button {
+  display: grid;
+  gap: 4px;
+  min-height: 56px;
+  text-align: left;
+}
+
+.loop-workspace-tabs button.active {
+  border-color: var(--accent);
+  background: #eef8fa;
+  color: var(--accent-dark);
+}
+
+.loop-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .loop-command-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
   align-items: start;
+}
+
+.loop-create-grid {
+  display: grid;
+  gap: 16px;
 }
 
 .loop-operations-grid {
@@ -939,9 +1020,11 @@ td {
 
 .autopilot-route {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(136px, 1fr));
   gap: 8px;
   margin-top: 18px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .route-node,
@@ -964,6 +1047,11 @@ td {
   gap: 2px 8px;
   min-height: 78px;
   padding: 10px;
+}
+
+.route-node strong,
+.route-node small {
+  grid-column: 2;
 }
 
 .route-node span,
@@ -994,7 +1082,7 @@ td {
 .inbox-item small,
 .autopilot-side strong,
 .autopilot-side small {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .route-node small,
@@ -3428,6 +3516,8 @@ td {
   .autopilot-cockpit,
   .manual-hero,
   .manual-step,
+  .loop-workspace-hero,
+  .loop-overview-grid,
   .release-cockpit-head,
   .project-workspace-head,
   .run-console-head,
@@ -3441,6 +3531,7 @@ td {
   .brief-metrics,
   .flow-header,
   .autopilot-route,
+  .loop-workspace-tabs,
   .canvas-lane,
   .release-checklist,
   .onboarding-steps,
@@ -3612,6 +3703,8 @@ td {
 
   .manual-scene-map,
   .manual-step,
+  .loop-workspace-tabs,
+  .loop-workspace-metrics,
   .manual-screen-grid {
     grid-template-columns: 1fr;
   }
