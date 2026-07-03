@@ -23,13 +23,8 @@ while (!stopped && cycles < maxCycles) {
   cycles += 1;
   try {
     await post("/api/v1/loops/watchdog", {});
-    const claim = await post("/api/v1/loop-workers/claim", {
-      workerId,
-      leaseSeconds,
-      ...(preferredLoopId ? { loopId: preferredLoopId } : {})
-    });
-    if (claim.claimed) {
-      const candidate = claim.claimed;
+    const candidate = await claimCandidate();
+    if (candidate) {
       await post("/api/v1/loop-workers/heartbeat", { loopId: candidate.loopId, workerId, leaseSeconds });
       const action = Number(candidate.currentIteration ?? 0) === 0 ? "start" : "resume";
       const updated = await post(`/api/v1/loops/${encodeURIComponent(candidate.loopId)}/${action}`, {
@@ -44,7 +39,7 @@ while (!stopped && cycles < maxCycles) {
         currentIteration: updated.currentIteration
       }));
     } else {
-      console.log(JSON.stringify({ event: "loop-worker.idle", workerId, cycle: cycles, claimable: claim.queue?.filter((item) => item.claimable).length ?? 0 }));
+      console.log(JSON.stringify({ event: "loop-worker.idle", workerId, cycle: cycles, preferredLoopId: preferredLoopId || undefined }));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -60,6 +55,24 @@ while (!stopped && cycles < maxCycles) {
 }
 
 console.log(JSON.stringify({ event: "loop-worker.stopped", workerId, cycles }));
+
+async function claimCandidate() {
+  if (preferredLoopId) {
+    const queue = await get("/api/v1/loop-workers/queue");
+    const preferred = queue.find((item) => item.loopId === preferredLoopId);
+    if (!preferred) return undefined;
+    if (preferred.claimable) {
+      const claim = await post("/api/v1/loop-workers/claim", { workerId, leaseSeconds, loopId: preferredLoopId });
+      return claim.claimed?.loopId === preferredLoopId ? claim.claimed : undefined;
+    }
+    if (preferred.workerLease?.workerId === workerId && ["PENDING", "RUNNING", "BLOCKED"].includes(preferred.status)) {
+      return preferred;
+    }
+    return undefined;
+  }
+  const claim = await post("/api/v1/loop-workers/claim", { workerId, leaseSeconds });
+  return claim.claimed;
+}
 
 async function get(pathname) {
   const response = await fetch(`${baseUrl}${pathname}`, { headers: headers() });

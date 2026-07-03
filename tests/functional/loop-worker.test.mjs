@@ -39,6 +39,31 @@ test("Loop worker process advances durable loops and loop soak proves runtime co
     assert.ok(advanced.artifacts.some((artifact) => artifact.label.includes("sandbox workspace")));
     assert.ok(fs.existsSync(path.join(dataRoot, "loop-workspaces", "worker-driven-loop", "iteration-1", "context")));
 
+    await post(baseUrl, "/api/v1/loops", {
+      id: "preferred-worker-loop",
+      source: "schedule",
+      objective: "Preferred worker should advance only this loop.",
+      stopPolicy: { maxIterations: 2, requireApprovalForRelease: false }
+    });
+    await post(baseUrl, "/api/v1/loops", {
+      id: "non-preferred-worker-loop",
+      source: "schedule",
+      objective: "Preferred worker must not fall back to this loop.",
+      stopPolicy: { maxIterations: 2, requireApprovalForRelease: false }
+    });
+    const preferredWorker = await runNodeScript("scripts/loop-worker.mjs", ["--once"], {
+      EVOPILOT_BASE_URL: baseUrl,
+      EVOPILOT_API_TOKEN: "operator-token",
+      EVOPILOT_LOOP_WORKER_ID: "preferred-test-worker",
+      EVOPILOT_LOOP_WORKER_LOOP_ID: "preferred-worker-loop",
+      EVOPILOT_LOOP_WORKER_ONCE: "1"
+    });
+    assert.equal(preferredWorker.code, 0, preferredWorker.stderr);
+    const preferred = await get(baseUrl, "/api/v1/loops/preferred-worker-loop");
+    const nonPreferred = await get(baseUrl, "/api/v1/loops/non-preferred-worker-loop");
+    assert.equal(preferred.currentIteration, 1);
+    assert.equal(nonPreferred.currentIteration, 0);
+
     const reportPath = path.join(dataRoot, "loop-soak.jsonl");
     const soak = await runNodeScript("scripts/loop-soak.mjs", [], {
       EVOPILOT_BASE_URL: baseUrl,
@@ -46,6 +71,7 @@ test("Loop worker process advances durable loops and loop soak proves runtime co
       EVOPILOT_LOOP_SOAK_SECONDS: "1",
       EVOPILOT_LOOP_SOAK_INTERVAL_SECONDS: "1",
       EVOPILOT_LOOP_SOAK_LOOP_ID: "worker-soak-loop",
+      EVOPILOT_LOOP_WORKER_LOOP_ID: "worker-soak-loop",
       EVOPILOT_LOOP_SOAK_REPORT: reportPath,
       EVOPILOT_LOOP_SOAK_MAX_ITERATIONS: "1"
     });
