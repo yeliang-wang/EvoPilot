@@ -887,6 +887,7 @@ function renderSimplifiedLoopExecution(loops) {
 }
 
 function renderSimplifiedLoopCard(loop, model) {
+  const llmStep = latestLoopLlmStep(loop);
   const steps = [
     ["Plan", "目标和边界", Boolean(loop)],
     ["Writeback", "写入 GitHub", model.loopDone || Boolean(model.prUrl)],
@@ -899,6 +900,7 @@ function renderSimplifiedLoopCard(loop, model) {
         <div><span>Loop</span><strong>${escapeHtml(loop.id)}</strong></div>
         <div><span>Source closure</span><strong>${escapeHtml(model.closureState)}</strong></div>
         <div><span>PR</span><strong>${model.prUrl ? escapeHtml(`#${model.prUrl.split("/").at(-1)}`) : "等待创建"}</strong></div>
+        <div><span>LLM</span><strong>${escapeHtml(llmStep ? `${llmStep.provider}/${llmStep.model}` : "等待执行")}</strong><small>${escapeHtml(llmStep ? `${llmStep.totalTokens} tokens` : "真实 provider 调用后显示")}</small></div>
       </div>
       <div class="source-ga-loop-progress">
         ${steps.map(([title, detail, done], index) => `
@@ -916,6 +918,27 @@ function renderSimplifiedLoopCard(loop, model) {
       </div>
     </article>
   `;
+}
+
+function latestLoopLlmStep(loop) {
+  const steps = (loop?.iterations ?? []).flatMap((iteration) => iteration.executorSteps ?? iteration.steps ?? []);
+  const llmStep = [...steps].reverse().find((step) => {
+    const output = step?.output ?? {};
+    return step?.type === "llm" || step?.nodeType === "llm" || output.provider || output.model || output.totalTokens;
+  });
+  if (!llmStep) return undefined;
+  const output = llmStep.output ?? {};
+  return {
+    provider: String(output.provider ?? evidenceValue(llmStep.evidence, "llm.provider") ?? "provider"),
+    model: String(output.model ?? evidenceValue(llmStep.evidence, "llm.model") ?? "model"),
+    totalTokens: Number(output.totalTokens ?? output.tokens ?? evidenceValue(llmStep.evidence, "llm.totalTokens") ?? 0)
+  };
+}
+
+function evidenceValue(evidence, key) {
+  const prefix = `${key}=`;
+  const item = Array.isArray(evidence) ? evidence.find((entry) => String(entry).startsWith(prefix)) : undefined;
+  return item ? String(item).slice(prefix.length) : undefined;
 }
 
 function loopWorkspaceView() {
