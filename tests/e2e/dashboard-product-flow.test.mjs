@@ -278,9 +278,13 @@ async function assertDashboardContract(baseUrl) {
   assert.doesNotMatch(app, /PDF 下载/);
   assert.match(app, /postJson\("\/api\/v1\/projects"/);
   assert.match(app, /projectRegistrationPayload/);
+  assert.match(app, /const activeLoop = primarySourceToGaLoop\(state\.loops\);/);
+  assert.match(app, /function primarySourceToGaLoop/);
+  assert.match(app, /function sortedSourceReleaseRuns/);
   assert.match(app, /const releaseRun = activeLoop \? latestSourceReleaseRun\(activeLoop\.id\) : latestReleaseRun;/);
   assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: !activeLoop \}\);/);
   assert.doesNotMatch(app, /latestSourceReleaseRun\(activeLoop\.id\) \?\? latestReleaseRun/);
+  assert.doesNotMatch(app, /当前进行中 \$\{currentLoops\.length \|\|/);
   for (const removed of ["演进计划", "新建评审"]) {
     assert.doesNotMatch(app, new RegExp(removed));
   }

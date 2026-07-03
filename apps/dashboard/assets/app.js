@@ -373,11 +373,8 @@ function renderHome() {
 }
 
 function sourceToGaExperienceModel() {
-  const latestReleaseRun = [...(state.sourceReleaseRuns ?? [])]
-    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
-  const activeLoop = state.loops.find((loop) => ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status))
-    ?? (latestReleaseRun ? state.loops.find((loop) => loop.id === latestReleaseRun.loopId) : undefined)
-    ?? state.loops[0];
+  const latestReleaseRun = latestSourceReleaseRun();
+  const activeLoop = primarySourceToGaLoop(state.loops);
   const project = state.projects.find((item) => item.id === activeLoop?.projectId || item.id === activeLoop?.sourceClosure?.sourceProjectId)
     ?? state.projects.find((item) => /已验证|健康/.test(`${item.validation}${item.status}`))
     ?? state.projects[0];
@@ -833,10 +830,13 @@ function renderLoopExecution() {
 
 function renderSimplifiedLoopExecution(loops) {
   const model = sourceToGaExperienceModel();
-  const currentLoops = loops.filter((loop) => ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status));
+  const currentLoops = sortLoopsByFreshness(loops.filter((loop) =>
+    ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status) &&
+    loop.sourceClosure?.closureState !== "PROMOTED"
+  ));
   const completedLoops = loops.filter((loop) => ["SUCCEEDED", "COMPLETED"].includes(loop.status) || loop.sourceClosure?.closureState === "PROMOTED");
   const failedLoops = loops.filter((loop) => ["FAILED", "CANCELLED"].includes(loop.status) || loop.sourceClosure?.closureState === "FAILED");
-  const primaryLoop = model.activeLoop ?? currentLoops[0] ?? completedLoops[0] ?? loops[0];
+  const primaryLoop = model.activeLoop ?? primarySourceToGaLoop(loops);
   const activeTab = ["current", "pending", "history", "failed"].includes(state.loopExecutionTab) ? state.loopExecutionTab : "current";
   const inbox = humanActionInboxModel();
   return `
@@ -850,7 +850,7 @@ function renderSimplifiedLoopExecution(loops) {
     </section>
     <div class="source-ga-loop-tabs" role="tablist" aria-label="Loop 状态分组">
       ${[
-        ["current", `当前进行中 ${currentLoops.length || (primaryLoop ? 1 : 0)}`],
+        ["current", `当前进行中 ${currentLoops.length}`],
         ["pending", `待处理 ${inbox.length}`],
         ["history", `历史完成 ${completedLoops.length}`],
         ["failed", `失败/修复 ${failedLoops.length + state.sourceReleaseRepairCandidates.length}`]
@@ -1296,10 +1296,40 @@ function renderVisualLoopRunCanvas(loops) {
 
 function selectedSourceToGaLoop(loops) {
   const preferred = loops.find((loop) => loop.id === state.sourceToGaLoopId);
-  const active = loops.find((loop) => ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status));
-  const loop = preferred ?? active ?? loops[0];
+  const loop = preferred ?? primarySourceToGaLoop(loops);
   if (loop && state.sourceToGaLoopId !== loop.id) state.sourceToGaLoopId = loop.id;
   return loop;
+}
+
+function primarySourceToGaLoop(loops = state.loops) {
+  const list = Array.isArray(loops) ? loops : [];
+  const active = sortLoopsByFreshness(list.filter((loop) =>
+    ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status) &&
+    loop.sourceClosure?.closureState !== "PROMOTED"
+  ))[0];
+  const latestRun = latestSourceReleaseRun();
+  if (active && sourceToGaLoopTimestamp(active) >= sourceReleaseRunTimestamp(latestRun)) return active;
+  const releaseLoop = latestRun ? list.find((loop) => loop.id === latestRun.loopId) : undefined;
+  if (releaseLoop) return releaseLoop;
+  if (active) return active;
+  const promoted = sortLoopsByFreshness(list.filter((loop) => ["SUCCEEDED", "COMPLETED"].includes(loop.status) || loop.sourceClosure?.closureState === "PROMOTED"))[0];
+  return promoted ?? sortLoopsByFreshness(list)[0];
+}
+
+function sortLoopsByFreshness(loops) {
+  return [...(loops ?? [])].sort((left, right) => sourceToGaLoopTimestamp(right) - sourceToGaLoopTimestamp(left));
+}
+
+function sourceToGaLoopTimestamp(loop) {
+  const latestRun = latestSourceReleaseRun(loop?.id);
+  return Math.max(
+    Date.parse(loop?.updatedAt ?? loop?.createdAt ?? 0) || 0,
+    sourceReleaseRunTimestamp(latestRun)
+  );
+}
+
+function sourceReleaseRunTimestamp(run) {
+  return Date.parse(run?.updatedAt ?? run?.createdAt ?? 0) || 0;
 }
 
 function sourceToGaModel(loop) {
@@ -1658,9 +1688,9 @@ function interactiveConsoleEvents(loop) {
 }
 
 function renderReleaseCockpit() {
-  const releaseRun = [...(state.sourceReleaseRuns ?? [])]
-    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
-  const matchingLoop = releaseRun ? state.loops.find((loop) => loop.id === releaseRun.loopId) : state.loops[0];
+  const model = sourceToGaExperienceModel();
+  const matchingLoop = model.activeLoop ?? primarySourceToGaLoop(state.loops);
+  const releaseRun = matchingLoop ? latestSourceReleaseRun(matchingLoop.id) : latestSourceReleaseRun();
   const closure = matchingLoop?.sourceClosure ?? {};
   const gates = [
     ["code-change", "代码变更"],
@@ -3597,9 +3627,13 @@ function renderGateEvidence(gate, row) {
 }
 
 function latestSourceReleaseRun(loopId) {
+  return sortedSourceReleaseRuns(loopId)[0];
+}
+
+function sortedSourceReleaseRuns(loopId) {
   return (state.sourceReleaseRuns ?? [])
-    .filter((run) => run.loopId === loopId)
-    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
+    .filter((run) => !loopId || run.loopId === loopId)
+    .sort((left, right) => sourceReleaseRunTimestamp(right) - sourceReleaseRunTimestamp(left));
 }
 
 function sourceReleaseDeployFinalizersForLoop(loopId) {
