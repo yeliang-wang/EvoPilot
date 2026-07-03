@@ -1,0 +1,68 @@
+{
+  "adapterId": "codex-cli",
+  "runtime": "codex-cli",
+  "purpose": "Run bounded source-change tasks from an EvoPilot loop and report patch, validation, and review evidence back to EvoPilot.",
+  "credentialBoundary": {
+    "tokenRefs": ["EVOPILOT_TOKEN", "CODEX_AUTH_CONTEXT"],
+    "redaction": "server-side"
+  },
+  "inputSchema": {
+    "type": "object",
+    "required": ["projectId", "loopId", "repositoryRoot", "task", "validationCommands"],
+    "properties": {
+      "projectId": { "type": "string" },
+      "loopId": { "type": "string" },
+      "repositoryRoot": { "type": "string" },
+      "task": { "type": "string" },
+      "validationCommands": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "maxChangedFiles": { "type": "integer", "minimum": 1, "default": 12 }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["status", "branchName", "diffPath", "validationResults", "evidenceEventId"],
+    "properties": {
+      "status": { "enum": ["SUCCEEDED", "FAILED", "NEEDS_REVIEW"] },
+      "branchName": { "type": "string" },
+      "diffPath": { "type": "string" },
+      "validationResults": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["command", "exitCode"],
+          "properties": {
+            "command": { "type": "string" },
+            "exitCode": { "type": "integer" },
+            "summary": { "type": "string" }
+          }
+        }
+      },
+      "evidenceEventId": { "type": "string" }
+    }
+  },
+  "failureSignatureMap": [
+    {
+      "match": "validation.exitCode != 0",
+      "evidenceEventType": "validation.failure",
+      "severity": "HIGH"
+    },
+    {
+      "match": "changedFiles.count > maxChangedFiles",
+      "evidenceEventType": "scope.guardrail",
+      "severity": "MEDIUM"
+    },
+    {
+      "match": "patch.conflict=true",
+      "evidenceEventType": "code.conflict",
+      "severity": "HIGH"
+    }
+  ],
+  "evidence": {
+    "eventEndpoint": "/api/v1/evidence/events",
+    "traceFields": ["projectId", "loopId", "branchName", "diffPath", "validationCommands"],
+    "artifactRefs": ["diffPath", "validationLogPath", "reviewUrl"]
+  }
+}

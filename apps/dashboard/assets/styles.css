@@ -976,6 +976,7 @@ td {
 .autopilot-cockpit,
 .action-inbox,
 .onboarding-guide,
+.field-evidence-kit,
 .manual-hero,
 .manual-scene-map,
 .manual-scenario,
@@ -1138,6 +1139,7 @@ td {
 
 .action-inbox,
 .onboarding-guide,
+.field-evidence-kit,
 .manual-hero,
 .manual-scene-map,
 .manual-scenario,
@@ -1485,6 +1487,56 @@ td {
   display: grid;
   gap: 4px;
   padding: 12px;
+}
+
+.field-kit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.field-kit-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f8fafb;
+}
+
+.field-kit-card div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field-kit-card span,
+.field-kit-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.field-kit-card strong,
+.field-kit-card small {
+  overflow-wrap: break-word;
+}
+
+.field-kit-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.field-kit-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: #fbfcfd;
+  line-height: 1.45;
 }
 
 .onboarding-steps {
@@ -3532,6 +3584,7 @@ td {
   .flow-header,
   .autopilot-route,
   .loop-workspace-tabs,
+  .field-kit-grid,
   .canvas-lane,
   .release-checklist,
   .onboarding-steps,
@@ -3583,6 +3636,8 @@ td {
   .release-inspector,
   .branch-strategy,
   .provider-switcher,
+  .field-kit-grid,
+  .field-kit-card,
   .manual-scenario-meta,
   .manual-hero-stats,
   .manual-screen-body,
@@ -3735,6 +3790,8 @@ td {
   .release-checklist,
   .onboarding-steps,
   .brief-metrics,
+  .field-kit-grid,
+  .field-kit-card,
   .workspace-grid,
   .connector-grid,
   .workflow-node-board {

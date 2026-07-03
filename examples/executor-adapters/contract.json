@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evopilot.dev/schemas/executor-adapter.contract.json",
+  "title": "EvoPilot ExecutorAdapter Contract",
+  "type": "object",
+  "required": [
+    "adapterId",
+    "runtime",
+    "credentialBoundary",
+    "inputSchema",
+    "outputSchema",
+    "failureSignatureMap",
+    "evidence"
+  ],
+  "properties": {
+    "adapterId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]+$"
+    },
+    "runtime": {
+      "type": "string"
+    },
+    "credentialBoundary": {
+      "type": "object",
+      "required": ["tokenRefs", "redaction"],
+      "properties": {
+        "tokenRefs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "redaction": {
+          "type": "string",
+          "enum": ["server-side", "runtime-side"]
+        }
+      }
+    },
+    "inputSchema": {
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object"
+    },
+    "failureSignatureMap": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["match", "evidenceEventType", "severity"],
+        "properties": {
+          "match": { "type": "string" },
+          "evidenceEventType": { "type": "string" },
+          "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["eventEndpoint", "traceFields", "artifactRefs"],
+      "properties": {
+        "eventEndpoint": { "const": "/api/v1/evidence/events" },
+        "traceFields": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "artifactRefs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

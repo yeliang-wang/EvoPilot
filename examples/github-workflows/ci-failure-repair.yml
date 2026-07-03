@@ -1,0 +1,42 @@
+name: EvoPilot CI Failure Repair Evidence
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  send-ci-failure:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send CI failure evidence to EvoPilot
+        env:
+          EVOPILOT_URL: ${{ secrets.EVOPILOT_URL }}
+          EVOPILOT_TOKEN: ${{ secrets.EVOPILOT_TOKEN }}
+          PROJECT_ID: ${{ vars.EVOPILOT_PROJECT_ID }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          curl -fsS "$EVOPILOT_URL/api/v1/evidence/events" \
+            -H "authorization: Bearer $EVOPILOT_TOKEN" \
+            -H "content-type: application/json" \
+            -d @- <<JSON
+          {
+            "projectId": "${PROJECT_ID}",
+            "events": [
+              {
+                "type": "ci.failure",
+                "source": "github-actions",
+                "severity": "HIGH",
+                "message": "GitHub Actions CI failed and should enter EvoPilot repair loop.",
+                "attributes": {
+                  "runUrl": "${RUN_URL}",
+                  "branch": "${HEAD_BRANCH}",
+                  "workflow": "ci-failure-repair"
+                }
+              }
+            ],
+            "files": []
+          }
+          JSON

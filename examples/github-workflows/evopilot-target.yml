@@ -1,0 +1,40 @@
+name: EvoPilot Target Evidence
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  send-target-evidence:
+    if: github.event.label.name == 'evopilot-target'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send issue target evidence to EvoPilot
+        env:
+          EVOPILOT_URL: ${{ secrets.EVOPILOT_URL }}
+          EVOPILOT_TOKEN: ${{ secrets.EVOPILOT_TOKEN }}
+          PROJECT_ID: ${{ vars.EVOPILOT_PROJECT_ID }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          curl -fsS "$EVOPILOT_URL/api/v1/evidence/events" \
+            -H "authorization: Bearer $EVOPILOT_TOKEN" \
+            -H "content-type: application/json" \
+            -d @- <<JSON
+          {
+            "projectId": "${PROJECT_ID}",
+            "events": [
+              {
+                "type": "github.issue.target",
+                "source": "github-actions",
+                "severity": "MEDIUM",
+                "message": "GitHub issue requested an EvoPilot target: ${ISSUE_TITLE}",
+                "attributes": {
+                  "issueUrl": "${ISSUE_URL}",
+                  "workflow": "evopilot-target"
+                }
+              }
+            ],
+            "files": []
+          }
+          JSON

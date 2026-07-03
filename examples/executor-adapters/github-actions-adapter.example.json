@@ -1,0 +1,60 @@
+{
+  "adapterId": "github-actions",
+  "runtime": "github-actions",
+  "purpose": "Execute validation, repair, and release-blocker workflows from a GitHub repository while EvoPilot remains the control plane.",
+  "credentialBoundary": {
+    "tokenRefs": ["EVOPILOT_TOKEN", "GITHUB_TOKEN"],
+    "redaction": "runtime-side"
+  },
+  "inputSchema": {
+    "type": "object",
+    "required": ["projectId", "repository", "workflow", "ref", "target"],
+    "properties": {
+      "projectId": { "type": "string" },
+      "repository": { "type": "string", "example": "owner/repo" },
+      "workflow": { "type": "string", "example": "evopilot-target.yml" },
+      "ref": { "type": "string", "example": "main" },
+      "target": {
+        "type": "object",
+        "required": ["title", "description"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["status", "runUrl", "evidenceEventId"],
+    "properties": {
+      "status": { "enum": ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED"] },
+      "runUrl": { "type": "string" },
+      "evidenceEventId": { "type": "string" },
+      "loopId": { "type": "string" },
+      "releaseDecisionId": { "type": "string" }
+    }
+  },
+  "failureSignatureMap": [
+    {
+      "match": "workflow_conclusion=failure",
+      "evidenceEventType": "ci.failure",
+      "severity": "HIGH"
+    },
+    {
+      "match": "label=release-blocker",
+      "evidenceEventType": "release.blocker",
+      "severity": "CRITICAL"
+    },
+    {
+      "match": "test_report.failed > 0",
+      "evidenceEventType": "test.failure",
+      "severity": "HIGH"
+    }
+  ],
+  "evidence": {
+    "eventEndpoint": "/api/v1/evidence/events",
+    "traceFields": ["projectId", "repository", "workflow", "runUrl", "sha", "branch", "actor"],
+    "artifactRefs": ["workflowRunUrl", "testReportUrl", "pullRequestUrl"]
+  }
+}

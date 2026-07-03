@@ -1403,6 +1403,7 @@ function renderProjects() {
   return `
     ${renderFlowHeader()}
     ${renderGuidedOnboardingPanel()}
+    ${renderFieldEvidenceKitPanel()}
     ${renderProjectDetailWorkspace()}
     ${renderConnectorMarketplaceSettings()}
     <section class="card">
@@ -1434,6 +1435,59 @@ function renderProjects() {
     ${state.showProjectRegistrationModal ? renderProjectRegistrationModal() : ""}
     ${state.showSourceCredentialModal ? renderSourceCredentialModal() : ""}
   `;
+}
+
+function renderFieldEvidenceKitPanel() {
+  return `
+    <section class="field-evidence-kit" aria-label="EvoPilot Field Evidence Kit">
+      <div class="section-title">
+        <div>
+          <span class="eyebrow">Field Evidence Kit</span>
+          <h2>GitHub Demo Project 到 GA Release 样例资产</h2>
+          <p>这是 EvoPilot 的正式产品样例入口：预填可复现 GitHub 项目，后续 evidence、Target、Loop 和 release decision 仍然走真实控制面 API。</p>
+        </div>
+        <span class="pill good">Product Kit / Evidence Output 分离</span>
+      </div>
+      <div class="field-kit-grid">
+        ${fieldEvidenceKitItems().map((item) => `
+          <article class="field-kit-card">
+            <div>
+              <span>${escapeHtml(item.kind)}</span>
+              <strong>${escapeHtml(item.title)}</strong>
+              <small>${escapeHtml(item.detail)}</small>
+            </div>
+            <button data-action="${escapeHtml(item.action)}">${escapeHtml(item.cta)}</button>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function fieldEvidenceKitItems() {
+  return [
+    {
+      kind: "Product Kit",
+      title: "使用示例 GitHub 项目",
+      detail: "预填 repo、默认分支、Jenkins 模式和 Node.js 验证命令；提交后调用 /api/v1/projects。",
+      cta: "预填接入表单",
+      action: "prefill-github-demo-project"
+    },
+    {
+      kind: "Product Kit",
+      title: "导入 sample evidence",
+      detail: "为已验证项目写入真实 evidence run，随后可运行 Discovery 形成 Target Backlog。",
+      cta: "去发现与目标",
+      action: "go-sample-evidence"
+    },
+    {
+      kind: "Evidence Output",
+      title: "归档运行证据",
+      detail: "截图、loopId、release decision、soak report 是每次运行结果，不写死进产品流程。",
+      cta: "查看手册",
+      action: "go-field-evidence-manual"
+    }
+  ];
 }
 
 function renderProjectDetailWorkspace() {
@@ -1836,6 +1890,7 @@ function renderEvaluationDatasets() {
   const selected = selectedDatasets();
   return `
     ${renderFlowHeader()}
+    ${renderSampleEvidenceImportPanel()}
     <section class="card">
       <div class="section-title">
         <div>
@@ -1870,6 +1925,35 @@ function renderEvaluationDatasets() {
     </section>
     ${state.showOpportunityComposer ? renderOpportunityComposerModal(selected) : ""}
   `;
+}
+
+function renderSampleEvidenceImportPanel() {
+  const project = fieldEvidenceProject();
+  return `
+    <section class="field-evidence-kit compact" aria-label="Sample evidence import">
+      <div class="section-title">
+        <div>
+          <span class="eyebrow">Product Kit</span>
+          <h2>Sample Evidence 导入</h2>
+          <p>为一个已验证项目导入最小真实信号，用于生成 Eval Dataset、机会点和 Target Backlog；这不是静态 mock，运行结果会进入 evidence run。</p>
+        </div>
+        <span class="pill ${project ? "good" : "warn"}">${project ? escapeHtml(project.name) : "等待已验证项目"}</span>
+      </div>
+      <div class="table-actions">
+        <button class="primary" data-action="import-sample-evidence" ${project ? "" : "disabled"}>导入 sample evidence</button>
+        <button data-action="run-discovery-runtime" ${project ? "" : "disabled"}>运行 Discovery</button>
+        <button data-page-link="帮助手册">查看 E2E 教程</button>
+      </div>
+      <div class="field-kit-note">
+        <strong>边界：</strong>样例入口是产品能力；导入后产生的 runId、dataset、target、loopId、release decision 和截图是 Evidence Output，可归档但不写死。
+      </div>
+    </section>
+  `;
+}
+
+function fieldEvidenceProject() {
+  return state.projects.find((project) => /evopilot-github|demo/.test(project.id) && /已验证|健康|VERIFIED/.test(`${project.validation}${project.status}`))
+    ?? state.projects.find((project) => /已验证|健康|VERIFIED/.test(`${project.validation}${project.status}`));
 }
 
 function renderOpportunityComposerModal(datasets) {
@@ -2303,10 +2387,10 @@ function helpManualScenarios() {
       goal: "把一个 GitHub demo project 从零接入 EvoPilot 生产环境，跑出可审计的 target loop、Release Run、artifacts 和 release decision。",
       steps: [
         manualStep("连接生产控制面", "在顶部生产控制面输入 EvoPilot API Token。没有 Token 时 Dashboard 只能使用示例数据，不能读写真正项目、Target 和 Release Run。", "顶部提示已配置 API Token，Dashboard 使用真实 EvoPilot API", "生产控制面", "工作台", "Production control", "API Token 解锁真实控制面数据", navFor("工作台"), ["API Token", "实时数据", "项目", "Release Runs"], "工作台", "API Token 缺失或权限不足"),
-        manualStep("注册 GitHub demo project", "进入项目接入，点击注册项目，Provider 选择 GitHub，填写 demo project 的 Git URL、默认分支、项目名和 Jenkins 模式。", "项目列表出现 GitHub demo project，validation 显示已验证或明确阻塞原因", "注册项目弹窗", "项目接入", "GitHub onboarding", "Git URL、默认分支、Jenkins Job", navFor("项目接入"), ["Provider=GitHub", "Git URL", "默认分支", "Jenkins"], "项目接入", "Git URL 不可达、默认分支错误"),
+        manualStep("注册 GitHub demo project", "进入项目接入，在 Field Evidence Kit 点击预填接入表单，再提交注册。表单只是产品样例入口，提交后仍然调用真实 /api/v1/projects。", "项目列表出现 GitHub demo project，validation 显示已验证或明确阻塞原因", "Field Evidence Kit", "项目接入", "GitHub onboarding", "Product Kit 预填，真实项目注册 API 落库", navFor("项目接入"), ["Field Evidence Kit", "Provider=GitHub", "Git URL", "验证并注册"], "项目接入", "Git URL 不可达、默认分支错误"),
         manualStep("配置 GitHub 写回 tokenRef", "打开源码写回凭据，保存 GitHub tokenRef 或 inline token，并执行只读预检。生产环境优先使用服务器端 tokenRef。", "凭据状态为 READY，或显示 READ_ONLY/BLOCKED 的具体原因", "源码写回凭据", "项目接入", "SCM credentials", "tokenRef、默认分支、只读预检", navFor("项目接入"), ["Token 环境变量", "只验证", "保存并验证", "READY"], "项目接入", "tokenRef 未解析、token 无写权限"),
         manualStep("确认交付连接器 ready", "在连接器市场确认 GitHub、Jenkins、Deploy、LLM Route、Sandbox 至少覆盖本次 demo 发布所需边界。", "SCM、CI/CD、Deploy、Runtime 边界都能看到 READY 或明确 CONFIGURE", "连接器市场与设置", "项目接入", "Connector readiness", "源码、流水线、部署、运行时统一检查", navFor("项目接入"), ["GitHub", "Jenkins", "Deploy", "LLM Route", "Sandbox"], "项目接入", "缺少 Jenkins 或 Deploy connector"),
-        manualStep("运行 Discovery 生成 Target", "进入发现与目标，运行 Discovery，把 demo project 的 trace、evaluation、production 或 manual 信号转成 candidate 和 Target Backlog。", "Target Backlog 出现 demo project 的 target，nextAction 可推进", "Discovery Runtime", "发现与目标", "Target discovery", "从项目运行信号生成候选目标", navFor("发现与目标"), ["Discovery", "Candidate", "Target Backlog", "nextAction"], "发现与目标", "没有可用信号或评测集不足"),
+        manualStep("导入 sample evidence 并运行 Discovery", "进入发现与目标，先导入 Field Evidence Kit 的 sample evidence，再运行 Discovery。sample evidence 会写入真实 evidence run，而不是前端假数据。", "Target Backlog 出现 demo project 的 target，nextAction 可推进", "Sample Evidence 导入", "发现与目标", "Target discovery", "从项目运行信号生成候选目标", navFor("发现与目标"), ["Sample Evidence", "Discovery", "Candidate", "Target Backlog"], "发现与目标", "没有已验证项目或 API Token 权限不足"),
         manualStep("创建 source-to-production Loop", "进入 Loop 执行，用 Workflow Canvas Editor 选择 source-to-production 模板、release gate、stop policy 和 targetVersion。", "Loop Runtime 出现新 Loop，sourceClosure 带 code-change、push、tag、deploy、health-ready gate", "Workflow Canvas Editor", "Loop 执行", "Source-to-production loop", "typed executor graph 和 release gate 入库", navFor("Loop 执行"), ["Graph template", "Release gate", "targetVersion", "创建闭环 Loop"], "Loop 执行", "release gate 或 targetVersion 缺失"),
         manualStep("启动 Autopilot 推进目标", "在 Autopilot cockpit 或 Target Backlog 点击一键自动驾驶。Autopilot 会推进 bounded loop，遇到 human gate 或外部阻塞时停下。", "Autopilot run 写入阶段证据；必要时提示 configure-source-credentials 或等待批准", "Autopilot cockpit", "工作台", "Autopilot run", "Connect、Discover、Loop、Evaluate、Release", navFor("工作台"), ["启动一键自动驾驶", "Human gate", "External blocker", "阶段证据"], "工作台", "凭据、审批、预算或策略门禁阻塞"),
         manualStep("执行 Release Closure", "进入评估与发布，刷新 Release Run，按策略批准 Release、合并 Release 或执行安全自动合并。", "Release Run 晋级到 promoted/succeeded，或留下 policy blocker 和 nextAction", "Release Closure Runtime", "评估与发布", "Release closure", "审批、策略、merge、post-merge deploy", navFor("评估与发布"), ["刷新 Release Run", "批准 Release", "合并 Release", "安全自动合并"], "评估与发布", "policy blocker、健康探测失败、merge 冲突"),
@@ -3349,6 +3433,27 @@ function bindPageLinks() {
       render();
     });
   }
+  for (const button of content.querySelectorAll('[data-action="go-sample-evidence"]')) {
+    button.addEventListener("click", () => {
+      setActivePage("发现与目标");
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="go-field-evidence-manual"]')) {
+    button.addEventListener("click", () => {
+      setActivePage("帮助手册");
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="prefill-github-demo-project"]')) {
+    button.addEventListener("click", () => {
+      state.showProjectRegistrationModal = true;
+      state.projectRegistration = { status: "good", message: "已预填 Field Evidence Kit 的 GitHub demo project。提交后会调用真实项目注册 API。" };
+      render();
+      const form = content.querySelector("#project-registration-form");
+      if (form) fillProjectRegistrationDemo(form);
+    });
+  }
 }
 
 function bindLoopWorkspace() {
@@ -3930,6 +4035,25 @@ function bindLoopActions() {
 }
 
 function bindEvaluationDatasets() {
+  for (const button of content.querySelectorAll('[data-action="import-sample-evidence"]')) {
+    button.addEventListener("click", async () => {
+      const project = fieldEvidenceProject();
+      if (!project) return;
+      button.disabled = true;
+      state.authNotice = "";
+      try {
+        const response = await postJson("/api/v1/evidence/events", sampleEvidencePayload(project));
+        state.authNotice = `Sample evidence 已导入：${response.data?.run?.id ?? "run"} / ${response.data?.ingestedEvents ?? 0} events。`;
+        await loadSummary();
+        await loadEvaluationDatasets();
+        await loadLoops();
+      } catch (error) {
+        state.authNotice = `Sample evidence 导入失败：${error.message}`;
+      } finally {
+        render();
+      }
+    });
+  }
   for (const checkbox of content.querySelectorAll(".dataset-checkbox")) {
     checkbox.addEventListener("change", () => {
       const id = checkbox.dataset.id;
@@ -4160,6 +4284,70 @@ function projectRegistrationPayload(formData) {
       smokeCommands: commandList(value("smokeCommands")),
       functionalCommands: commandList(value("functionalCommands"))
     }
+  };
+}
+
+function fillProjectRegistrationDemo(form) {
+  const set = (name, value) => {
+    const field = form.elements.namedItem(name);
+    if (field) field.value = value;
+  };
+  set("id", "evopilot-github-demo-node-api");
+  set("name", "EvoPilot GitHub Demo Node API");
+  set("provider", "github");
+  set("gitUrl", "https://github.com/yeliang-wang/evopilot-demo-node-api.git");
+  set("root", "");
+  set("defaultBranch", "main");
+  set("tokenRef", "EVOPILOT_GITHUB_TOKEN");
+  set("cicdMode", "system-default");
+  set("jenkinsJob", "evopilot-demo-node-api");
+  set("runtimeLanguage", "node");
+  set("unitCommands", "npm test");
+  set("serviceStartCommand", "npm start -- --host 127.0.0.1 --port 49318");
+  set("servicePort", "49318");
+  set("serviceHealthPath", "/health");
+  set("smokeCommands", "npm run smoke");
+  set("functionalCommands", "npm run test:e2e");
+}
+
+function sampleEvidencePayload(project) {
+  const now = new Date().toISOString();
+  return {
+    projectId: project.id,
+    now,
+    events: [
+      {
+        id: `field-kit-latency-${Date.now()}`,
+        type: "runtime.latency",
+        source: "field-evidence-kit",
+        severity: "HIGH",
+        message: "Demo checkout API p95 latency exceeds GA release budget.",
+        traceId: "field-kit-trace-001",
+        module: "checkout-api",
+        attributes: { durationMs: 3420, thresholdMs: 3000, route: "/api/checkout", evidenceKind: "product-kit-sample" }
+      },
+      {
+        id: `field-kit-tool-failure-${Date.now()}`,
+        type: "tool.failure",
+        source: "field-evidence-kit",
+        severity: "MEDIUM",
+        message: "Release smoke test reports intermittent health-ready failure.",
+        traceId: "field-kit-trace-002",
+        module: "release-smoke",
+        attributes: { failureGroup: "health-ready", retryable: true, evidenceKind: "product-kit-sample" }
+      },
+      {
+        id: `field-kit-release-risk-${Date.now()}`,
+        type: "release.risk",
+        source: "field-evidence-kit",
+        severity: "HIGH",
+        message: "GA release requires source closure, deploy evidence, and product-native release decision.",
+        traceId: "field-kit-trace-003",
+        module: "release-governance",
+        attributes: { missingEvidence: "release-decision", targetVersion: "field-kit-ga-demo", evidenceKind: "product-kit-sample" }
+      }
+    ],
+    files: ["src/checkout.ts", "tests/checkout.test.ts", "docs/release-evidence.md"]
   };
 }
 

@@ -1,0 +1,27 @@
+name: EvoPilot target
+description: Request a new EvoPilot target loop from a GitHub issue.
+title: "[EvoPilot Target]: "
+labels: ["evopilot-target"]
+body:
+  - type: textarea
+    id: target
+    attributes:
+      label: Target
+      description: What product outcome should EvoPilot drive?
+      placeholder: Reduce checkout API p95 latency below 3 seconds without reducing release readiness.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Link traces, CI failures, user reports, or release blockers.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What would count as a successful loop?
+    validations:
+      required: true

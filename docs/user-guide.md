@@ -18,6 +18,24 @@ EvoPilot 的日常使用不是“调用一次 agent”，而是把真实 AI Agen
 - 执行是否留下 timeline、artifacts、代码升级和 CI/CD 证据。
 - 最终是否由 release decision 给出可审计结论，而不是只看健康检查、单次 CI 成功或 executor 自报成功。
 
+## Field Evidence Kit
+
+EvoPilot 内置 Field Evidence Kit，用于把第一次使用和公开演示变成可复现的 Source-to-GA 样例，而不是一次性截图或假数据。
+
+| 类型 | 内容 | 位置 | 是否产品能力 |
+|---|---|---|---|
+| Product Kit | GitHub demo project 预填、sample evidence 导入、GitHub workflow 模板、ExecutorAdapter 示例、case study 模板 | Dashboard、`examples/`、`docs/case-studies/`、`docs/comparisons/` | 是，长期保留 |
+| Evidence Output | 某次运行生成的 loopId、release decision JSON、trace、截图、soak report、audit evidence | `evidence/production-soak/` 或发布证据包 | 否，是运行归档 |
+
+使用顺序：
+
+1. 在“项目接入”打开 Field Evidence Kit，预填 GitHub demo project 表单并提交。提交后仍然调用 `/api/v1/projects`。
+2. 在“发现与目标”导入 sample evidence。导入后仍然调用 `/api/v1/evidence/events`，并自动生成 evidence run 与评测集。
+3. 运行 Discovery，形成 Target Backlog。
+4. 在“Loop 执行”创建 source-to-production loop，进入 Source-to-GA 动态链路。
+5. 在“评估与发布”读取 release closure、repair、deploy finalizer 和 release decision。
+6. 把本次产生的截图、loopId、release decision 和 soak report 归档为 Evidence Output。
+
 ## 1. 注册项目
 
 进入 Dashboard 的“接入项目”，点击“注册项目”。

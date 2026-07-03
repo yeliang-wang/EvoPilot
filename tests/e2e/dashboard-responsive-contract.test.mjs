@@ -79,6 +79,8 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
     assert.match(css, /\.canvas-lane/);
     assert.match(css, /\.release-checklist/);
     assert.match(css, /\.provider-switcher/);
+    assert.match(css, /\.field-kit-grid/);
+    assert.match(css, /\.field-kit-card/);
     assert.match(css, /\.target-runtime-lists/);
     assert.match(css, /\.runtime-row/);
     assert.match(css, /\.backlog-summary/);

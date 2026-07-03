@@ -1,0 +1,41 @@
+name: EvoPilot Release Blocker Evidence
+
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+jobs:
+  send-release-blocker:
+    if: contains(github.event.pull_request.labels.*.name, 'release-blocker')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send release blocker evidence to EvoPilot
+        env:
+          EVOPILOT_URL: ${{ secrets.EVOPILOT_URL }}
+          EVOPILOT_TOKEN: ${{ secrets.EVOPILOT_TOKEN }}
+          PROJECT_ID: ${{ vars.EVOPILOT_PROJECT_ID }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          curl -fsS "$EVOPILOT_URL/api/v1/evidence/events" \
+            -H "authorization: Bearer $EVOPILOT_TOKEN" \
+            -H "content-type: application/json" \
+            -d @- <<JSON
+          {
+            "projectId": "${PROJECT_ID}",
+            "events": [
+              {
+                "type": "release.risk",
+                "source": "github-actions",
+                "severity": "HIGH",
+                "message": "Release blocker label requires EvoPilot release decision review: ${PR_TITLE}",
+                "attributes": {
+                  "pullRequestUrl": "${PR_URL}",
+                  "workflow": "release-blocker",
+                  "missingEvidence": "release-decision"
+                }
+              }
+            ],
+            "files": []
+          }
+          JSON

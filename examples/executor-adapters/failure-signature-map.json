@@ -1,0 +1,26 @@
+{
+  "github-actions": [
+    {
+      "signature": "workflow_conclusion=failure",
+      "mapsTo": "ci.failure",
+      "recommendedTarget": "Repair the failing CI path and add regression evidence."
+    },
+    {
+      "signature": "label=release-blocker",
+      "mapsTo": "release.blocker",
+      "recommendedTarget": "Resolve blocker before release decision can become GA stable."
+    }
+  ],
+  "codex-cli": [
+    {
+      "signature": "validation.exitCode != 0",
+      "mapsTo": "validation.failure",
+      "recommendedTarget": "Fix the failing validation command before loop closure."
+    },
+    {
+      "signature": "patch.conflict=true",
+      "mapsTo": "code.conflict",
+      "recommendedTarget": "Rebase or regenerate patch under current source branch."
+    }
+  ]
+}
