@@ -327,20 +327,21 @@ http://127.0.0.1:19876/
 
 ## 控制台
 
-Dashboard 位于 `apps/dashboard/`，当前一级菜单按 Loop Engineering 生命周期组织：
+Dashboard 位于 `apps/dashboard/`，当前一级菜单按首次 Source-to-GA 操作路径组织，目标是让新用户用最少点击完成“接入项目 -> 生成 GA 目标 -> 启动 Loop -> 查看发布结论”：
 
 | 菜单 | 用途 |
 |---|---|
-| 工作台 | 展示 Autopilot Cockpit、人工待办中心、端到端流程入口和进化观测图。 |
-| 项目接入 | 通过 GitHub、GitLab 或本地 Git 向导注册项目，验证源码凭据、CI/CD 和部署连接器；同时提供 Field Evidence Kit 样例入口、Project Workspace 和 Connector Marketplace 设置视图。 |
-| 发现与目标 | 统一展示 Discovery Runtime、Target Runtime、Target Backlog、证据策略、评测集和机会点；可导入 Field Evidence Kit 的 sample evidence，仍然走真实 evidence API。 |
-| Loop 执行 | 进入 Loop 执行工作区：总览页处理 Target Backlog、Loop Runtime 列表和 Worker Queue；Loop 详情页查看 Source-to-GA 动态本体链路图、Interactive Run Console、trace、replay、sandbox 和 release evidence；创建页用 Workflow Canvas Editor 创建 source-to-production loop。 |
-| 评估与发布 | 展示 Release Cockpit、guardrail、adversarial evaluation、CI/CD、repair queue、deploy finalizer 和 source release artifacts。 |
+| 工作台 | 默认展示当前 Source-to-GA 任务、下一步动作、四步进度和关键发布结论，不再把所有运行时模块铺满首页。 |
+| 主链路向导 | 用向导式页面串联 GitHub 项目接入、GA target、Loop 启动和发布决策，是第一次完成 Source-to-GA 的最短路径入口。 |
+| 项目接入 | 通过 GitHub、GitLab 或本地 Git 向导注册项目，验证源码凭据、CI/CD 和部署连接器；同时保留 Field Evidence Kit 样例入口、Project Workspace 和 Connector Marketplace 设置视图。 |
+| Loop 执行 | 默认把 Loop 分为“当前、待处理、历史”三组，优先显示下一步和状态；需要 trace、replay、sandbox、worker queue、Workflow Canvas 时再进入高级控制台。 |
+| 评估与发布 | 默认先给出 `GO` / `CONDITIONAL-GO` / `NO-GO`、PR、merge commit、post-merge deploy 和下一步动作；完整 evidence matrix、guardrail、repair queue 和 deploy finalizer 保留在高级视图。 |
 | 历史审计 | 查看已完成演进、验证证据、产物和审计链路。 |
+| 帮助手册 | 按场景化步骤展示用户手册，覆盖从 GitHub demo project 接入到 loop target 达到 GA Release 的端到端教程。 |
 
-旧入口仍保持兼容：`首页` 映射到 `工作台`，`接入项目` 映射到 `项目接入`，`证据策略` / `评测集` / `机会点` 映射到 `发现与目标`，`Loop` 映射到 `Loop 执行`，`流水线` 映射到 `评估与发布`，`历史记录` 映射到 `历史审计`。
+旧入口仍保持兼容：`首页` 映射到 `工作台`，`主链路` / `向导` 映射到 `主链路向导`，`接入项目` / `项目` 映射到 `项目接入`，`证据策略` / `评测集` / `机会点` 映射到 `发现与目标`，`Loop` 映射到 `Loop 执行`，`流水线` / `发布` 映射到 `评估与发布`，`历史记录` / `历史` 映射到 `历史审计`。
 
-Loop 执行页不再把所有 Loop 的运行细节堆在一张长页。总览页回答“哪些 Loop 需要处理”，Loop 详情页回答“这个 Loop 走到哪一步、为什么卡住、下一步做什么”，创建页回答“如何创建或调整新的 Loop graph”。详情页里的 Source-to-GA 动态本体链路图不是静态流程图；它把当前选中的 LoopRun 与项目、Discovery、Target Backlog、ExecutorGraph、worker/sandbox、human gate、`sourceClosure`、deploy finalizer、`sourceReleaseRun` 和 release decision 合成一条可读链路：`SCM/Git Project -> Discovery Candidate -> Target Backlog -> Executor Graph -> Worker + Sandbox -> Human Gate -> Source Closure -> CI/CD + Deploy -> Release Decision -> GA Release`。
+Loop 执行页不再把所有 Loop 的运行细节堆在一张长页。默认页回答“现在该处理哪个 Loop”，高级控制台仍提供总览、详情和创建三类工作区：总览页处理 Target Backlog、Loop Runtime 列表和 Worker Queue；Loop 详情页回答“这个 Loop 走到哪一步、为什么卡住、下一步做什么”；创建页回答“如何创建或调整新的 Loop graph”。详情页里的 Source-to-GA 动态本体链路图不是静态流程图；它把当前选中的 LoopRun 与项目、Discovery、Target Backlog、ExecutorGraph、worker/sandbox、human gate、`sourceClosure`、deploy finalizer、`sourceReleaseRun` 和 release decision 合成一条可读链路：`SCM/Git Project -> Discovery Candidate -> Target Backlog -> Executor Graph -> Worker + Sandbox -> Human Gate -> Source Closure -> CI/CD + Deploy -> Release Decision -> GA Release`。
 
 工作台还会展示平均服务分、SLO 健康、错误预算、失败策略、供应链风险、运行时就绪、成本健康、发布就绪、发布阻断、灰度就绪和灰度阻断。供应链风险和运行时就绪来自 `runtimes/runtime-lock.json`，成本健康来自运行证据中的 `costUsd`、`totalTokens`、`inputTokens`、`outputTokens` 等字段，发布就绪度来自 `/api/v1/release/readiness`，灰度策略来自 `/api/v1/rollout/strategies`。
 

@@ -23,6 +23,10 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
 
     assert.match(html, /EvoPilot 控制台/);
     assert.match(app, /renderHomeCommandCenter/);
+    assert.match(app, /renderSimplifiedHome/);
+    assert.match(app, /renderSourceToGaWizard/);
+    assert.match(app, /renderSimplifiedLoopExecution/);
+    assert.match(app, /renderSimplifiedRelease/);
     assert.match(app, /command-action/);
     assert.match(app, /navSections/);
     assert.match(app, /renderDiscoveryAndTargets/);
@@ -58,6 +62,11 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
     assert.match(app, /renderLoadingSkeleton/);
     assert.match(app, /data-label="\$\{escapeHtml\(headers\[index\] \?\? ""\)\}"/);
     assert.match(css, /\.command-center/);
+    assert.match(css, /\.source-ga-home/);
+    assert.match(css, /\.source-ga-stepper/);
+    assert.match(css, /\.source-ga-wizard-layout/);
+    assert.match(css, /\.source-ga-loop-grid/);
+    assert.match(css, /\.source-ga-release-hero/);
     assert.match(css, /\.nav-section/);
     assert.match(css, /\.page-brief/);
     assert.match(css, /\.autopilot-cockpit/);

@@ -1,37 +1,37 @@
 const navSections = [
   {
-    label: "驾驶舱",
+    label: "Source-to-GA",
     items: [
-      { id: "工作台", title: "工作台", detail: "全局状态与下一步" }
+      { id: "工作台", title: "工作台", detail: "当前任务与下一步" },
+      { id: "主链路向导", title: "主链路向导", detail: "接入到 GA 的四步流程" },
+      { id: "项目接入", title: "项目", detail: "GitHub 与凭据" },
+      { id: "Loop 执行", title: "Loop", detail: "当前、待处理、历史" },
+      { id: "评估与发布", title: "发布", detail: "GO / NO-GO 与证据" }
     ]
   },
   {
-    label: "产品闭环",
+    label: "支撑",
     items: [
-      { id: "项目接入", title: "项目接入", detail: "Git、凭据、部署连接器" },
-      { id: "发现与目标", title: "发现与目标", detail: "证据、机会点、Target Runtime" },
-      { id: "Loop 执行", title: "Loop 执行", detail: "编排、worker、trace、replay" },
-      { id: "评估与发布", title: "评估与发布", detail: "CI/CD、guardrail、release closure" }
-    ]
-  },
-  {
-    label: "治理",
-    items: [
-      { id: "历史审计", title: "历史审计", detail: "历史、证据、审计线索" },
-      { id: "帮助手册", title: "帮助手册", detail: "场景向导与截图步骤" }
+      { id: "历史审计", title: "历史", detail: "审计与证据归档" },
+      { id: "帮助手册", title: "帮助", detail: "场景教程" }
     ]
   }
 ];
 const navItems = navSections.flatMap((section) => section.items.map((item) => item.id));
 const pageAliases = {
   首页: "工作台",
+  主链路: "主链路向导",
+  向导: "主链路向导",
+  项目: "项目接入",
   接入项目: "项目接入",
   证据策略: "发现与目标",
   评测集: "发现与目标",
   机会点: "发现与目标",
   Loop: "Loop 执行",
+  发布: "评估与发布",
   流水线: "评估与发布",
   历史记录: "历史审计",
+  历史: "历史审计",
   帮助: "帮助手册",
   操作手册: "帮助手册"
 };
@@ -58,6 +58,7 @@ const state = {
   loopOrchestrationTargets: [],
   loopGraphContracts: {},
   loopWorkspaceView: "overview",
+  releaseWorkspaceView: "simple",
   sourceToGaLoopId: "",
   sourceToGaNodeId: "executor",
   sourceToGaRefreshing: false,
@@ -346,6 +347,8 @@ function renderNav() {
   for (const button of nav.querySelectorAll("button")) {
     button.addEventListener("click", () => {
       setActivePage(button.dataset.page);
+      if (normalizePage(button.dataset.page) === "评估与发布") state.releaseWorkspaceView = "simple";
+      if (normalizePage(button.dataset.page) === "Loop 执行") state.loopWorkspaceView = "overview";
       render();
     });
   }
@@ -354,6 +357,7 @@ function renderNav() {
 function renderPage(page) {
   const normalized = normalizePage(page);
   if (normalized === "工作台") return renderHome();
+  if (normalized === "主链路向导") return renderSourceToGaWizard();
   if (normalized === "项目接入") return renderProjects();
   if (normalized === "发现与目标") return renderDiscoveryAndTargets();
   if (normalized === "Loop 执行") return renderLoopExecution();
@@ -364,12 +368,209 @@ function renderPage(page) {
 }
 
 function renderHome() {
+  return renderSimplifiedHome();
+}
+
+function sourceToGaExperienceModel() {
+  const latestReleaseRun = [...(state.sourceReleaseRuns ?? [])]
+    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
+  const activeLoop = state.loops.find((loop) => ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status))
+    ?? (latestReleaseRun ? state.loops.find((loop) => loop.id === latestReleaseRun.loopId) : undefined)
+    ?? state.loops[0];
+  const project = state.projects.find((item) => item.id === activeLoop?.projectId || item.id === activeLoop?.sourceClosure?.sourceProjectId)
+    ?? state.projects.find((item) => /已验证|健康/.test(`${item.validation}${item.status}`))
+    ?? state.projects[0];
+  const releaseRun = activeLoop ? latestSourceReleaseRun(activeLoop.id) ?? latestReleaseRun : latestReleaseRun;
+  const closureState = activeLoop?.sourceClosure?.closureState ?? releaseRun?.status ?? "PLANNED";
+  const decisionStatus = releaseDecisionLabel(releaseRun);
+  const prUrl = releaseRun?.artifacts?.pullRequestUrl
+    ?? releaseRun?.sourceClosure?.artifacts?.pullRequestUrl
+    ?? activeLoop?.sourceClosure?.artifacts?.pullRequestUrl
+    ?? "";
+  const mergeCommit = releaseRun?.review?.mergeCommitSha
+    ?? releaseRun?.artifacts?.mergeCommitSha
+    ?? activeLoop?.sourceClosure?.artifacts?.mergeCommitSha
+    ?? "";
+  const verified = /已验证|健康/.test(`${project?.validation}${project?.status}`);
+  const credentialsReady = /已配置|无需|tokenRef|inline|local-git/.test(String(project?.credentials ?? ""));
+  const hasTarget = Boolean(activeLoop || releaseRun || state.loopOrchestrationTargets.length);
+  const loopDone = ["PROMOTED", "SUCCEEDED"].includes(String(closureState).toUpperCase()) || ["PROMOTED", "SUCCEEDED"].includes(String(releaseRun?.status).toUpperCase());
+  const decisionGo = decisionStatus === "GO" || (loopDone && mergeCommit);
+  const currentStep = !verified ? 1 : !hasTarget ? 2 : !loopDone ? 3 : 4;
+  const nextAction = !verified
+    ? { label: "连接 GitHub 项目", page: "项目接入", detail: "选择 repo，完成验证和写回凭据。" }
+    : !credentialsReady
+      ? { label: "配置写回凭据", page: "项目接入", detail: "让 EvoPilot 能创建分支和 PR。" }
+      : !hasTarget
+        ? { label: "生成 GA target", page: "主链路向导", detail: "把当前项目推进到可执行目标。" }
+        : !loopDone
+          ? { label: "启动 Source-to-GA Loop", page: "Loop 执行", detail: "执行写回、PR 和 release gate。" }
+          : { label: "查看发布决策", page: "评估与发布", detail: "确认 GO，并归档本次 GA 证据。" };
+  return {
+    project,
+    activeLoop,
+    releaseRun,
+    closureState,
+    decisionStatus: decisionGo ? "GO" : decisionStatus,
+    prUrl,
+    mergeCommit,
+    verified,
+    credentialsReady,
+    hasTarget,
+    loopDone,
+    decisionGo,
+    currentStep,
+    nextAction
+  };
+}
+
+function sourceToGaSteps(model) {
+  return [
+    {
+      id: 1,
+      title: "项目接入",
+      detail: model.verified ? "GitHub 已验证" : "连接 GitHub repo",
+      status: model.verified ? "done" : "current",
+      page: "项目接入"
+    },
+    {
+      id: 2,
+      title: "目标生成",
+      detail: model.hasTarget ? "GA target 已就绪" : "生成第一个目标",
+      status: model.hasTarget ? "done" : model.verified ? "current" : "pending",
+      page: "主链路向导"
+    },
+    {
+      id: 3,
+      title: "Loop 执行",
+      detail: model.loopDone ? "PR 已写回" : "启动 source loop",
+      status: model.loopDone ? "done" : model.hasTarget ? "current" : "pending",
+      page: "Loop 执行"
+    },
+    {
+      id: 4,
+      title: "发布决策",
+      detail: model.decisionGo ? "GO，可归档" : "等待 evidence",
+      status: model.decisionGo ? "current done" : model.loopDone ? "current" : "pending",
+      page: "评估与发布"
+    }
+  ];
+}
+
+function renderSimplifiedHome() {
+  const model = sourceToGaExperienceModel();
+  const steps = sourceToGaSteps(model);
+  const nextItems = [
+    model.nextAction,
+    { label: "更新 E2E 帮助手册", page: "帮助手册", detail: "把真实 GitHub demo project 到 GA 的步骤固化为教程。" },
+    { label: "打开高级控制台", page: "Loop 执行", detail: "查看 trace、sandbox、replay 和完整 source closure 细节。", advanced: true }
+  ];
   return `
-    ${renderHomeCommandCenter()}
-    ${renderAutopilotCommandCenter()}
-    ${renderHumanActionInbox()}
-    ${renderFlowHeader()}
-    ${renderEvolutionObservabilityMap()}
+    <section class="source-ga-home" aria-label="Source-to-GA 工作台">
+      <div class="source-ga-home-copy">
+        <span class="eyebrow">当前主任务</span>
+        <h2>${escapeHtml(model.project?.name ? `把 ${model.project.name} 推进到 GA Release` : "连接第一个 GitHub 项目")}</h2>
+        <p>${escapeHtml(model.decisionGo ? "Source closure 已完成，PR 已合并，release decision 为 GO。下一步只需要归档证据或查看细节。" : model.nextAction.detail)}</p>
+        <div class="source-ga-home-actions">
+          <button class="primary" data-page-link="${escapeHtml(model.nextAction.page)}">${escapeHtml(model.nextAction.label)}</button>
+          ${model.prUrl ? `<a class="button-like" href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">打开 PR</a>` : `<button data-page-link="项目接入">连接 GitHub</button>`}
+          <button data-page-link="帮助手册">查看教程</button>
+        </div>
+      </div>
+      <aside class="source-ga-decision-card">
+        <strong>${escapeHtml(model.decisionStatus === "AWAITING_DECISION" ? "等待" : model.decisionStatus)}</strong>
+        <span>最近发布结论</span>
+      </aside>
+    </section>
+    <section class="source-ga-stepper" aria-label="Source-to-GA 四步流程">
+      ${steps.map((step) => `
+        <button class="source-ga-step ${escapeHtml(step.status)}" data-page-link="${escapeHtml(step.page)}">
+          <span>${step.id}</span>
+          <strong>${escapeHtml(step.title)}</strong>
+          <small>${escapeHtml(step.detail)}</small>
+        </button>
+      `).join("")}
+    </section>
+    <div class="source-ga-home-grid">
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>下一步</h2>
+            <p>只保留用户第一次完成 Source-to-GA 必须处理的动作。</p>
+          </div>
+        </div>
+        <div class="source-ga-next-list">
+          ${nextItems.map((item, index) => `
+            <article class="source-ga-next-item">
+              <span>${index + 1}</span>
+              <div>
+                <strong>${escapeHtml(item.label)}</strong>
+                <small>${escapeHtml(item.detail)}</small>
+              </div>
+              <button data-page-link="${escapeHtml(item.page)}" ${item.advanced ? `data-loop-workspace-view="advanced"` : ""}>进入</button>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>当前项目</h2>
+            <p>复杂证据默认收起，首页只展示判断需要的字段。</p>
+          </div>
+          ${statusPill(model.loopDone ? "已晋级" : model.verified ? "健康" : "待验证")}
+        </div>
+        <table class="compact-facts">
+          <tr><td>项目</td><td>${escapeHtml(model.project?.id ?? "未选择")}</td></tr>
+          <tr><td>仓库</td><td>${escapeHtml(model.project?.repository ?? "等待 GitHub 连接")}</td></tr>
+          <tr><td>Loop</td><td>${escapeHtml(model.activeLoop?.id ?? "尚未启动")}</td></tr>
+          <tr><td>Source closure</td><td>${statusPill(model.loopDone ? "已晋级" : model.closureState)}</td></tr>
+          <tr><td>PR</td><td>${model.prUrl ? `<a href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">${escapeHtml(model.prUrl.split("/").slice(-1)[0] ? `#${model.prUrl.split("/").at(-1)}` : "打开 PR")}</a>` : "等待创建"}</td></tr>
+          <tr><td>Decision</td><td>${statusPill(model.decisionGo ? "GO" : model.decisionStatus)}</td></tr>
+        </table>
+      </section>
+    </div>
+  `;
+}
+
+function renderSourceToGaWizard() {
+  const model = sourceToGaExperienceModel();
+  const steps = sourceToGaSteps(model);
+  return `
+    <div class="source-ga-wizard-layout">
+      <aside class="source-ga-wizard-rail">
+        ${steps.map((step) => `
+          <button class="source-ga-wizard-step ${escapeHtml(step.status)}" data-page-link="${escapeHtml(step.page)}">
+            <span>${step.id}</span>
+            <div>
+              <strong>${escapeHtml(step.title)}</strong>
+              <small>${escapeHtml(step.detail)}</small>
+            </div>
+          </button>
+        `).join("")}
+      </aside>
+      <section class="card source-ga-wizard-main">
+        <div class="section-title">
+          <div>
+            <span class="eyebrow">第一次 Source-to-GA</span>
+            <h2>按四步完成一次 GitHub 项目到 GA Release</h2>
+            <p>默认路径压缩为：连接 GitHub -> 生成目标 -> 启动 Loop -> 查看 GO。高级能力只在需要时展开。</p>
+          </div>
+          <span class="pill ${model.decisionGo ? "good" : "warn"}">${escapeHtml(model.decisionGo ? "GO" : `Step ${model.currentStep}`)}</span>
+        </div>
+        <div class="source-ga-wizard-summary">
+          <div><span>项目</span><strong>${escapeHtml(model.project?.name ?? "等待连接")}</strong><small>${escapeHtml(model.project?.repository ?? "GitHub repo")}</small></div>
+          <div><span>Loop</span><strong>${escapeHtml(model.activeLoop?.status ?? "未启动")}</strong><small>${escapeHtml(model.activeLoop?.id ?? "source-to-ga")}</small></div>
+          <div><span>发布</span><strong>${escapeHtml(model.decisionStatus)}</strong><small>${escapeHtml(model.mergeCommit || "等待 merge commit")}</small></div>
+        </div>
+        <div class="source-ga-wizard-form">
+          <div><span>1</span><strong>连接 GitHub 项目</strong><small>${escapeHtml(model.verified ? "已完成项目验证和基础接入。" : "选择 repo 并完成验证。")}</small><button data-page-link="项目接入">${model.verified ? "查看项目" : "开始连接"}</button></div>
+          <div><span>2</span><strong>确认 GA 目标</strong><small>${escapeHtml(model.hasTarget ? "已有可执行 target 或 source release run。" : "从 discovery 或模板生成目标。")}</small><button data-page-link="发现与目标">生成目标</button></div>
+          <div><span>3</span><strong>启动 Loop 写回代码</strong><small>${escapeHtml(model.loopDone ? "Source closure 已 promoted，PR 已合并。" : "执行 branch、file、PR 和 review gate。")}</small><button data-page-link="Loop 执行">${model.loopDone ? "查看 Loop" : "启动 Loop"}</button></div>
+          <div><span>4</span><strong>查看发布结论</strong><small>${escapeHtml(model.decisionGo ? "Release decision 为 GO，可以归档。" : "等待 release evidence 形成结论。")}</small><button class="primary" data-page-link="评估与发布">查看发布决策</button></div>
+        </div>
+      </section>
+    </div>
   `;
 }
 
@@ -615,6 +816,7 @@ function renderDiscoveryAndTargets() {
 
 function renderLoopExecution() {
   const loops = state.loops;
+  if (state.loopWorkspaceView !== "advanced") return renderSimplifiedLoopExecution(loops);
   const view = loopWorkspaceView();
   const selectedLoop = selectedSourceToGaLoop(loops);
   return `
@@ -625,6 +827,94 @@ function renderLoopExecution() {
       : view === "create"
         ? renderLoopCreateWorkspace(loops)
         : renderLoopOverviewWorkspace(loops)}
+  `;
+}
+
+function renderSimplifiedLoopExecution(loops) {
+  const model = sourceToGaExperienceModel();
+  const currentLoops = loops.filter((loop) => ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status));
+  const completedLoops = loops.filter((loop) => ["SUCCEEDED", "COMPLETED"].includes(loop.status) || loop.sourceClosure?.closureState === "PROMOTED");
+  const failedLoops = loops.filter((loop) => ["FAILED", "CANCELLED"].includes(loop.status) || loop.sourceClosure?.closureState === "FAILED");
+  const primaryLoop = model.activeLoop ?? currentLoops[0] ?? completedLoops[0] ?? loops[0];
+  return `
+    <section class="source-ga-loop-head">
+      <div>
+        <span class="eyebrow">Loop</span>
+        <h2>当前、待处理、历史分开看</h2>
+        <p>第一次使用时只需要关注一个主 Loop；trace、replay、sandbox 和 worker 细节进入高级工作区。</p>
+      </div>
+      <button data-loop-workspace-view="advanced">打开高级工作区</button>
+    </section>
+    <div class="source-ga-loop-tabs" role="tablist" aria-label="Loop 状态分组">
+      <button class="active">当前进行中 ${currentLoops.length || (primaryLoop ? 1 : 0)}</button>
+      <button>待处理 ${humanActionInboxModel().length}</button>
+      <button>历史完成 ${completedLoops.length}</button>
+      <button>失败/修复 ${failedLoops.length + state.sourceReleaseRepairCandidates.length}</button>
+    </div>
+    <div class="source-ga-loop-grid">
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>当前主 Loop</h2>
+            <p>${escapeHtml(primaryLoop?.objective ?? "创建第一个 Source-to-GA Loop 后，会在这里显示进度。")}</p>
+          </div>
+          ${statusPill(model.loopDone ? "已晋级" : primaryLoop?.status ?? "待启动")}
+        </div>
+        ${primaryLoop ? renderSimplifiedLoopCard(primaryLoop, model) : renderEmptyState("还没有 Loop", "连接 GitHub 项目并生成 GA target 后，启动第一个 Source-to-GA Loop。", "把首次路径保持在一个主任务上。")}
+      </section>
+      <aside class="card">
+        <div class="section-title">
+          <div>
+            <h2>待办中心</h2>
+            <p>只显示会阻塞下一步的动作。</p>
+          </div>
+          <span class="pill ${humanActionInboxModel().length ? "warn" : "good"}">${humanActionInboxModel().length}</span>
+        </div>
+        <div class="source-ga-todo-list">
+          ${humanActionInboxModel().slice(0, 5).map((item) => `
+            <article>
+              <div>
+                <strong>${escapeHtml(item.title)}</strong>
+                <small>${escapeHtml(item.detail)}</small>
+              </div>
+              <button ${item.action ? `data-action="${escapeHtml(item.action)}"` : `data-page-link="${escapeHtml(item.page)}"`} ${item.id ? `data-id="${escapeHtml(item.id)}"` : ""}>${escapeHtml(item.cta)}</button>
+            </article>
+          `).join("") || renderEmptyState("无阻塞待办", "凭据、审批、修复和发布门禁都没有等待用户处理。")}
+        </div>
+      </aside>
+    </div>
+  `;
+}
+
+function renderSimplifiedLoopCard(loop, model) {
+  const steps = [
+    ["Plan", "目标和边界", Boolean(loop)],
+    ["Writeback", "写入 GitHub", model.loopDone || Boolean(model.prUrl)],
+    ["Review", model.prUrl ? `PR ${model.prUrl.split("/").at(-1)}` : "等待 PR", model.loopDone],
+    ["Release", model.decisionGo ? "Decision GO" : "等待结论", model.decisionGo]
+  ];
+  return `
+    <article class="source-ga-primary-loop">
+      <div class="source-ga-primary-loop-meta">
+        <div><span>Loop</span><strong>${escapeHtml(loop.id)}</strong></div>
+        <div><span>Source closure</span><strong>${escapeHtml(model.closureState)}</strong></div>
+        <div><span>PR</span><strong>${model.prUrl ? escapeHtml(`#${model.prUrl.split("/").at(-1)}`) : "等待创建"}</strong></div>
+      </div>
+      <div class="source-ga-loop-progress">
+        ${steps.map(([title, detail, done], index) => `
+          <div class="${done ? "done" : index === model.currentStep - 1 ? "current" : ""}">
+            <span>${index + 1}</span>
+            <strong>${escapeHtml(title)}</strong>
+            <small>${escapeHtml(detail)}</small>
+          </div>
+        `).join("")}
+      </div>
+      <div class="source-ga-home-actions">
+        <button class="primary" data-page-link="${model.decisionGo ? "评估与发布" : "Loop 执行"}">${model.decisionGo ? "查看发布决策" : "继续 Loop"}</button>
+        ${model.prUrl ? `<a class="button-like" href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">打开 PR</a>` : ""}
+        <button data-loop-workspace-view="advanced">高级细节</button>
+      </div>
+    </article>
   `;
 }
 
@@ -718,6 +1008,7 @@ function renderLoopCreateWorkspace(loops) {
 }
 
 function renderEvaluationAndRelease() {
+  if (state.releaseWorkspaceView !== "advanced") return renderSimplifiedRelease();
   return `
     ${renderFlowHeader()}
     ${renderReleaseCockpit()}
@@ -740,6 +1031,83 @@ function renderEvaluationAndRelease() {
       ${renderSourceReleaseDeployFinalizersPanel()}
     </div>
     ${state.loops.slice(0, 2).map(renderLoopDetail).join("")}
+  `;
+}
+
+function renderSimplifiedRelease() {
+  const model = sourceToGaExperienceModel();
+  const scenarioRows = [
+    ["demo-project-registered", model.verified ? "PASS" : "WAITING", model.project?.validation ?? "等待项目验证"],
+    ["demo-source-credentials-ready", model.credentialsReady ? "PASS" : "WAITING", model.project?.credentials ?? "等待写回凭据"],
+    ["demo-source-closure-promoted", model.loopDone ? "PASS" : "WAITING", `closure=${model.closureState}`],
+    ["demo-pr-merged", model.mergeCommit ? "PASS" : "WAITING", model.mergeCommit || "等待 merge commit"]
+  ];
+  return `
+    <section class="source-ga-release-hero">
+      <div>
+        <span class="eyebrow">发布决策</span>
+        <h2>${escapeHtml(model.decisionGo ? `${model.project?.name ?? "当前项目"} 可以进入 GA Release` : "等待形成 GA Release 结论")}</h2>
+        <p>默认只展示结论、关键证据和用户下一步。完整 matrix、policy、repair 和 deploy finalizer 进入高级详情。</p>
+        <div class="source-ga-home-actions">
+          <button class="primary" data-page-link="帮助手册">归档到 E2E 教程</button>
+          ${model.prUrl ? `<a class="button-like" href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">打开 GitHub PR</a>` : ""}
+          <button data-action="show-release-advanced">查看完整 evidence matrix</button>
+        </div>
+      </div>
+      <aside class="source-ga-release-decision ${model.decisionGo ? "go" : ""}">
+        <strong>${escapeHtml(model.decisionGo ? "GO" : model.decisionStatus)}</strong>
+        <span>${escapeHtml(model.releaseRun?.id ?? "release decision")}</span>
+      </aside>
+    </section>
+    <div class="source-ga-release-grid">
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>关键证据</h2>
+            <p>用户判断发布结论所需的最小字段。</p>
+          </div>
+        </div>
+        <table class="compact-facts">
+          <tr><td>Project</td><td>${escapeHtml(model.project?.id ?? "未选择")}</td></tr>
+          <tr><td>Loop</td><td>${escapeHtml(model.activeLoop?.id ?? "尚未启动")}</td></tr>
+          <tr><td>Source closure</td><td>${statusPill(model.loopDone ? "已晋级" : model.closureState)}</td></tr>
+          <tr><td>Pull request</td><td>${model.prUrl ? `<a href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">${escapeHtml(model.prUrl)}</a>` : "等待创建"}</td></tr>
+          <tr><td>Merge commit</td><td>${escapeHtml(model.mergeCommit || "等待合并")}</td></tr>
+        </table>
+      </section>
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>Release 场景</h2>
+            <p>默认只展示主链路四项。</p>
+          </div>
+        </div>
+        <div class="source-ga-scenario-list">
+          ${scenarioRows.map(([id, status, detail]) => `
+            <article>
+              <div>
+                <strong>${escapeHtml(id)}</strong>
+                <small>${escapeHtml(detail)}</small>
+              </div>
+              <span class="pill ${status === "PASS" ? "good" : "warn"}">${escapeHtml(status)}</span>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+      <section class="card source-ga-release-next">
+        <div class="section-title">
+          <div>
+            <h2>用户下一步</h2>
+            <p>发布页不再先暴露内部矩阵，先给用户一个动作。</p>
+          </div>
+        </div>
+        <table class="compact-facts">
+          <tr><td>推荐动作</td><td>${model.decisionGo ? "把本次真实 GitHub demo project 到 GA Release 的流程加入帮助文档。" : "补齐 release evidence，直到得到 GO / NO-GO。"}</td></tr>
+          <tr><td>可选动作</td><td>打开高级详情查看 source gate、trace、policy 和 audit log。</td></tr>
+          <tr><td>高级视图</td><td><button data-action="show-release-advanced">打开完整发布工作台</button></td></tr>
+        </table>
+      </section>
+    </div>
   `;
 }
 
@@ -3326,6 +3694,8 @@ function statusPill(status) {
     可回归: "good",
     已评估: "good",
     自动执行: "good",
+    GO: "good",
+    PASS: "good",
     优秀: "good",
     良好: "good",
     执行中: "warn",
@@ -3347,6 +3717,7 @@ function statusPill(status) {
     高风险: "bad",
     健康失败: "bad",
     失败: "bad",
+    "NO-GO": "bad",
     接入失败: "bad",
     验证失败: "bad",
     证据不足: "bad",
@@ -3429,6 +3800,7 @@ async function refreshData() {
 function bindPageLinks() {
   for (const button of content.querySelectorAll("[data-page-link]")) {
     button.addEventListener("click", () => {
+      if (button.dataset.loopWorkspaceView === "advanced") state.loopWorkspaceView = "advanced";
       setActivePage(button.dataset.pageLink);
       render();
     });
@@ -3442,6 +3814,13 @@ function bindPageLinks() {
   for (const button of content.querySelectorAll('[data-action="go-field-evidence-manual"]')) {
     button.addEventListener("click", () => {
       setActivePage("帮助手册");
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="show-release-advanced"]')) {
+    button.addEventListener("click", () => {
+      state.releaseWorkspaceView = "advanced";
+      setActivePage("评估与发布");
       render();
     });
   }
@@ -3460,6 +3839,7 @@ function bindLoopWorkspace() {
   for (const button of content.querySelectorAll("[data-loop-workspace-view]")) {
     button.addEventListener("click", () => {
       state.loopWorkspaceView = button.dataset.loopWorkspaceView ?? "overview";
+      if (state.loopWorkspaceView === "advanced") state.active = "Loop 执行";
       render();
     });
   }
