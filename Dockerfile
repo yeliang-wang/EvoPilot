@@ -31,5 +31,6 @@ COPY --from=build /app/apps ./apps
 COPY --from=build /app/docs ./docs
 COPY --from=build /app/templates ./templates
 COPY --from=build /app/runtimes ./runtimes
+COPY scripts ./scripts
 EXPOSE 19876
 CMD ["npm", "run", "server"]

@@ -33,6 +33,28 @@ docker run --rm \
 docker compose up --build
 ```
 
+Compose 会同时启动 `evopilot-server` 和 `evopilot-loop-worker`。生产连续 loop 依赖 worker 常驻进程：
+
+- `evopilot-server` 只负责 API、Dashboard、持久化状态和控制面。
+- `evopilot-loop-worker` 通过 `/api/v1/loop-workers/claim` 领取可执行 loop，写入 heartbeat lease，再调用 `start` 或 `resume` 推进下一轮。
+- 如果只运行 server，Loop 会停在 `RUNNING / claimable=true / nextAction=claim`，这表示状态可恢复、可领取，但不是后台正在执行。
+
+常用 worker 环境变量：
+
+```text
+EVOPILOT_BASE_URL=http://evopilot-server:19876
+EVOPILOT_API_TOKEN=<operator-or-admin-token>
+EVOPILOT_LOOP_WORKER_ID=evopilot-prod-worker
+EVOPILOT_LOOP_WORKER_POLL_MS=5000
+EVOPILOT_LOOP_WORKER_LEASE_SECONDS=120
+```
+
+如需让 worker 只推进某个主 loop，可设置：
+
+```text
+EVOPILOT_LOOP_WORKER_LOOP_ID=target-tenant-workspace-model-1783071349806
+```
+
 ## 生产控制面接入 EvoPilot 自身
 
 生产服务器上的 EvoPilot 可以把 EvoPilot 仓库注册成受治理 target，并创建第一条受控 self-loop。推荐使用远程 GitHub/GitLab 仓库，而不是操作者本机的 `local-git` 路径；`local-git` 验证发生在服务器端，只能验证服务器本地存在的 checkout。

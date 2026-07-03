@@ -17,6 +17,23 @@ services:
     volumes:
       - evopilot-data:/var/lib/evopilot
 
+  evopilot-loop-worker:
+    build: .
+    command: ["npm", "run", "loop-worker"]
+    depends_on:
+      - evopilot-server
+    environment:
+      EVOPILOT_BASE_URL: "http://evopilot-server:19876"
+      EVOPILOT_RUN_MODE: "prod"
+      EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
+      EVOPILOT_API_TOKEN: "${EVOPILOT_API_TOKEN:-change-me-operator-token}"
+      EVOPILOT_LOOP_WORKER_ID: "evopilot-prod-worker"
+      EVOPILOT_LOOP_WORKER_POLL_MS: "5000"
+      EVOPILOT_LOOP_WORKER_LEASE_SECONDS: "120"
+    volumes:
+      - evopilot-data:/var/lib/evopilot
+    restart: unless-stopped
+
   evopilot-code-upgrader:
     build:
       context: .
