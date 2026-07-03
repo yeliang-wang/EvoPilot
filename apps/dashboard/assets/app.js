@@ -382,7 +382,7 @@ function sourceToGaExperienceModel() {
     ?? state.projects[0];
   const releaseRun = activeLoop ? latestSourceReleaseRun(activeLoop.id) : latestReleaseRun;
   const closureState = activeLoop?.sourceClosure?.closureState ?? releaseRun?.status ?? "PLANNED";
-  const decisionStatus = releaseDecisionLabel(releaseRun);
+  const decisionStatus = releaseDecisionLabel(releaseRun, { allowGlobalDecision: !activeLoop });
   const prUrl = releaseRun?.artifacts?.pullRequestUrl
     ?? releaseRun?.sourceClosure?.artifacts?.pullRequestUrl
     ?? activeLoop?.sourceClosure?.artifacts?.pullRequestUrl
@@ -1263,9 +1263,9 @@ function sourceToGaTone(status) {
   return "pending";
 }
 
-function releaseDecisionLabel(releaseRun) {
+function releaseDecisionLabel(releaseRun, options = {}) {
   const decision = String(state.intelligence.latestReleaseDecisionStatus ?? "").trim();
-  if (decision && decision !== "未判定") return decision;
+  if (options.allowGlobalDecision !== false && decision && decision !== "未判定") return decision;
   if (["FAILED", "HEALTH_FAILED", "ROLLED_BACK", "POLICY_BLOCKED"].includes(releaseRun?.status)) return "NO-GO";
   if (releaseRun) return releaseRun.policy?.status ?? "AWAITING_DECISION";
   return "AWAITING";
