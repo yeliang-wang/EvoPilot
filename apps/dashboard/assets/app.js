@@ -830,10 +830,7 @@ function renderLoopExecution() {
 
 function renderSimplifiedLoopExecution(loops) {
   const model = sourceToGaExperienceModel();
-  const currentLoops = sortLoopsByFreshness(loops.filter((loop) =>
-    ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status) &&
-    loop.sourceClosure?.closureState !== "PROMOTED"
-  ));
+  const currentLoops = currentSourceToGaLoops(loops);
   const completedLoops = loops.filter((loop) => ["SUCCEEDED", "COMPLETED"].includes(loop.status) || loop.sourceClosure?.closureState === "PROMOTED");
   const failedLoops = loops.filter((loop) => ["FAILED", "CANCELLED"].includes(loop.status) || loop.sourceClosure?.closureState === "FAILED");
   const primaryLoop = model.activeLoop ?? primarySourceToGaLoop(loops);
@@ -1303,10 +1300,7 @@ function selectedSourceToGaLoop(loops) {
 
 function primarySourceToGaLoop(loops = state.loops) {
   const list = Array.isArray(loops) ? loops : [];
-  const active = sortLoopsByFreshness(list.filter((loop) =>
-    ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status) &&
-    loop.sourceClosure?.closureState !== "PROMOTED"
-  ))[0];
+  const active = currentSourceToGaLoops(list)[0];
   const latestRun = latestSourceReleaseRun();
   if (active && sourceToGaLoopTimestamp(active) >= sourceReleaseRunTimestamp(latestRun)) return active;
   const releaseLoop = latestRun ? list.find((loop) => loop.id === latestRun.loopId) : undefined;
@@ -1314,6 +1308,15 @@ function primarySourceToGaLoop(loops = state.loops) {
   if (active) return active;
   const promoted = sortLoopsByFreshness(list.filter((loop) => ["SUCCEEDED", "COMPLETED"].includes(loop.status) || loop.sourceClosure?.closureState === "PROMOTED"))[0];
   return promoted ?? sortLoopsByFreshness(list)[0];
+}
+
+function currentSourceToGaLoops(loops = state.loops) {
+  const latestRunTime = sourceReleaseRunTimestamp(latestSourceReleaseRun());
+  return sortLoopsByFreshness((loops ?? []).filter((loop) =>
+    ["RUNNING", "WAITING_APPROVAL", "BLOCKED"].includes(loop.status) &&
+    loop.sourceClosure?.closureState !== "PROMOTED" &&
+    sourceToGaLoopTimestamp(loop) >= latestRunTime
+  ));
 }
 
 function sortLoopsByFreshness(loops) {

@@ -280,6 +280,7 @@ async function assertDashboardContract(baseUrl) {
   assert.match(app, /projectRegistrationPayload/);
   assert.match(app, /const activeLoop = primarySourceToGaLoop\(state\.loops\);/);
   assert.match(app, /function primarySourceToGaLoop/);
+  assert.match(app, /function currentSourceToGaLoops/);
   assert.match(app, /function sortedSourceReleaseRuns/);
   assert.match(app, /const releaseRun = activeLoop \? latestSourceReleaseRun\(activeLoop\.id\) : latestReleaseRun;/);
   assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: !activeLoop \}\);/);
