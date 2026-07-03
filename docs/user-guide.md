@@ -302,7 +302,7 @@ POST /api/v1/connectors/deploy
 当前内置两类部署连接器：
 
 - `http-webhook`：EvoPilot 会把 loop、源码、branch、commit、tag、PR/MR 和环境参数发送给部署系统，由部署系统返回 `deploymentId`、`deploymentUrl`、`healthUrl` 和 `readyUrl`。
-- `ecs-docker-compose`：EvoPilot 在配置的服务器 `workingDir` 内执行受限发布序列，先读取当前 commit，可选保留 `preserveLocalPaths` 指定的生产本地补丁，再执行 `git pull --ff-only <remote> <branch>`、恢复本地补丁，并执行 `docker compose -f <composeFile> up -d --build [serviceName]`，把每条命令的退出码和截断输出写入 deploy gate 证据。该连接器默认启用 `deployLock`、`idempotency`、`rollbackOnFailure` 和 `rollbackOnHealthFailure`：同一 release key 不重复执行 compose，compose 失败或发布后 health/ready 探测失败时会回到发布前 commit 并重新启动 compose。
+- `ecs-docker-compose`：EvoPilot 在配置的服务器 `workingDir` 内执行受限发布序列，先读取当前 commit，可选保留 `preserveLocalPaths` 指定的生产本地补丁，再执行 `git pull --ff-only <remote> <branch>`、恢复本地补丁，并执行 `docker compose -f <composeFile> up -d --build [serviceName]`，把每条命令的退出码和截断输出写入 deploy gate 证据。自托管 EvoPilot 可以设置 `skipComposeWhenUnchanged=true`，当 pull 后 commit 未变化时跳过 compose，避免控制面在自己的 API 请求中重启自己，并由 health-ready gate 证明生产可用。该连接器默认启用 `deployLock`、`idempotency`、`rollbackOnFailure` 和 `rollbackOnHealthFailure`：同一 release key 不重复执行 compose，compose 失败或发布后 health/ready 探测失败时会回到发布前 commit 并重新启动 compose。
 
 Dashboard 会在“接入项目”页展示部署连接器列表；执行闭环时，如果 loop 已绑定 `deploymentConnectorId` 或生产环境只有一个部署连接器，会自动携带该连接器。
 

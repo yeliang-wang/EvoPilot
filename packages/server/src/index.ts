@@ -297,6 +297,7 @@ interface StoredDeployConnector {
   gitPull?: boolean;
   preserveLocalPaths?: string[];
   build?: boolean;
+  skipComposeWhenUnchanged?: boolean;
   deployLock?: boolean;
   idempotency?: boolean;
   rollbackOnFailure?: boolean;
@@ -2703,6 +2704,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           gitPull: body.gitPull === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.gitPull),
           preserveLocalPaths: normalizeStringList(body.preserveLocalPaths, []),
           build: body.build === undefined ? true : Boolean(body.build),
+          skipComposeWhenUnchanged: Boolean(body.skipComposeWhenUnchanged),
           deployLock: body.deployLock === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.deployLock),
           idempotency: body.idempotency === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.idempotency),
           rollbackOnFailure: body.rollbackOnFailure === undefined ? connectorType === "ecs-docker-compose" : Boolean(body.rollbackOnFailure),
@@ -3873,6 +3875,7 @@ class FileStore {
       gitPull: connector.gitPull ?? true,
       preserveLocalPaths: normalizeStringList(connector.preserveLocalPaths, []),
       build: connector.build ?? true,
+      skipComposeWhenUnchanged: connector.skipComposeWhenUnchanged ?? false,
       deployLock: connector.deployLock ?? true,
       idempotency: connector.idempotency ?? true,
       rollbackOnFailure: connector.rollbackOnFailure ?? true,
@@ -10026,6 +10029,21 @@ async function executeEcsDockerComposeDeploy(connector: StoredDeployConnector, i
     }
     const afterCommit = after.output.trim().split(/\s+/)[0];
     evidence.push(`afterCommit=${afterCommit}`);
+    if (connector.skipComposeWhenUnchanged === true && afterCommit === beforeCommit) {
+      evidence.push("composeSkipped=unchanged");
+      if (connector.idempotency !== false) {
+        writeEcsDeployStamp(workingDir, connector, {
+          releaseKey,
+          deploymentId: afterCommit,
+          beforeCommit,
+          afterCommit,
+          loopId: input.loop.id,
+          updatedAt: new Date().toISOString()
+        });
+        evidence.push("idempotencyStamp=written");
+      }
+      return ecsDeployResult(connector, "SUCCEEDED", evidence, commandResults, afterCommit);
+    }
     const composeArgs = ["compose", "-f", composeFile, "up", "-d"];
     if (connector.build !== false) composeArgs.push("--build");
     if (serviceName) composeArgs.push(serviceName);

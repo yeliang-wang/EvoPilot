@@ -660,6 +660,7 @@ POST /api/v1/connectors/deploy
   "gitPull": true,
   "preserveLocalPaths": ["Dockerfile"],
   "build": true,
+  "skipComposeWhenUnchanged": true,
   "deployLock": true,
   "idempotency": true,
   "rollbackOnFailure": true,
@@ -671,7 +672,7 @@ POST /api/v1/connectors/deploy
 }
 ```
 
-执行时可在 `deployParameters.releaseKey` 指定幂等 key；未指定时 EvoPilot 会用 loop、源码 commit、tag 和 target version 生成默认 key。`deployLock=true` 时，同一个 connector 在同一 `workingDir` 中只允许一个部署执行。`rollbackOnFailure=true` 时，`docker compose up` 失败会触发 `git reset --hard <beforeCommit>` 并重新运行 compose，deploy gate 证据会包含 `rollbackStatus`。`rollbackOnHealthFailure=true` 时，compose 发布成功但 health/ready 探测失败会基于 deploy stamp 回滚到发布前 commit，并把 `rollbackStatus`、`rollbackTargetCommit` 和回滚命令输出写入 `health-ready` gate 证据；此时 `closureState` 为 `ROLLED_BACK`，不会被提升为 `PROMOTED`。
+执行时可在 `deployParameters.releaseKey` 指定幂等 key；未指定时 EvoPilot 会用 loop、源码 commit、tag 和 target version 生成默认 key。`deployLock=true` 时，同一个 connector 在同一 `workingDir` 中只允许一个部署执行。`skipComposeWhenUnchanged=true` 适用于 EvoPilot 自托管部署：如果 `git pull` 后 commit 没有变化，连接器会记录 `composeSkipped=unchanged` 并交给 health-ready gate 验证，避免控制面在自己的 API 请求中重启自己。`rollbackOnFailure=true` 时，`docker compose up` 失败会触发 `git reset --hard <beforeCommit>` 并重新运行 compose，deploy gate 证据会包含 `rollbackStatus`。`rollbackOnHealthFailure=true` 时，compose 发布成功但 health/ready 探测失败会基于 deploy stamp 回滚到发布前 commit，并把 `rollbackStatus`、`rollbackTargetCommit` 和回滚命令输出写入 `health-ready` gate 证据；此时 `closureState` 为 `ROLLED_BACK`，不会被提升为 `PROMOTED`。
 
 K8s/云发布执行器应接入该 deploy connector contract，而不是在 source closure 里硬编码平台逻辑。
 
