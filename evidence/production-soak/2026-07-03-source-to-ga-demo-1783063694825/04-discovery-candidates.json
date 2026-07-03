@@ -1,0 +1,182 @@
+[
+  {
+    "schema": "evopilot-discovery-skill-candidate/v1",
+    "id": "candidate-evopilot-github-discovery-skill-runtime",
+    "projectId": "evopilot-github",
+    "targetId": "discovery-skill-runtime",
+    "title": "Discovery Skill Runtime",
+    "source": "repository",
+    "confidence": 0.72,
+    "affectedFiles": [
+      "repository:https://github.com/yeliang-wang/EvoPilot.git",
+      "packages/server/src/index.ts",
+      "apps/dashboard/assets/app.js"
+    ],
+    "acceptanceCriteria": [
+      "Connected GitHub, GitLab, and local directory projects expose a discovery skill contract with inputs, outputs, confidence, and evidence sources.",
+      "Discovery output can create or update target-loop candidates with acceptance criteria, affected files, and runtime evidence links.",
+      "Dashboard shows discovery provenance so users can distinguish product signals, code signals, and manually entered targets."
+    ],
+    "evidence": [
+      "project=evopilot-github",
+      "provider=github",
+      "repository=https://github.com/yeliang-wang/EvoPilot.git",
+      "insightCount=1",
+      "evaluationDatasetCount=1",
+      "traceCount=3"
+    ],
+    "status": "CANDIDATE",
+    "createdAt": "2026-06-29T07:38:06.592Z",
+    "updatedAt": "2026-07-03T07:28:15.513Z"
+  },
+  {
+    "schema": "evopilot-discovery-skill-candidate/v1",
+    "id": "candidate-evopilot-github-per-finding-worktree-handoff",
+    "projectId": "evopilot-github",
+    "targetId": "per-finding-worktree-handoff",
+    "title": "Per Finding Worktree Handoff",
+    "source": "repository",
+    "confidence": 0.72,
+    "affectedFiles": [
+      "repository:https://github.com/yeliang-wang/EvoPilot.git",
+      "packages/server/src/index.ts",
+      "tests/functional/loop-runtime.test.mjs"
+    ],
+    "acceptanceCriteria": [
+      "Each finding can allocate an isolated worktree, release branch, or executor workspace without contaminating other loop targets.",
+      "Handoff payload includes allowed paths, validation commands, source branch, target branch, and rollback metadata.",
+      "Failed or interrupted handoffs can be resumed, reassigned, or archived with artifacts and audit evidence."
+    ],
+    "evidence": [
+      "project=evopilot-github",
+      "provider=github",
+      "repository=https://github.com/yeliang-wang/EvoPilot.git",
+      "insightCount=1",
+      "evaluationDatasetCount=1",
+      "traceCount=3"
+    ],
+    "status": "CANDIDATE",
+    "createdAt": "2026-06-29T07:38:06.592Z",
+    "updatedAt": "2026-07-03T07:28:15.513Z"
+  },
+  {
+    "schema": "evopilot-discovery-skill-candidate/v1",
+    "id": "candidate-evopilot-github-adversarial-evaluator-agent",
+    "projectId": "evopilot-github",
+    "targetId": "adversarial-evaluator-agent",
+    "title": "Adversarial Evaluator Agent",
+    "source": "repository",
+    "confidence": 0.72,
+    "affectedFiles": [
+      "repository:https://github.com/yeliang-wang/EvoPilot.git",
+      "packages/server/src/index.ts",
+      "tests/functional/loop-runtime.test.mjs"
+    ],
+    "acceptanceCriteria": [
+      "Evaluator receives the proposed diff, tests, runtime evidence, budget impact, and release gates as structured input.",
+      "Evaluator can return PASS, WARN, or BLOCK with failure signatures, missing evidence, and suggested replay or repair actions.",
+      "Autopilot treats evaluator BLOCK as a policy-review or human-approval stop condition rather than self-approving the release."
+    ],
+    "evidence": [
+      "project=evopilot-github",
+      "provider=github",
+      "repository=https://github.com/yeliang-wang/EvoPilot.git",
+      "insightCount=1",
+      "evaluationDatasetCount=1",
+      "traceCount=3"
+    ],
+    "status": "CANDIDATE",
+    "createdAt": "2026-06-29T07:38:06.592Z",
+    "updatedAt": "2026-07-03T07:28:15.513Z"
+  },
+  {
+    "schema": "evopilot-discovery-skill-candidate/v1",
+    "id": "candidate-evopilot-github-recurring-loop-scheduler",
+    "projectId": "evopilot-github",
+    "targetId": "recurring-loop-scheduler",
+    "title": "Recurring Loop Scheduler",
+    "source": "repository",
+    "confidence": 0.72,
+    "affectedFiles": [
+      "repository:https://github.com/yeliang-wang/EvoPilot.git",
+      "docs/architecture/loop-runtime.md",
+      "docs/user-guide.md"
+    ],
+    "acceptanceCriteria": [
+      "Users can define recurring loop schedules with project scope, target preset, cadence, trigger rules, and max budget.",
+      "Scheduler records due, skipped, blocked, and executed runs with idempotency keys and next-run timestamps.",
+      "Schedules respect human gates, source-credential blockers, release freezes, and active incident windows."
+    ],
+    "evidence": [
+      "project=evopilot-github",
+      "provider=github",
+      "repository=https://github.com/yeliang-wang/EvoPilot.git",
+      "insightCount=1",
+      "evaluationDatasetCount=1",
+      "traceCount=3"
+    ],
+    "status": "CANDIDATE",
+    "createdAt": "2026-06-29T07:38:06.592Z",
+    "updatedAt": "2026-07-03T07:28:15.513Z"
+  },
+  {
+    "schema": "evopilot-discovery-skill-candidate/v1",
+    "id": "candidate-evopilot-github-loop-memory-inbox",
+    "projectId": "evopilot-github",
+    "targetId": "loop-memory-inbox",
+    "title": "Loop Memory Inbox",
+    "source": "repository",
+    "confidence": 0.72,
+    "affectedFiles": [
+      "repository:https://github.com/yeliang-wang/EvoPilot.git",
+      "packages/server/src/index.ts",
+      "apps/dashboard/assets/app.js"
+    ],
+    "acceptanceCriteria": [
+      "Memory inbox stores typed items from evaluations, traces, release decisions, user feedback, and manual notes.",
+      "Users can accept, merge, snooze, reject, or convert inbox items into target-loop backlog entries.",
+      "Converted targets retain memory provenance and can be used by discovery, planning, replay, and evaluator agents."
+    ],
+    "evidence": [
+      "project=evopilot-github",
+      "provider=github",
+      "repository=https://github.com/yeliang-wang/EvoPilot.git",
+      "insightCount=1",
+      "evaluationDatasetCount=1",
+      "traceCount=3"
+    ],
+    "status": "CANDIDATE",
+    "createdAt": "2026-06-29T07:38:06.592Z",
+    "updatedAt": "2026-07-03T07:28:15.513Z"
+  },
+  {
+    "schema": "evopilot-discovery-skill-candidate/v1",
+    "id": "candidate-evopilot-github-budget-and-judgment-guardrails",
+    "projectId": "evopilot-github",
+    "targetId": "budget-and-judgment-guardrails",
+    "title": "Budget and Judgment Guardrails",
+    "source": "repository",
+    "confidence": 0.72,
+    "affectedFiles": [
+      "repository:https://github.com/yeliang-wang/EvoPilot.git",
+      "docs/architecture/loop-runtime.md",
+      "docs/user-guide.md"
+    ],
+    "acceptanceCriteria": [
+      "Loop plans declare max cost, token, time, file-change, and deployment-risk budgets before execution.",
+      "Runtime records per-node cost, confidence, blast-radius, and policy judgment evidence for each iteration.",
+      "Autopilot blocks or routes to human review when budget, confidence, or release-judgment thresholds are exceeded."
+    ],
+    "evidence": [
+      "project=evopilot-github",
+      "provider=github",
+      "repository=https://github.com/yeliang-wang/EvoPilot.git",
+      "insightCount=1",
+      "evaluationDatasetCount=1",
+      "traceCount=3"
+    ],
+    "status": "CANDIDATE",
+    "createdAt": "2026-06-29T07:38:06.592Z",
+    "updatedAt": "2026-07-03T07:28:15.513Z"
+  }
+]

@@ -1,0 +1,41 @@
+{
+  "title": "Production Field Evidence Kit Source-to-GA E2E Evidence",
+  "generatedAt": "2026-07-03T07:28:15.888Z",
+  "production": {
+    "baseUrl": "http://8.153.72.80",
+    "host": "8.153.72.80",
+    "projectId": "evopilot-github",
+    "releaseTargetId": "field-evidence-ga-demo-1783063695244",
+    "targetLoopId": "field-evidence-source-to-ga-1783063695244",
+    "commit": "0fe95bcbdf1f085eb3e9de10e40ba11172551199"
+  },
+  "result": {
+    "targetLoopStatus": "GO",
+    "releaseDecisionId": "decision-target-loop-evidence-field-evidence-source-to-ga-1783063695244",
+    "releaseDecisionStatus": "GO",
+    "targetReached": true
+  },
+  "boundaries": {
+    "productKit": "Dashboard Field Evidence Kit, demo project metadata, workflow templates, adapter contracts, and help manual.",
+    "evidenceOutput": "This directory contains per-run JSON outputs, screenshots, targetLoopId, releaseDecisionId, and final report.",
+    "note": "This run used the existing production GitHub-connected EvoPilot project because the standalone demo repository could not be reached from the local network during preflight."
+  },
+  "artifacts": {
+    "00-health.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/00-health.json",
+    "01-ready.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/01-ready.json",
+    "02-projects-before.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/02-projects-before.json",
+    "03-evidence-run.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/03-evidence-run.json",
+    "04-discovery-candidates.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/04-discovery-candidates.json",
+    "05-loop-target-summary.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/05-loop-target-summary.json",
+    "06-release-target.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/06-release-target.json",
+    "07-target-loop-created.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/07-target-loop-created.json",
+    "08-target-loop-plan-approved.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/08-target-loop-plan-approved.json",
+    "09-target-loop-resumed.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/09-target-loop-resumed.json",
+    "10-final-report.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/10-final-report.json",
+    "11-release-evidence-list.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/11-release-evidence-list.json",
+    "12-release-decisions.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/12-release-decisions.json",
+    "13-summary-after.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/13-summary-after.json",
+    "14-release-action-approved.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/14-release-action-approved.json",
+    "15-release-action-executed.json": "evidence/production-soak/2026-07-03-source-to-ga-demo-1783063694825/15-release-action-executed.json"
+  }
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "id": "evopilot-github",
+    "name": "EvoPilot GitHub",
+    "profileId": "domainforge-fabric",
+    "cicd": {
+      "provider": "jenkins",
+      "mode": "system-default"
+    },
+    "runtime": {
+      "language": "generic"
+    },
+    "validation": {
+      "status": "VERIFIED",
+      "checkedAt": "2026-06-28T06:07:04.126Z",
+      "message": "GitHub 项目验证通过",
+      "fileCount": 103
+    },
+    "createdAt": "2026-06-27T07:27:20.915Z",
+    "updatedAt": "2026-06-28T06:07:05.197Z",
+    "repository": {
+      "provider": "github",
+      "gitUrl": "https://github.com/yeliang-wang/EvoPilot.git",
+      "owner": "yeliang-wang",
+      "repo": "EvoPilot",
+      "defaultBranch": "main",
+      "credentialsConfigured": true,
+      "credentialMode": "inline-token"
+    }
+  },
+  {
+    "id": "evopilot-self",
+    "name": "EvoPilot Self",
+    "profileId": "evopilot-self",
+    "validation": {
+      "status": "VERIFIED",
+      "checkedAt": "2026-06-27T01:01:51.557Z",
+      "message": "本地 Git 项目验证通过",
+      "fileCount": 105
+    },
+    "createdAt": "2026-06-27T01:01:51.556Z",
+    "updatedAt": "2026-06-27T01:01:51.556Z",
+    "repository": {
+      "provider": "local-git",
+      "root": "/workspace",
+      "defaultBranch": "main",
+      "credentialsConfigured": false,
+      "credentialMode": "none"
+    }
+  },
+  {
+    "id": "repair-drill-1782645276",
+    "name": "EvoPilot Repair Drill repair-drill-1782645276",
+    "profileId": "domainforge-fabric",
+    "validation": {
+      "status": "VERIFIED",
+      "checkedAt": "2026-06-28T11:15:00.236Z",
+      "message": "本地 Git 项目验证通过",
+      "fileCount": 1
+    },
+    "createdAt": "2026-06-28T11:15:00.236Z",
+    "updatedAt": "2026-06-28T11:15:00.236Z",
+    "repository": {
+      "provider": "local-git",
+      "root": "/var/lib/evopilot/repair-drills/repair-drill-1782645276",
+      "defaultBranch": "main",
+      "credentialsConfigured": false,
+      "credentialMode": "none"
+    }
+  }
+]
