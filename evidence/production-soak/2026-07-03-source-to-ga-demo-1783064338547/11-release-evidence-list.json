@@ -1,0 +1,63 @@
+[
+  {
+    "id": "target-loop-evidence-field-evidence-source-to-ga-1783064338967",
+    "candidate": "field-evidence-source-to-ga-1783064338967",
+    "status": "GO",
+    "releaseTargetId": "field-evidence-ga-demo-1783064338967",
+    "releaseDecisionId": "decision-target-loop-evidence-field-evidence-source-to-ga-1783064338967",
+    "generatedAt": "2026-07-03T07:38:59.964Z",
+    "summary": {
+      "projectCount": 4,
+      "runCount": 3,
+      "releaseReadinessScore": 58,
+      "releaseBlockedCount": 4,
+      "rolloutBlockedCount": 4,
+      "releaseDecisionCount": 1,
+      "latestReleaseDecisionId": "decision-target-loop-evidence-field-evidence-source-to-ga-1783063695244"
+    },
+    "scenarioSummary": {
+      "total": 15,
+      "passed": 8,
+      "failed": 0,
+      "notRun": 7,
+      "requiredFailed": 7
+    },
+    "riskSummary": {
+      "total": 16,
+      "open": 16,
+      "highOpen": 16
+    },
+    "createdAt": "2026-07-03T07:38:59.964Z",
+    "updatedAt": "2026-07-03T07:38:59.964Z"
+  },
+  {
+    "id": "target-loop-evidence-field-evidence-source-to-ga-1783063695244",
+    "candidate": "field-evidence-source-to-ga-1783063695244",
+    "status": "GO",
+    "releaseTargetId": "field-evidence-ga-demo-1783063695244",
+    "releaseDecisionId": "decision-target-loop-evidence-field-evidence-source-to-ga-1783063695244",
+    "generatedAt": "2026-07-03T07:28:15.610Z",
+    "summary": {
+      "projectCount": 3,
+      "runCount": 2,
+      "releaseReadinessScore": 57,
+      "releaseBlockedCount": 3,
+      "rolloutBlockedCount": 3,
+      "releaseDecisionCount": 0
+    },
+    "scenarioSummary": {
+      "total": 15,
+      "passed": 8,
+      "failed": 0,
+      "notRun": 7,
+      "requiredFailed": 7
+    },
+    "riskSummary": {
+      "total": 14,
+      "open": 14,
+      "highOpen": 14
+    },
+    "createdAt": "2026-07-03T07:28:15.610Z",
+    "updatedAt": "2026-07-03T07:28:15.610Z"
+  }
+]

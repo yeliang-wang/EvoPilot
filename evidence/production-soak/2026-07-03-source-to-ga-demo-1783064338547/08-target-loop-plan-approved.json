@@ -1,0 +1,88 @@
+{
+  "schema": "evopilot-proofops-target-loop/v1",
+  "id": "field-evidence-source-to-ga-1783064338967",
+  "projectId": "evopilot-github-demo-node-api",
+  "targetId": "field-evidence-ga-demo-1783064338967",
+  "releaseTarget": "Field Evidence Kit GA Demo",
+  "mode": "proofops-target-loop",
+  "status": "PENDING_PLAN_APPROVAL",
+  "targetPlan": {
+    "finalGoal": "Use production Field Evidence Kit signals to prove a target-specific GA release decision for a GitHub-connected project.",
+    "phaseGoals": [
+      "target-readiness: confirm field-evidence-ga-demo-1783064338967 target plan and acceptance criteria",
+      "evidence-matrix: collect required release criteria and scenario evidence",
+      "remediation-loop: route failed criteria to EvoPilot remediation and verification",
+      "release-decision: produce GO, CONDITIONAL-GO, NO-GO, or BLOCKED with audit evidence"
+    ],
+    "acceptanceCriteria": [
+      "connectedProjects >= 1",
+      "successfulRuns >= 1",
+      "successfulEvolutionBatches >= 0",
+      "successfulCodeUpgrades >= 0",
+      "successfulPipelines >= 0",
+      "requiredScenarios pass: field-evidence-project-onboarding, field-evidence-discovery-target, field-evidence-target-loop, field-evidence-release-decision",
+      "mock, fake, stub, simulator, fixture-only, demo-only, smoke-only, or chat-only evidence is not accepted as release evidence"
+    ],
+    "finalDecision": [
+      "GO",
+      "CONDITIONAL-GO",
+      "NO-GO",
+      "BLOCKED"
+    ],
+    "source": "proofops-core-compatible"
+  },
+  "targetPlanConfirmation": {
+    "status": "confirmed",
+    "confirmedAt": "2026-07-03T07:38:59.953Z",
+    "confirmedBy": "field-evidence-e2e-operator",
+    "instruction": "ProofOps target plan confirmed through EvoPilot target-loop approval gate."
+  },
+  "evidenceMatrix": [
+    {
+      "capability": "release-target",
+      "scenario": "field-evidence-project-onboarding",
+      "requiredEvidence": "Scenario field-evidence-project-onboarding must pass for field-evidence-ga-demo-1783064338967.",
+      "status": "NOT_RUN",
+      "required": true,
+      "blocker": "",
+      "nextRepairAction": "Run the target loop and collect real release evidence.",
+      "evidence": []
+    },
+    {
+      "capability": "release-target",
+      "scenario": "field-evidence-discovery-target",
+      "requiredEvidence": "Scenario field-evidence-discovery-target must pass for field-evidence-ga-demo-1783064338967.",
+      "status": "NOT_RUN",
+      "required": true,
+      "blocker": "",
+      "nextRepairAction": "Run the target loop and collect real release evidence.",
+      "evidence": []
+    },
+    {
+      "capability": "release-target",
+      "scenario": "field-evidence-target-loop",
+      "requiredEvidence": "Scenario field-evidence-target-loop must pass for field-evidence-ga-demo-1783064338967.",
+      "status": "NOT_RUN",
+      "required": true,
+      "blocker": "",
+      "nextRepairAction": "Run the target loop and collect real release evidence.",
+      "evidence": []
+    },
+    {
+      "capability": "release-target",
+      "scenario": "field-evidence-release-decision",
+      "requiredEvidence": "Scenario field-evidence-release-decision must pass for field-evidence-ga-demo-1783064338967.",
+      "status": "NOT_RUN",
+      "required": true,
+      "blocker": "",
+      "nextRepairAction": "Run the target loop and collect real release evidence.",
+      "evidence": []
+    }
+  ],
+  "decisionChain": [],
+  "releaseActions": [],
+  "remediationRequests": [],
+  "artifacts": {},
+  "createdAt": "2026-07-03T07:38:59.943Z",
+  "updatedAt": "2026-07-03T07:38:59.953Z"
+}

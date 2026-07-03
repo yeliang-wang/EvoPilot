@@ -1,0 +1,26 @@
+{
+  "id": "field-evidence-ga-demo-1783064338967",
+  "name": "Field Evidence Kit GA Demo",
+  "description": "Target-specific GA release proof for the production Field Evidence Kit source-to-GA onboarding scenario.",
+  "minConnectedProjects": 1,
+  "minSucceededSoakSeconds": 0,
+  "requireActiveSoak": false,
+  "minActiveSoakRunDelta": 0,
+  "minActiveSoakCodeUpgradeDelta": 0,
+  "minActiveSoakPipelineDelta": 0,
+  "minSuccessfulRuns": 1,
+  "minEvaluationDatasets": 1,
+  "minOpportunities": 1,
+  "minSuccessfulEvolutionBatches": 0,
+  "minSuccessfulCodeUpgrades": 0,
+  "minSuccessfulPipelines": 0,
+  "requiredScenarioIds": [
+    "field-evidence-project-onboarding",
+    "field-evidence-discovery-target",
+    "field-evidence-target-loop",
+    "field-evidence-release-decision"
+  ],
+  "requireNoHighOpenRisks": false,
+  "createdAt": "2026-07-03T07:38:59.932Z",
+  "updatedAt": "2026-07-03T07:38:59.932Z"
+}
