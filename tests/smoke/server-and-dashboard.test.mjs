@@ -173,6 +173,129 @@ test("dashboard login exchanges username and password for scoped session token",
       headers: { authorization: `Bearer ${loginBody.data.token}` }
     });
     assert.equal(summary.status, 200);
+
+    const createdUser = await fetch(`${baseUrl}/api/v1/users`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${loginBody.data.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        username: "runtime-user",
+        password: "runtime-password",
+        role: "viewer",
+        tenantId: "tenant-production",
+        workspaceId: "workspace-agent-products"
+      })
+    });
+    assert.equal(createdUser.status, 201);
+    const runtimeLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "runtime-user", password: "runtime-password" })
+    });
+    assert.equal(runtimeLogin.status, 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("bootstrap admin, password change, and tenant user management are enforced", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-users-"));
+  const server = createServer({ dataRoot, runtimeMode: "debug" });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const bootstrap = await (await fetch(`${baseUrl}/api/v1/auth/bootstrap`)).json();
+    assert.equal(bootstrap.data.initialized, true);
+    assert.equal(bootstrap.data.defaultAdminRequiresPasswordChange, true);
+
+    const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "admin" })
+    });
+    assert.equal(login.status, 200);
+    const loginBody = await login.json();
+    assert.equal(loginBody.data.user.username, "admin");
+    assert.equal(loginBody.data.user.platformAdmin, true);
+    assert.equal(loginBody.data.user.mustChangePassword, true);
+    const adminToken = loginBody.data.token;
+
+    const rejectedDefaultPassword = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword: "admin", newPassword: "admin" })
+    });
+    assert.equal(rejectedDefaultPassword.status, 400);
+
+    const changed = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword: "admin", newPassword: "admin-1234" })
+    });
+    assert.equal(changed.status, 200);
+    assert.equal((await changed.json()).data.mustChangePassword, false);
+
+    const relogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "admin-1234" })
+    });
+    assert.equal(relogin.status, 200);
+    const activeAdminToken = (await relogin.json()).data.token;
+
+    const tenant = await fetch(`${baseUrl}/api/v1/tenants`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${activeAdminToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ id: "tenant-acme", name: "Acme" })
+    });
+    assert.equal(tenant.status, 201);
+
+    const workspace = await fetch(`${baseUrl}/api/v1/workspaces`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${activeAdminToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ id: "workspace-acme", tenantId: "tenant-acme", name: "Acme Workspace" })
+    });
+    assert.equal(workspace.status, 201);
+
+    const tenantAdmin = await fetch(`${baseUrl}/api/v1/users`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${activeAdminToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        username: "tenant-admin",
+        password: "tenant-pass",
+        displayName: "Tenant Admin",
+        role: "admin",
+        tenantId: "tenant-acme",
+        workspaceId: "workspace-acme",
+        platformAdmin: false
+      })
+    });
+    assert.equal(tenantAdmin.status, 201);
+    const tenantAdminBody = await tenantAdmin.json();
+    assert.equal(tenantAdminBody.data.platformAdmin, false);
+    assert.equal(tenantAdminBody.data.passwordHash, undefined);
+
+    const tenantAdminLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "tenant-admin", password: "tenant-pass" })
+    });
+    assert.equal(tenantAdminLogin.status, 200);
+    const tenantToken = (await tenantAdminLogin.json()).data.token;
+
+    const blockedTenantCreate = await fetch(`${baseUrl}/api/v1/tenants`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${tenantToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ id: "tenant-other", name: "Other" })
+    });
+    assert.equal(blockedTenantCreate.status, 403);
+
+    const tenantUsers = await fetch(`${baseUrl}/api/v1/users`, {
+      headers: { authorization: `Bearer ${tenantToken}` }
+    });
+    assert.equal(tenantUsers.status, 200);
+    const tenantUsersBody = await tenantUsers.json();
+    assert.ok(tenantUsersBody.data.every((user) => user.tenantId === "tenant-acme" || user.platformAdmin));
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -1451,7 +1574,7 @@ test("release evidence endpoint persists release candidate evidence without leak
 test("prod mode disables anonymous admin, sample data, and auto project registration by default", async () => {
   assert.throws(
     () => createServer({ dataRoot: fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-prod-no-token-")) }),
-    /EVOPILOT_PROD_REQUIRES_TOKENS/
+    /EVOPILOT_PROD_REQUIRES_LLM_PROVIDER/
   );
   assert.throws(
     () => createServer({

@@ -81,6 +81,8 @@ export interface AuthToken {
   tenantId?: string;
   workspaceId?: string;
   displayName?: string;
+  platformAdmin?: boolean;
+  mustChangePassword?: boolean;
 }
 
 export interface AuthUser {
@@ -91,6 +93,9 @@ export interface AuthUser {
   workspaceId: string;
   displayName?: string;
   token?: string;
+  status?: "ACTIVE" | "SUSPENDED";
+  platformAdmin?: boolean;
+  mustChangePassword?: boolean;
 }
 
 const DEFAULT_TENANT_ID = "tenant-production";
@@ -427,6 +432,8 @@ interface AuthContext {
   role: AuthRole;
   tenantId: string;
   workspaceId: string;
+  platformAdmin?: boolean;
+  mustChangePassword?: boolean;
 }
 
 type WorkspaceMemberRole = "owner" | "admin" | "developer" | "viewer";
@@ -439,6 +446,23 @@ interface TenantRecord {
   plan: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface UserRecord {
+  schema: "evopilot-user/v1";
+  id: string;
+  username: string;
+  displayName: string;
+  role: AuthRole;
+  tenantId: string;
+  workspaceId: string;
+  status: "ACTIVE" | "SUSPENDED";
+  platformAdmin: boolean;
+  mustChangePassword: boolean;
+  passwordHash: string;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
 }
 
 interface WorkspaceRecord {
@@ -1731,10 +1755,12 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
   const llmClient = options.llmClient ?? createLlmClientFromEnv();
   const requireLlm = runtime.requireLlm;
   const tokens = normalizeTokens(options);
-  const users = normalizeUsers(options, tokens, runtime);
-  const authTokens = mergeUserTokens(tokens, users);
-  assertProductionRuntimeIsConfigured(runtime, authTokens, llmClient);
   const store = new FileStore(options.dataRoot, { llmClient, requireLlm });
+  store.ensureBootstrapAdmin();
+  const users = normalizeUsers(options, tokens, runtime, store);
+  const authTokens = mergeUserTokens(tokens, users);
+  const explicitAuthConfigured = tokens.length > 0 || Boolean(options.users?.length) || Boolean(parseEnvUsers(process.env.EVOPILOT_USERS)?.length);
+  assertProductionRuntimeIsConfigured(runtime, authTokens, llmClient);
   const proofOpsCore = loadProofOpsCoreContract(options.proofOpsCoreContractPath);
   store.ensureRuleMemories(profile.triggerRules ?? defaultTriggerRules);
   if (runtime.autoRegisterProfileProject) {
@@ -1825,11 +1851,18 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           schemaVersion: store.metadata().schemaVersion
         });
       }
+      if (request.method === "GET" && url.pathname === "/api/v1/auth/bootstrap") {
+        return writeJson(response, 200, envelope({
+          initialized: store.listUsers(undefined, true).some((user) => user.platformAdmin),
+          defaultAdminRequiresPasswordChange: Boolean(store.readUser("admin")?.mustChangePassword)
+        }));
+      }
       if (request.method === "POST" && url.pathname === "/api/v1/auth/login") {
         const body = await readJson(request, options.maxBodyBytes) as Record<string, unknown>;
         const username = optionalTrimmedString(body.username);
         const password = body.password === undefined || body.password === null ? "" : String(body.password);
-        const matched = users.find((user) => user.username === username && user.password === password);
+        const liveUsers = normalizeUsers(options, tokens, runtime, store);
+        const matched = liveUsers.find((user) => user.username === username && verifyPassword(password, user.password));
         if (!matched) {
           logWarn("auth.login.rejected", {
             requestId,
@@ -1840,6 +1873,13 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
             metadata: { username: username ?? "" }
           });
           return writeJson(response, 401, { error: "INVALID_CREDENTIALS", detail: "用户名或密码错误" });
+        }
+        if (matched.status === "SUSPENDED") {
+          return writeJson(response, 403, { error: "USER_SUSPENDED", detail: "账号已停用，请联系管理员" });
+        }
+        const persisted = store.readUser(matched.username);
+        if (persisted) {
+          store.writeUser({ ...persisted, lastLoginAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
         }
         logInfo("auth.login.succeeded", {
           requestId,
@@ -1854,7 +1894,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           user: publicUser(matched)
         }));
       }
-      const auth = authorize(request, authTokens, runtime);
+      const auth = authorize(request, mergeUserTokens(tokens, normalizeUsers(options, tokens, runtime, store)), runtime, !explicitAuthConfigured);
       requestAuth = auth ?? undefined;
       if (!auth) {
         logWarn("http.request.rejected", {
@@ -1870,6 +1910,19 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           diagnosis: diagnosisForHttpStatus(401)
         });
         return writeJson(response, 401, { error: "UNAUTHORIZED" });
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/auth/change-password") {
+        const user = store.readUser(auth.actor);
+        if (!user) return writeJson(response, 404, { error: "USER_NOT_FOUND" });
+        const body = await readJson(request, options.maxBodyBytes) as Record<string, unknown>;
+        const currentPassword = body.currentPassword === undefined || body.currentPassword === null ? "" : String(body.currentPassword);
+        const nextPassword = body.newPassword === undefined || body.newPassword === null ? "" : String(body.newPassword);
+        if (!verifyPassword(currentPassword, user.passwordHash)) return writeJson(response, 403, { error: "CURRENT_PASSWORD_INVALID" });
+        if (nextPassword.trim().length < 4) return writeJson(response, 400, { error: "PASSWORD_TOO_SHORT" });
+        if (user.username === "admin" && nextPassword === "admin") return writeJson(response, 400, { error: "DEFAULT_ADMIN_PASSWORD_FORBIDDEN" });
+        const updated = store.writeUser({ ...user, passwordHash: hashPassword(nextPassword), mustChangePassword: false, updatedAt: new Date().toISOString() });
+        store.appendAudit(audit(auth, "user.password.changed", updated.id, { selfService: true }));
+        return writeJson(response, 200, envelope(publicUser(authUserFromRecord(updated))));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/summary") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -2050,10 +2103,11 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       }
       if (request.method === "GET" && url.pathname === "/api/v1/tenants") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
-        return writeJson(response, 200, envelope(store.listTenants()));
+        const tenants = auth.platformAdmin ? store.listTenants() : store.listTenants().filter((tenant) => tenant.id === auth.tenantId);
+        return writeJson(response, 200, envelope(tenants));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/tenants") {
-        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        if (!auth.platformAdmin) return writeJson(response, 403, { error: "PLATFORM_ADMIN_REQUIRED" });
         const body = await readJson(request, options.maxBodyBytes);
         const now = new Date().toISOString();
         const tenantId = safeFileName(optionalTrimmedString(body.id) ?? optionalTrimmedString(body.name) ?? `tenant-${Date.now()}`);
@@ -2069,9 +2123,85 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         store.appendAudit(audit(auth, "tenant.upserted", tenant.id, { status: tenant.status, plan: tenant.plan }));
         return writeJson(response, 201, envelope(tenant));
       }
+      if (request.method === "GET" && url.pathname === "/api/v1/users") {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const tenantId = auth.platformAdmin ? optionalTrimmedString(url.searchParams.get("tenantId")) : auth.tenantId;
+        return writeJson(response, 200, envelope(store.listUsers(tenantId, true).map(maskUser)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/users") {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes) as Record<string, unknown>;
+        const username = optionalTrimmedString(body.username);
+        const password = body.password === undefined || body.password === null ? "change-me" : String(body.password);
+        if (!username) return writeJson(response, 400, { error: "USERNAME_REQUIRED" });
+        if (store.readUser(username)) return writeJson(response, 409, { error: "USER_ALREADY_EXISTS" });
+        const tenantId = safeFileName(optionalTrimmedString(body.tenantId) ?? auth.tenantId);
+        if (!auth.platformAdmin && tenantId !== auth.tenantId) return writeJson(response, 403, { error: "TENANT_FORBIDDEN" });
+        const workspaceId = safeFileName(optionalTrimmedString(body.workspaceId) ?? auth.workspaceId);
+        const workspace = store.readWorkspace(workspaceId);
+        if (workspace && workspace.tenantId !== tenantId) return writeJson(response, 409, { error: "USER_WORKSPACE_TENANT_MISMATCH" });
+        const platformAdmin = Boolean(auth.platformAdmin && Boolean(body.platformAdmin));
+        if (!auth.platformAdmin && platformAdmin) return writeJson(response, 403, { error: "PLATFORM_ADMIN_REQUIRED" });
+        const now = new Date().toISOString();
+        const user = store.writeUser({
+          schema: "evopilot-user/v1",
+          id: safeFileName(username),
+          username,
+          displayName: optionalTrimmedString(body.displayName) ?? username,
+          role: normalizeAuthRole(body.role, "viewer"),
+          tenantId,
+          workspaceId,
+          status: normalizeUserStatus(body.status),
+          platformAdmin,
+          mustChangePassword: body.mustChangePassword === undefined ? true : Boolean(body.mustChangePassword),
+          passwordHash: hashPassword(password),
+          createdAt: now,
+          updatedAt: now
+        });
+        store.appendAudit(audit(auth, "user.created", user.id, { tenantId: user.tenantId, workspaceId: user.workspaceId, role: user.role, platformAdmin: user.platformAdmin }));
+        return writeJson(response, 201, envelope(maskUser(user)));
+      }
+      const userMatch = url.pathname.match(/^\/api\/v1\/users\/([^/]+)$/);
+      if (request.method === "PATCH" && userMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const user = store.readUser(decodeURIComponent(userMatch[1]));
+        if (!user) return writeJson(response, 404, { error: "USER_NOT_FOUND" });
+        if (!auth.platformAdmin && user.tenantId !== auth.tenantId) return writeJson(response, 403, { error: "TENANT_FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes) as Record<string, unknown>;
+        const nextTenantId = safeFileName(optionalTrimmedString(body.tenantId) ?? user.tenantId);
+        if (!auth.platformAdmin && nextTenantId !== auth.tenantId) return writeJson(response, 403, { error: "TENANT_FORBIDDEN" });
+        const nextPlatformAdmin = body.platformAdmin === undefined ? user.platformAdmin : Boolean(body.platformAdmin);
+        if (!auth.platformAdmin && nextPlatformAdmin !== user.platformAdmin) return writeJson(response, 403, { error: "PLATFORM_ADMIN_REQUIRED" });
+        const updated = store.writeUser({
+          ...user,
+          displayName: optionalTrimmedString(body.displayName) ?? user.displayName,
+          role: body.role === undefined ? user.role : normalizeAuthRole(body.role, user.role),
+          tenantId: nextTenantId,
+          workspaceId: safeFileName(optionalTrimmedString(body.workspaceId) ?? user.workspaceId),
+          status: body.status === undefined ? user.status : normalizeUserStatus(body.status),
+          platformAdmin: nextPlatformAdmin,
+          mustChangePassword: body.mustChangePassword === undefined ? user.mustChangePassword : Boolean(body.mustChangePassword),
+          updatedAt: new Date().toISOString()
+        });
+        store.appendAudit(audit(auth, "user.updated", updated.id, { tenantId: updated.tenantId, workspaceId: updated.workspaceId, role: updated.role, status: updated.status, platformAdmin: updated.platformAdmin }));
+        return writeJson(response, 200, envelope(maskUser(updated)));
+      }
+      const resetPasswordMatch = url.pathname.match(/^\/api\/v1\/users\/([^/]+)\/reset-password$/);
+      if (request.method === "POST" && resetPasswordMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const user = store.readUser(decodeURIComponent(resetPasswordMatch[1]));
+        if (!user) return writeJson(response, 404, { error: "USER_NOT_FOUND" });
+        if (!auth.platformAdmin && user.tenantId !== auth.tenantId) return writeJson(response, 403, { error: "TENANT_FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes) as Record<string, unknown>;
+        const nextPassword = body.password === undefined || body.password === null ? "change-me" : String(body.password);
+        if (nextPassword.trim().length < 4) return writeJson(response, 400, { error: "PASSWORD_TOO_SHORT" });
+        const updated = store.writeUser({ ...user, passwordHash: hashPassword(nextPassword), mustChangePassword: true, updatedAt: new Date().toISOString() });
+        store.appendAudit(audit(auth, "user.password.reset", updated.id, { tenantId: updated.tenantId, workspaceId: updated.workspaceId }));
+        return writeJson(response, 200, envelope(maskUser(updated)));
+      }
       if (request.method === "GET" && url.pathname === "/api/v1/workspaces") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
-        const tenantId = optionalTrimmedString(url.searchParams.get("tenantId")) ?? auth.tenantId;
+        const tenantId = auth.platformAdmin ? optionalTrimmedString(url.searchParams.get("tenantId")) ?? auth.tenantId : auth.tenantId;
         return writeJson(response, 200, envelope(store.listWorkspaces(tenantId)));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/secrets") {
@@ -2171,10 +2301,12 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const body = await readJson(request, options.maxBodyBytes);
         const now = new Date().toISOString();
         const workspaceId = safeFileName(optionalTrimmedString(body.id) ?? optionalTrimmedString(body.name) ?? `workspace-${Date.now()}`);
+        const tenantId = safeFileName(optionalTrimmedString(body.tenantId) ?? auth.tenantId);
+        if (!auth.platformAdmin && tenantId !== auth.tenantId) return writeJson(response, 403, { error: "TENANT_FORBIDDEN" });
         const workspace: WorkspaceRecord = {
           schema: "evopilot-workspace/v1",
           id: workspaceId,
-          tenantId: safeFileName(optionalTrimmedString(body.tenantId) ?? auth.tenantId),
+          tenantId,
           name: optionalTrimmedString(body.name) ?? workspaceId,
           status: normalizeWorkspaceStatus(body.status),
           members: [
@@ -3671,6 +3803,7 @@ class FileStore {
     fs.mkdirSync(this.dataRoot, { recursive: true });
     fs.mkdirSync(this.tenantsDir, { recursive: true });
     fs.mkdirSync(this.workspacesDir, { recursive: true });
+    fs.mkdirSync(this.usersDir, { recursive: true });
     fs.mkdirSync(this.secretsDir, { recursive: true });
     fs.mkdirSync(this.githubAppInstallationsDir, { recursive: true });
     fs.mkdirSync(this.runsDir, { recursive: true });
@@ -3715,6 +3848,10 @@ class FileStore {
 
   get workspacesDir(): string {
     return path.join(this.dataRoot, "workspaces");
+  }
+
+  get usersDir(): string {
+    return path.join(this.dataRoot, "users");
   }
 
   get secretsDir(): string {
@@ -4393,6 +4530,73 @@ class FileStore {
   writeTenant(tenant: TenantRecord): TenantRecord {
     atomicWriteJson(path.join(this.tenantsDir, `${safeFileName(tenant.id)}.json`), tenant);
     return tenant;
+  }
+
+  ensureBootstrapAdmin(): UserRecord {
+    const existing = this.listUsers(undefined, true);
+    const platformAdmin = existing.find((user) => user.platformAdmin && user.status === "ACTIVE");
+    if (platformAdmin) return platformAdmin;
+    const now = new Date().toISOString();
+    return this.writeUser({
+      schema: "evopilot-user/v1",
+      id: "admin",
+      username: "admin",
+      displayName: "Platform Admin",
+      role: "admin",
+      tenantId: DEFAULT_TENANT_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      status: "ACTIVE",
+      platformAdmin: true,
+      mustChangePassword: true,
+      passwordHash: hashPassword("admin"),
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  listUsers(tenantId?: string, includeSuspended = true): UserRecord[] {
+    return fs.readdirSync(this.usersDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => this.hydrateUser(JSON.parse(fs.readFileSync(path.join(this.usersDir, file), "utf8"))))
+      .filter((user) => (!tenantId || user.tenantId === tenantId || user.platformAdmin) && (includeSuspended || user.status === "ACTIVE"));
+  }
+
+  readUser(idOrUsername: string): UserRecord | undefined {
+    const id = safeFileName(idOrUsername);
+    const file = path.join(this.usersDir, `${id}.json`);
+    if (fs.existsSync(file)) return this.hydrateUser(JSON.parse(fs.readFileSync(file, "utf8")));
+    return this.listUsers(undefined, true).find((user) => user.username === idOrUsername);
+  }
+
+  writeUser(user: UserRecord): UserRecord {
+    const hydrated = this.hydrateUser(user);
+    atomicWriteJson(path.join(this.usersDir, `${safeFileName(hydrated.id)}.json`), hydrated);
+    return hydrated;
+  }
+
+  private hydrateUser(user: any): UserRecord {
+    const now = new Date().toISOString();
+    const username = String(user.username ?? user.id ?? `user-${Date.now()}`).trim();
+    const id = safeFileName(String(user.id ?? username));
+    const role: AuthRole = user.role === "admin" || user.role === "operator" || user.role === "viewer" ? user.role : "viewer";
+    const passwordHash = String(user.passwordHash ?? hashPassword(String(user.password ?? "")));
+    return {
+      schema: "evopilot-user/v1",
+      id,
+      username,
+      displayName: String(user.displayName ?? user.name ?? username),
+      role,
+      tenantId: safeFileName(String(user.tenantId ?? DEFAULT_TENANT_ID)),
+      workspaceId: safeFileName(String(user.workspaceId ?? DEFAULT_WORKSPACE_ID)),
+      status: user.status === "SUSPENDED" ? "SUSPENDED" : "ACTIVE",
+      platformAdmin: Boolean(user.platformAdmin),
+      mustChangePassword: Boolean(user.mustChangePassword),
+      passwordHash,
+      createdAt: String(user.createdAt ?? now),
+      updatedAt: String(user.updatedAt ?? user.createdAt ?? now),
+      lastLoginAt: user.lastLoginAt ? String(user.lastLoginAt) : undefined
+    };
   }
 
   ensureTenant(id: string, name = id): TenantRecord {
@@ -8231,8 +8435,18 @@ function normalizeSecretKind(value: unknown): SecretKind {
   return "generic";
 }
 
+function normalizeAuthRole(value: unknown, fallback: AuthRole): AuthRole {
+  const role = String(value ?? "").trim();
+  if (role === "viewer" || role === "operator" || role === "admin") return role;
+  return fallback;
+}
+
+function normalizeUserStatus(value: unknown): UserRecord["status"] {
+  return String(value ?? "").trim() === "SUSPENDED" ? "SUSPENDED" : "ACTIVE";
+}
+
 function canAccessWorkspace(auth: AuthContext, workspace: WorkspaceRecord, required: WorkspaceMemberRole): boolean {
-  if (auth.role === "admin") return true;
+  if (auth.platformAdmin) return true;
   if (workspace.tenantId !== auth.tenantId) return false;
   const member = workspace.members.find((item) => item.id === auth.actor && item.status === "ACTIVE");
   if (!member) return false;
@@ -8241,7 +8455,7 @@ function canAccessWorkspace(auth: AuthContext, workspace: WorkspaceRecord, requi
 }
 
 function canAccessScopedResource(auth: AuthContext, tenantId: string, workspaceId: string): boolean {
-  if (auth.role === "admin") return true;
+  if (auth.platformAdmin) return true;
   return auth.tenantId === tenantId && auth.workspaceId === workspaceId;
 }
 
@@ -14960,20 +15174,31 @@ function normalizeTokens(options: EvoPilotServerOptions): AuthToken[] {
   return [];
 }
 
-function normalizeUsers(options: EvoPilotServerOptions, tokens: AuthToken[], runtime: RuntimeConfig): AuthUser[] {
-  if (options.users) return options.users;
+function normalizeUsers(options: EvoPilotServerOptions, tokens: AuthToken[], runtime: RuntimeConfig, store: FileStore): AuthUser[] {
+  const merged = new Map<string, AuthUser>();
+  const addUsers = (users: AuthUser[]) => {
+    for (const user of users) {
+      merged.set(user.username, { ...user, platformAdmin: user.platformAdmin ?? user.role === "admin", status: user.status ?? "ACTIVE" });
+    }
+  };
+  addUsers(store.listUsers(undefined, false).map(authUserFromRecord));
   const envUsers = parseEnvUsers(process.env.EVOPILOT_USERS);
-  if (envUsers?.length) return envUsers;
-  if (runtime.mode !== "debug") return [];
-  return tokens.map((token) => ({
-    username: token.name,
-    password: token.token,
-    role: token.role,
-    tenantId: token.tenantId ?? DEFAULT_TENANT_ID,
-    workspaceId: token.workspaceId ?? DEFAULT_WORKSPACE_ID,
-    displayName: token.displayName ?? token.name,
-    token: token.token
-  }));
+  if (envUsers?.length) addUsers(envUsers);
+  if (options.users) addUsers(options.users);
+  if (runtime.mode === "debug") {
+    addUsers(tokens.map((token) => ({
+      username: token.name,
+      password: token.token,
+      role: token.role,
+      tenantId: token.tenantId ?? DEFAULT_TENANT_ID,
+      workspaceId: token.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      displayName: token.displayName ?? token.name,
+      token: token.token,
+      status: "ACTIVE",
+      platformAdmin: token.role === "admin"
+    })));
+  }
+  return [...merged.values()];
 }
 
 function mergeUserTokens(tokens: AuthToken[], users: AuthUser[]): AuthToken[] {
@@ -14988,7 +15213,9 @@ function mergeUserTokens(tokens: AuthToken[], users: AuthUser[]): AuthToken[] {
       role: user.role,
       tenantId: user.tenantId,
       workspaceId: user.workspaceId,
-      displayName: user.displayName
+      displayName: user.displayName,
+      platformAdmin: user.platformAdmin,
+      mustChangePassword: user.mustChangePassword
     });
   }
   return [...merged.values()];
@@ -14997,13 +15224,41 @@ function mergeUserTokens(tokens: AuthToken[], users: AuthUser[]): AuthToken[] {
 function userSessionToken(user: AuthUser): string {
   if (user.token) return user.token;
   return createHash("sha256")
-    .update(["evopilot-session-v1", user.username, user.password, user.role, user.tenantId, user.workspaceId].join(":"))
+    .update(["evopilot-session-v1", user.username, user.password, user.role, user.tenantId, user.workspaceId, user.platformAdmin ? "platform" : "tenant"].join(":"))
     .digest("hex");
 }
 
 function publicUser(user: AuthUser): Omit<AuthUser, "password" | "token"> {
   const { password: _password, token: _token, ...safe } = user;
   return safe;
+}
+
+function authUserFromRecord(user: UserRecord): AuthUser {
+  return {
+    username: user.username,
+    password: user.passwordHash,
+    role: user.role,
+    tenantId: user.tenantId,
+    workspaceId: user.workspaceId,
+    displayName: user.displayName,
+    status: user.status,
+    platformAdmin: user.platformAdmin,
+    mustChangePassword: user.mustChangePassword
+  };
+}
+
+function maskUser(user: UserRecord): Omit<UserRecord, "passwordHash"> {
+  const { passwordHash: _passwordHash, ...safe } = user;
+  return safe;
+}
+
+function hashPassword(password: string): string {
+  return `sha256:${createHash("sha256").update(`evopilot-user-password:${password}`).digest("hex")}`;
+}
+
+function verifyPassword(input: string, stored: string): boolean {
+  if (stored.startsWith("sha256:")) return hashPassword(input) === stored;
+  return input === stored;
 }
 
 function requestScope(request: http.IncomingMessage): Pick<AuthContext, "tenantId" | "workspaceId"> {
@@ -15015,13 +15270,16 @@ function requestScope(request: http.IncomingMessage): Pick<AuthContext, "tenantI
   };
 }
 
-function authorize(request: http.IncomingMessage, tokens: AuthToken[], runtime: RuntimeConfig): AuthContext | undefined {
+function authorize(request: http.IncomingMessage, tokens: AuthToken[], runtime: RuntimeConfig, allowAnonymousFallback = false): AuthContext | undefined {
   const requestedScope = requestScope(request);
+  const value = String(request.headers.authorization ?? "");
+  if (allowAnonymousFallback && runtime.allowAnonymousAdmin && !value) {
+    return { actor: String(request.headers["x-evopilot-actor"] ?? "system"), role: "admin", platformAdmin: true, ...requestedScope };
+  }
   if (tokens.length === 0) {
     if (!runtime.allowAnonymousAdmin) return undefined;
-    return { actor: String(request.headers["x-evopilot-actor"] ?? "system"), role: "admin", ...requestedScope };
+    return { actor: String(request.headers["x-evopilot-actor"] ?? "system"), role: "admin", platformAdmin: true, ...requestedScope };
   }
-  const value = String(request.headers.authorization ?? "");
   const token = value.startsWith("Bearer ") ? value.slice("Bearer ".length) : "";
   const matched = tokens.find((item) => item.token === token);
   if (!matched) return undefined;
@@ -15029,7 +15287,13 @@ function authorize(request: http.IncomingMessage, tokens: AuthToken[], runtime: 
     tenantId: matched.tenantId ?? requestedScope.tenantId,
     workspaceId: matched.workspaceId ?? requestedScope.workspaceId
   };
-  return { actor: String(request.headers["x-evopilot-actor"] ?? matched.name), role: matched.role, ...scope };
+  return {
+    actor: String(request.headers["x-evopilot-actor"] ?? matched.name),
+    role: matched.role,
+    platformAdmin: matched.platformAdmin ?? matched.role === "admin",
+    mustChangePassword: matched.mustChangePassword,
+    ...scope
+  };
 }
 
 function hasRole(context: AuthContext, required: AuthRole): boolean {
@@ -15153,7 +15417,7 @@ function parseEnvTokens(value: string | undefined): AuthToken[] | undefined {
 function parseEnvUsers(value: string | undefined): AuthUser[] | undefined {
   if (!value) return undefined;
   return value.split(",").map((item) => {
-    const [username, password, role, tenantId = DEFAULT_TENANT_ID, workspaceId = DEFAULT_WORKSPACE_ID, displayName] = item.split(":");
+    const [username, password, role, tenantId = DEFAULT_TENANT_ID, workspaceId = DEFAULT_WORKSPACE_ID, displayName, platformAdminRaw] = item.split(":");
     if (!username || !password || (role !== "viewer" && role !== "operator" && role !== "admin")) {
       throw new Error("EVOPILOT_USERS 条目必须使用 username:password:role[:tenantId[:workspaceId[:displayName]]] 格式");
     }
@@ -15163,7 +15427,9 @@ function parseEnvUsers(value: string | undefined): AuthUser[] | undefined {
       role,
       tenantId: safeFileName(tenantId),
       workspaceId: safeFileName(workspaceId),
-      displayName: displayName || username
+      displayName: displayName || username,
+      status: "ACTIVE",
+      platformAdmin: platformAdminRaw === undefined ? role === "admin" : parseBoolean(platformAdminRaw, role === "admin")
     };
   });
 }

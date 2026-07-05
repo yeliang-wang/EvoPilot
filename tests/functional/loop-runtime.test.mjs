@@ -231,7 +231,7 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
     assert.equal(acmeWorkspace.body.data.tenantId, "tenant-acme");
     assert.ok(acmeWorkspace.body.data.members.some((member) => member.id === "operator" && member.role === "owner"));
     const tenantListAfterAcme = await jsonFetch(`${baseUrl}/api/v1/tenants`, {
-      token: "viewer-token"
+      token: "admin-token"
     });
     assert.equal(tenantListAfterAcme.status, 200);
     assert.ok(tenantListAfterAcme.body.data.some((tenant) => tenant.id === "tenant-acme"));

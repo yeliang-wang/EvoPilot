@@ -108,7 +108,8 @@ EVOPILOT_RUN_MODE=prod
 
 生产模式要求：
 
-- 必须配置 `EVOPILOT_USERS`、`EVOPILOT_TOKENS` 或 `EVOPILOT_API_TOKEN`。Dashboard 面向用户使用 `EVOPILOT_USERS` 用户名/密码登录；`EVOPILOT_TOKENS` 主要用于自动化和兼容 API 调用。
+- Dashboard 面向用户使用用户名/密码登录。服务端会确保存在持久化 bootstrap 平台高级管理员 `admin/admin`，首次登录后必须改密；生产环境也可以额外配置 `EVOPILOT_USERS` 作为用户种子。
+- `EVOPILOT_TOKENS` 或 `EVOPILOT_API_TOKEN` 主要用于自动化和兼容 API 调用，不作为最终用户登录方式。
 - `EVOPILOT_REQUIRE_LLM` 默认等于 `true`，必须配置真实 LLM provider；缺少 `EVOPILOT_LLM_BASE_URL`、`EVOPILOT_LLM_MODEL_NAME` 或 `EVOPILOT_LLM_API_KEY` 时，生产服务会拒绝启动并返回 `EVOPILOT_PROD_REQUIRES_LLM_PROVIDER`。
 - Loop Runtime 的 `llm` executor 会调用真实 LLM Gateway，成功后把 `provider`、`model`、`totalTokens`、`costUsd` 写入 executor output、evidence 和 trace；调用失败时节点失败，不允许在生产模式下空跑成功。
 - 不允许无鉴权 admin。
@@ -123,6 +124,16 @@ npm run server:debug
 ```
 
 调试模式下才允许样例数据、模板兜底和本地模拟集成链路，便于单元测试、冒烟测试和 Dashboard 原型验证。
+
+## 首次登录与租户账号
+
+1. 打开 Dashboard 登录页，使用 `admin/admin` 登录。
+2. 按提示修改默认密码；服务端会拒绝继续使用 `admin/admin` 作为新密码。
+3. 进入“租户总览”创建租户和初始工作区。
+4. 进入“用户与权限”创建租户管理员，角色为 `admin`，`platformAdmin=false`。
+5. 租户管理员再次登录后，只能管理本租户用户、项目、凭据和 Loop。
+
+运行中创建的账号会保存到 `EVOPILOT_DATA_ROOT/users`。如同时配置 `EVOPILOT_USERS`，它们作为启动时用户种子参与登录；持久化用户、环境用户和测试注入用户会合并为同一用户目录，用户名相同时以显式配置优先。
 
 ## RBAC
 

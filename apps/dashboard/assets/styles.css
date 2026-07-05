@@ -1444,10 +1444,9 @@ body.login-page-mode {
 .login-screen {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(420px, 560px) minmax(320px, 480px);
+  grid-template-columns: minmax(420px, 560px);
   align-items: center;
   justify-content: center;
-  gap: 36px;
   padding: 48px;
 }
 
@@ -1478,7 +1477,6 @@ body.login-page-mode {
 
 .login-brand span,
 .login-copy p,
-.login-aside span,
 .login-notice {
   color: var(--muted);
 }
@@ -1527,38 +1525,160 @@ body.login-page-mode {
   min-height: 18px;
 }
 
-.login-aside {
-  display: grid;
-  gap: 14px;
-  padding: 28px;
-  border: 1px solid #b8dfe7;
-  border-radius: 8px;
-  background: #eef9fb;
-}
-
-.login-aside strong {
-  font-size: 20px;
-}
-
-.login-aside div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.login-aside div span {
-  padding: 6px 10px;
-  border: 1px solid #b8dfe7;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #11606c;
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .grid {
   display: grid;
   gap: 16px;
+}
+
+.cloud-operation-panel {
+  align-content: start;
+}
+
+.cloud-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cloud-form-grid label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.cloud-form-grid input,
+.cloud-form-grid select {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  font: inherit;
+  background: #ffffff;
+}
+
+.cloud-form-grid button {
+  align-self: end;
+  min-height: 40px;
+}
+
+.iam-create-form {
+  grid-template-columns: 1fr;
+}
+
+.iam-create-form label {
+  min-width: 0;
+}
+
+.iam-create-form input,
+.iam-create-form select {
+  width: 100%;
+}
+
+.check-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.check-row input {
+  min-height: 0;
+}
+
+.operation-notice {
+  margin-bottom: 12px;
+  border: 1px solid #b8dfe7;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #eef9fb;
+  color: #11606c;
+  font-weight: 700;
+}
+
+.cloud-mini-list,
+.iam-user-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cloud-mini-list article,
+.iam-user-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.cloud-mini-list article {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.cloud-mini-list strong,
+.iam-user-list strong,
+.cloud-mini-list small,
+.iam-user-list small {
+  display: block;
+}
+
+.iam-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  align-items: stretch;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.iam-hero > div,
+.iam-hero aside {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+}
+
+.iam-hero h2 {
+  margin: 6px 0;
+  font-size: 28px;
+}
+
+.iam-hero p,
+.iam-hero small {
+  color: var(--muted);
+}
+
+.iam-hero aside {
+  display: grid;
+  gap: 8px;
+}
+
+.iam-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.permission-matrix {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.permission-matrix article {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.permission-matrix span,
+.permission-matrix small {
+  color: var(--muted);
 }
 
 .stats {
@@ -5789,8 +5909,17 @@ td {
   .field-kit-card,
   .workspace-grid,
   .connector-grid,
+  .cloud-form-grid,
+  .iam-hero,
+  .iam-layout,
+  .permission-matrix,
   .workflow-node-board {
     grid-template-columns: 1fr;
+  }
+
+  .iam-user-list article {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .saas-milestone-list article {

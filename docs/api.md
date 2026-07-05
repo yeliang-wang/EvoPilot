@@ -10,7 +10,16 @@ GET /health
 
 ## 鉴权
 
-Dashboard 用户应通过登录接口输入用户名和密码。服务端使用 `EVOPILOT_USERS` 配置租户用户：
+Dashboard 用户应通过独立登录页输入用户名和密码。服务端启动时会确保存在一个持久化平台高级管理员账号：
+
+```text
+username: admin
+password: admin
+platformAdmin: true
+mustChangePassword: true
+```
+
+该账号用于首次初始化，登录后必须调用改密接口，不能在生产环境长期使用默认密码。也可以使用 `EVOPILOT_USERS` 预置租户用户：
 
 ```text
 EVOPILOT_USERS=tenant-admin:<password>:admin:tenant-production:workspace-agent-products:Tenant Admin
@@ -23,6 +32,16 @@ POST /api/v1/auth/login
 Content-Type: application/json
 
 {"username":"tenant-admin","password":"<password>"}
+```
+
+首次登录默认管理员后改密：
+
+```http
+POST /api/v1/auth/change-password
+Authorization: Bearer <session-token>
+Content-Type: application/json
+
+{"currentPassword":"admin","newPassword":"<new-password>"}
 ```
 
 自动化脚本、CLI 或 Dashboard 登录后的后续请求使用 Bearer token：
@@ -44,6 +63,7 @@ admin:<token>:admin,operator:<token>:operator,viewer:<token>:viewer
 - `viewer`：只读访问 API。
 - `operator`：创建演进运行，提交评审决策。
 - `admin`：注册项目，执行交付。
+- `platformAdmin=true`：跨租户创建租户、工作区和租户用户；默认 bootstrap `admin/admin` 属于该类。
 
 多租户 SaaS 请求可以通过 header 指定操作边界：
 
@@ -53,7 +73,7 @@ X-EvoPilot-Workspace: <workspace-id>
 X-EvoPilot-Actor: <member-id>
 ```
 
-未指定时，服务端使用单租户兼容默认值 `tenant-production` 和 `workspace-agent-products`。普通 viewer/operator 只能访问自己 tenant/workspace 内的数据；全局 admin 可执行注册、迁移和修复动作。项目、Loop、secret、GitHub App installation、release evidence 和 release decision 均带 `tenantId`、`workspaceId`。
+未指定时，服务端使用单租户兼容默认值 `tenant-production` 和 `workspace-agent-products`。普通 viewer/operator 只能访问自己 tenant/workspace 内的数据；租户管理员只能管理本租户用户；`platformAdmin=true` 的平台高级管理员可跨租户执行开通、用户管理和审计动作。项目、Loop、secret、GitHub App installation、release evidence 和 release decision 均带 `tenantId`、`workspaceId`。
 
 ## 汇总
 
@@ -67,8 +87,13 @@ GET /api/v1/summary
 
 ```http
 GET /api/v1/tenants
+POST /api/v1/tenants
 GET /api/v1/workspaces
 POST /api/v1/workspaces
+GET /api/v1/users
+POST /api/v1/users
+PATCH /api/v1/users/{userId}
+POST /api/v1/users/{userId}/reset-password
 GET /api/v1/workspaces/{workspaceId}
 POST /api/v1/workspaces/{workspaceId}/invitations
 PATCH /api/v1/workspaces/{workspaceId}/members/{memberId}
@@ -83,6 +108,8 @@ GET /api/v1/saas/observability
 ```
 
 `GET /api/v1/workspaces/{workspaceId}/usage` 返回 workspace 级项目数、Loop 数和 evidence 容量配额；超过项目或 Loop 配额时，创建接口返回 `429 WORKSPACE_PROJECT_QUOTA_EXCEEDED` 或 `429 WORKSPACE_LOOP_QUOTA_EXCEEDED`。
+
+用户管理接口用于 Dashboard “用户与权限”页。`POST /api/v1/users` 由平台高级管理员或租户管理员调用；平台高级管理员可指定任意 tenant/workspace 并创建 `platformAdmin`，租户管理员只能创建本租户用户且不能授予 `platformAdmin`。`PATCH /api/v1/users/{userId}` 支持修改 displayName、role、tenantId、workspaceId、status、mustChangePassword；`POST /api/v1/users/{userId}/reset-password` 会写入新密码哈希并把 `mustChangePassword` 置为 `true`。所有响应都会隐藏 `passwordHash`。
 
 `POST /api/v1/secrets` 只返回 `secretRef` 和 `valueConfigured`，不会回显明文或加密 payload。GitHub App installation readiness 会验证 private key secret、webhook secret、repository selection 和 least-privilege permissions，并且 secret ref 必须属于同一 tenant/workspace 且类型正确。
 

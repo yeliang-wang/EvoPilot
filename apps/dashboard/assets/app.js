@@ -4,6 +4,7 @@ const navSections = [
     items: [
       { id: "租户总览", title: "租户", detail: "组织、用量、风险" },
       { id: "工作区", title: "工作区", detail: "成员、项目、边界" },
+      { id: "用户与权限", title: "用户", detail: "账号、角色、权限" },
       { id: "项目", title: "项目", detail: "仓库与接入" },
       { id: "凭据", title: "凭据", detail: "GitHub App 与 Vault" },
       { id: "Loops", title: "Loops", detail: "运行队列与闭环" },
@@ -20,6 +21,10 @@ const pageAliases = {
   Tenant: "租户总览",
   租户: "租户总览",
   Workspace: "工作区",
+  用户: "用户与权限",
+  权限: "用户与权限",
+  IAM: "用户与权限",
+  访问控制: "用户与权限",
   主链路: "工作区",
   主链路向导: "工作区",
   向导: "工作区",
@@ -80,6 +85,7 @@ const state = {
   },
   tenants: [],
   workspaces: [],
+  users: [],
   workspaceUsage: undefined,
   secrets: [],
   githubAppInstallations: [],
@@ -414,6 +420,7 @@ function renderPage(page) {
   const normalized = normalizePage(page);
   if (normalized === "租户总览") return renderSaasTenantOverview();
   if (normalized === "工作区") return renderSaasWorkspace();
+  if (normalized === "用户与权限") return renderUserAccessControl();
   if (normalized === "项目") return renderProjects();
   if (normalized === "凭据") return renderSaasCredentialCenter();
   if (normalized === "Loops") return renderLoopExecution();
@@ -875,6 +882,7 @@ function renderSaasTenantOverview() {
       `).join("")}
     </section>
     <div class="saas-overview-grid">
+      ${renderTenantProvisioningPanel(model)}
       <section class="card">
         <div class="section-title">
           <div>
@@ -913,6 +921,52 @@ function renderSaasTenantOverview() {
         </div>
       </section>
     </div>
+  `;
+}
+
+function renderTenantProvisioningPanel(model) {
+  const isPlatformAdmin = Boolean(state.currentUser?.platformAdmin);
+  return `
+    <section class="card cloud-operation-panel">
+      <div class="section-title">
+        <div>
+          <h2>租户开通</h2>
+          <p>${isPlatformAdmin ? "平台管理员可以创建租户和初始工作区。" : "租户管理员可查看本租户边界，创建租户需联系平台管理员。"}</p>
+        </div>
+        <span class="pill ${isPlatformAdmin ? "good" : "warn"}">${isPlatformAdmin ? "平台管理员" : "租户视图"}</span>
+      </div>
+      ${state.operationNotice ? `<div class="operation-notice">${escapeHtml(state.operationNotice)}</div>` : ""}
+      <form id="tenant-provision-form" class="cloud-form-grid">
+        <label>
+          <span>租户 ID</span>
+          <input name="tenantId" placeholder="tenant-acme" ${isPlatformAdmin ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>租户名称</span>
+          <input name="tenantName" placeholder="Acme Team" ${isPlatformAdmin ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>工作区 ID</span>
+          <input name="workspaceId" placeholder="workspace-acme-prod" ${isPlatformAdmin ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>工作区名称</span>
+          <input name="workspaceName" placeholder="Production Workspace" ${isPlatformAdmin ? "" : "disabled"} />
+        </label>
+        <button class="primary" type="submit" ${isPlatformAdmin ? "" : "disabled"}>创建租户与工作区</button>
+      </form>
+      <div class="cloud-mini-list">
+        ${state.tenants.map((tenant) => `
+          <article>
+            <div>
+              <strong>${escapeHtml(tenant.name ?? tenant.id)}</strong>
+              <small>${escapeHtml(tenant.id)} · ${escapeHtml(tenant.plan ?? "SaaS")}</small>
+            </div>
+            <span class="pill ${tenant.status === "ACTIVE" ? "good" : "warn"}">${escapeHtml(tenant.status ?? "ACTIVE")}</span>
+          </article>
+        `).join("") || renderEmptyState("暂无租户", "平台管理员创建第一个租户后，会在这里显示。")}
+      </div>
+    </section>
   `;
 }
 
@@ -1111,6 +1165,123 @@ function renderSaasWorkspace() {
       ${renderLoopTargetBacklogPanel()}
     </div>
     ${renderSourceToGaWizard()}
+  `;
+}
+
+function renderUserAccessControl() {
+  const isPlatformAdmin = Boolean(state.currentUser?.platformAdmin);
+  const visibleTenants = state.tenants.length ? state.tenants : [{ id: state.saasScope.tenantId, name: state.saasScope.tenantId }];
+  const visibleWorkspaces = state.workspaces.length ? state.workspaces : [{ id: state.saasScope.workspaceId, name: state.saasScope.workspaceId, tenantId: state.saasScope.tenantId }];
+  const currentTenantUsers = state.users.filter((user) => isPlatformAdmin || user.tenantId === state.saasScope.tenantId);
+  return `
+    <section class="iam-hero">
+      <div>
+        <span class="eyebrow">Access control</span>
+        <h2>用户与权限</h2>
+        <p>按云平台访问控制方式组织：先创建账号，再绑定租户和工作区，最后分配角色。租户管理员只能管理本租户用户；平台管理员可管理全平台。</p>
+      </div>
+      <aside>
+        <span>当前身份</span>
+        <strong>${escapeHtml(isPlatformAdmin ? "平台高级管理员" : roleLabel(state.currentUser?.role))}</strong>
+        <small>${escapeHtml(state.currentUser?.username ?? "未登录")}</small>
+      </aside>
+    </section>
+    ${state.operationNotice ? `<div class="operation-notice">${escapeHtml(state.operationNotice)}</div>` : ""}
+    <div class="iam-layout">
+      <section class="card cloud-operation-panel">
+        <div class="section-title">
+          <div>
+            <h2>创建用户</h2>
+            <p>新用户默认要求首次登录后修改密码，避免长期使用临时密码。</p>
+          </div>
+        </div>
+        <form id="user-create-form" class="cloud-form-grid iam-create-form">
+          <label>
+            <span>用户名</span>
+            <input name="username" placeholder="developer01" required />
+          </label>
+          <label>
+            <span>显示名</span>
+            <input name="displayName" placeholder="Developer 01" />
+          </label>
+          <label>
+            <span>临时密码</span>
+            <input name="password" type="password" placeholder="change-me-1234" required />
+          </label>
+          <label>
+            <span>租户</span>
+            <select name="tenantId" ${isPlatformAdmin ? "" : "disabled"}>
+              ${visibleTenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}" ${tenant.id === state.saasScope.tenantId ? "selected" : ""}>${escapeHtml(tenant.name ?? tenant.id)}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            <span>工作区</span>
+            <select name="workspaceId">
+              ${visibleWorkspaces.map((workspace) => `<option value="${escapeHtml(workspace.id)}" ${workspace.id === state.saasScope.workspaceId ? "selected" : ""}>${escapeHtml(workspace.name ?? workspace.id)}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            <span>角色</span>
+            <select name="role">
+              <option value="viewer">只读 Viewer</option>
+              <option value="operator">工作区操作员</option>
+              <option value="admin">租户管理员</option>
+            </select>
+          </label>
+          <label class="check-row">
+            <input name="platformAdmin" type="checkbox" ${isPlatformAdmin ? "" : "disabled"} />
+            <span>平台高级管理员</span>
+          </label>
+          <button class="primary" type="submit">创建用户</button>
+        </form>
+      </section>
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>用户列表</h2>
+            <p>常用操作集中在行内：禁用、启用、重置密码。高级权限只对平台管理员开放。</p>
+          </div>
+          <button data-action="refresh-iam">刷新</button>
+        </div>
+        <div class="iam-user-list">
+          ${currentTenantUsers.map((user) => `
+            <article>
+              <div>
+                <strong>${escapeHtml(user.displayName ?? user.username)}</strong>
+                <small>${escapeHtml(user.username)} · ${escapeHtml(user.tenantId)} / ${escapeHtml(user.workspaceId)}</small>
+              </div>
+              <span class="pill ${user.status === "ACTIVE" ? "good" : "warn"}">${escapeHtml(user.status ?? "ACTIVE")}</span>
+              <span class="pill ${user.platformAdmin ? "warn" : "good"}">${escapeHtml(user.platformAdmin ? "平台高级管理员" : roleLabel(user.role))}</span>
+              <button data-action="toggle-user-status" data-user-id="${escapeHtml(user.id)}" data-next-status="${user.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE"}">${user.status === "ACTIVE" ? "禁用" : "启用"}</button>
+              <button data-action="reset-user-password" data-user-id="${escapeHtml(user.id)}">重置密码</button>
+            </article>
+          `).join("") || renderEmptyState("暂无用户", "创建用户后会出现在这里。")}
+        </div>
+      </section>
+    </div>
+    <section class="card permission-matrix-card">
+      <div class="section-title">
+        <div>
+          <h2>权限矩阵</h2>
+          <p>新用户先看这张表即可理解自己能做什么。</p>
+        </div>
+      </div>
+      <div class="permission-matrix">
+        ${[
+          ["未登录", "登录、查看初始化状态", "不能创建租户、不能管理用户"],
+          ["工作区 Viewer", "查看项目、Loop、发布证据、审计", "不能写入和审批"],
+          ["工作区 Operator", "接入项目、启动 Loop、处理凭据阻塞", "不能创建租户"],
+          ["租户管理员", "管理本租户用户、工作区、成员和配额", "不能跨租户"],
+          ["平台高级管理员", "所有租户、用户、权限、平台配置和审计", "首次 admin/admin 登录后必须改密"]
+        ].map(([role, allow, limit]) => `
+          <article>
+            <strong>${escapeHtml(role)}</strong>
+            <span>${escapeHtml(allow)}</span>
+            <small>${escapeHtml(limit)}</small>
+          </article>
+        `).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -3629,8 +3800,8 @@ function renderGuidedHelpManual() {
 function renderHelpManualCatalog(scenarios) {
   const catalogGroups = helpManualCatalogGroups(scenarios);
   const recommended = [
-    ["首次开通 EvoPilot SaaS 多租户环境", "#manual-platform-tenant-provisioning"],
-    ["管理工作区成员与角色", "#manual-tenant-workspace-member-admin"],
+    ["平台高级管理员首次开通租户", "#manual-platform-tenant-provisioning"],
+    ["租户管理员管理用户与权限", "#manual-tenant-workspace-member-admin"],
     ["完成第一条 Source-to-GA Loop", "#manual-saas-tenant-workspace-onboarding"],
     ["AI 辅助日志诊断与故障定位", "#manual-ai-log-diagnosis"],
     ["复盘发布证据与审计记录", "#manual-release-evidence-review"]
@@ -3700,8 +3871,8 @@ function helpManualCatalogGroups(scenarios) {
           title: "快速入门",
           href: "#manual-platform-tenant-provisioning",
           children: [
-            scenarioLink("platform-tenant-provisioning", "平台管理员创建租户与工作区"),
-            scenarioLink("tenant-workspace-member-admin", "租户管理员管理成员与工作区边界"),
+            scenarioLink("platform-tenant-provisioning", "平台高级管理员创建租户与工作区"),
+            scenarioLink("tenant-workspace-member-admin", "租户管理员管理用户与权限"),
             scenarioLink("saas-tenant-workspace-onboarding", "Tenant / Workspace 到首个 Source-to-GA Loop")
           ]
         }
@@ -3710,8 +3881,8 @@ function helpManualCatalogGroups(scenarios) {
     {
       title: "租户与工作区",
       children: [
-        scenarioLink("platform-tenant-provisioning", "平台管理员创建租户与工作区"),
-        scenarioLink("tenant-workspace-member-admin", "租户管理员管理成员与工作区边界")
+        scenarioLink("platform-tenant-provisioning", "平台高级管理员创建租户与工作区"),
+        scenarioLink("tenant-workspace-member-admin", "租户管理员管理用户与权限")
       ]
     },
     {
@@ -3897,11 +4068,12 @@ function renderManualScreenshot(step) {
 
 function renderHelpRoleMap(roles) {
   const capabilities = [
+    "打开登录页",
+    "修改默认密码",
     "创建租户",
-    "管理租户与工作区",
-    "邀请成员",
-    "修改角色",
-    "配置 GitHub App/Vault",
+    "创建租户用户",
+    "重置用户密码",
+    "管理本租户权限",
     "接入项目",
     "启动 Source-to-GA Loop",
     "AI 日志诊断",
@@ -3914,9 +4086,9 @@ function renderHelpRoleMap(roles) {
         <div>
           <span class="eyebrow">Access control</span>
           <h2>角色与权限</h2>
-          <p>在开始操作前，请先确认当前账号角色。平台管理员负责 tenant/workspace 控制面；租户管理员负责工作区成员和凭据边界；开发者、发布负责人、Loop 运维和 Viewer 只在授权范围内推进或审计。</p>
+          <p>按云平台 IAM 的方式理解：未登录只能进入登录和帮助；平台高级管理员负责租户、用户、权限和全局审计；租户管理员只能管理本租户用户、工作区、凭据和项目；普通用户在授权范围内推进 Loop 或只读审计。</p>
         </div>
-        <span class="pill good">RBAC: viewer / operator / admin + owner / admin / developer / viewer</span>
+        <span class="pill good">登录态: username/password；RBAC: viewer / operator / admin；Scope: platform / tenant / workspace</span>
       </div>
       <div class="manual-role-grid">
         ${roles.map((role) => `
@@ -3948,10 +4120,12 @@ function renderHelpRoleMap(roles) {
         `).join("")}
       </div>
       <div class="manual-api-strip">
+        <span>登录：POST /api/v1/auth/login</span>
+        <span>改密：POST /api/v1/auth/change-password</span>
         <span>租户创建：POST /api/v1/tenants</span>
-        <span>工作区创建：POST /api/v1/workspaces</span>
-        <span>邀请成员：POST /api/v1/workspaces/{workspaceId}/invitations</span>
-        <span>修改角色：PATCH /api/v1/workspaces/{workspaceId}/members/{memberId}</span>
+        <span>用户列表：GET /api/v1/users</span>
+        <span>创建用户：POST /api/v1/users</span>
+        <span>重置密码：POST /api/v1/users/{userId}/reset-password</span>
       </div>
     </section>
   `;
@@ -3960,19 +4134,42 @@ function renderHelpRoleMap(roles) {
 function helpManualRoles() {
   return [
     {
-      title: "平台管理员",
-      apiRole: "admin",
-      workspaceRole: "全局 admin",
-      scope: "负责 SaaS 控制面初始化、创建租户、创建工作区、跨租户治理和生产发布边界。",
-      pages: ["租户总览", "工作区", "凭据", "发布证据", "审计"],
-      can: ["创建租户", "创建工作区", "邀请租户管理员", "配置 quota/secret/GitHub App", "执行发布修复"],
-      blocked: "必须保留审计和 workspace scope；不能用全局权限绕过 release decision。",
+      title: "未登录用户",
+      apiRole: "anonymous",
+      workspaceRole: "无",
+      scope: "只允许打开登录页、查看公开帮助和健康检查；不能读取租户、项目、Loop、凭据或发布证据。",
+      pages: ["登录页", "帮助手册"],
+      can: ["输入用户名和密码", "查看公开帮助", "访问健康检查"],
+      blocked: "不能通过 API Token 进入 Dashboard；不能看到任何租户内数据。",
       scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "blocked",
+        "创建租户": "blocked",
+        "创建租户用户": "blocked",
+        "重置用户密码": "blocked",
+        "管理本租户权限": "blocked",
+        "接入项目": "blocked",
+        "启动 Source-to-GA Loop": "blocked",
+        "AI 日志诊断": "blocked",
+        "发布审批/修复": "blocked",
+        "审计复盘": "blocked"
+      }
+    },
+    {
+      title: "平台高级管理员",
+      apiRole: "admin",
+      workspaceRole: "platformAdmin=true",
+      scope: "默认 bootstrap 账号为 admin/admin，首次登录后必须改密；负责 SaaS 控制面初始化、创建租户、创建工作区、创建/停用/重置租户用户和跨租户审计。",
+      pages: ["租户总览", "用户与权限", "工作区", "凭据", "发布证据", "审计"],
+      can: ["创建租户", "创建工作区", "创建租户管理员", "停用/启用用户", "重置用户密码", "跨租户审计"],
+      blocked: "不能绕过 release decision、审计和 workspace scope；默认 admin 密码必须修改后再进入生产使用。",
+      scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "own",
         "创建租户": "own",
-        "管理租户与工作区": "own",
-        "邀请成员": "own",
-        "修改角色": "own",
-        "配置 GitHub App/Vault": "own",
+        "创建租户用户": "own",
+        "重置用户密码": "own",
+        "管理本租户权限": "own",
         "接入项目": "assist",
         "启动 Source-to-GA Loop": "assist",
         "AI 日志诊断": "own",
@@ -3982,18 +4179,19 @@ function helpManualRoles() {
     },
     {
       title: "租户管理员",
-      apiRole: "admin 或 operator",
-      workspaceRole: "owner/admin",
-      scope: "管理本租户下的 workspace、成员、凭据边界、项目接入和日常 Loop 授权。",
-      pages: ["工作区", "项目", "凭据", "Loops", "发布证据"],
-      can: ["邀请成员", "修改 workspace 内角色", "配置 GitHub App/Vault", "接入项目", "授权 human gate"],
-      blocked: "不能越权访问其他 tenant/workspace；不能创建全局租户策略。",
+      apiRole: "admin",
+      workspaceRole: "tenant admin",
+      scope: "管理本租户下的用户、workspace、凭据边界、项目接入和日常 Loop 授权。",
+      pages: ["用户与权限", "工作区", "项目", "凭据", "Loops", "发布证据"],
+      can: ["创建本租户用户", "修改本租户用户角色", "停用/启用本租户用户", "重置本租户用户密码", "配置 workspace 凭据", "授权 human gate"],
+      blocked: "不能创建租户、不能创建 platformAdmin、不能访问其他 tenant/workspace。",
       scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "own",
         "创建租户": "assist",
-        "管理租户与工作区": "own",
-        "邀请成员": "own",
-        "修改角色": "own",
-        "配置 GitHub App/Vault": "own",
+        "创建租户用户": "own",
+        "重置用户密码": "own",
+        "管理本租户权限": "own",
         "接入项目": "own",
         "启动 Source-to-GA Loop": "own",
         "AI 日志诊断": "assist",
@@ -4008,13 +4206,14 @@ function helpManualRoles() {
       scope: "在授权 workspace 内接入项目、处理 evidence、形成机会点并执行代码升级。",
       pages: ["项目", "工作区", "Loops", "发布证据"],
       can: ["接入项目", "运行 Discovery", "启动 Loop", "查看代码升级过程", "提交修复证据"],
-      blocked: "不能管理租户、修改成员角色或读取其他 workspace 凭据。",
+      blocked: "不能管理租户、创建用户、修改角色或读取其他 workspace 凭据。",
       scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "own",
         "创建租户": "blocked",
-        "管理租户与工作区": "read",
-        "邀请成员": "blocked",
-        "修改角色": "blocked",
-        "配置 GitHub App/Vault": "assist",
+        "创建租户用户": "blocked",
+        "重置用户密码": "blocked",
+        "管理本租户权限": "read",
         "接入项目": "own",
         "启动 Source-to-GA Loop": "own",
         "AI 日志诊断": "assist",
@@ -4031,11 +4230,12 @@ function helpManualRoles() {
       can: ["批准 Release", "修复 Release Run", "执行 Deploy Finalizer", "复盘 GO/NO-GO"],
       blocked: "不能补充源码凭据或成员权限；证据不足时只能退回处理。",
       scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "own",
         "创建租户": "blocked",
-        "管理租户与工作区": "read",
-        "邀请成员": "blocked",
-        "修改角色": "blocked",
-        "配置 GitHub App/Vault": "assist",
+        "创建租户用户": "blocked",
+        "重置用户密码": "blocked",
+        "管理本租户权限": "read",
         "接入项目": "read",
         "启动 Source-to-GA Loop": "assist",
         "AI 日志诊断": "own",
@@ -4052,11 +4252,12 @@ function helpManualRoles() {
       can: ["Claim worker", "执行 replay", "验证 sandbox proof", "刷新 trace tree", "定位 release gate"],
       blocked: "不能审批业务发布或修改租户成员；恢复动作必须产生 trace/audit。",
       scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "own",
         "创建租户": "blocked",
-        "管理租户与工作区": "read",
-        "邀请成员": "blocked",
-        "修改角色": "blocked",
-        "配置 GitHub App/Vault": "read",
+        "创建租户用户": "blocked",
+        "重置用户密码": "blocked",
+        "管理本租户权限": "read",
         "接入项目": "read",
         "启动 Source-to-GA Loop": "assist",
         "AI 日志诊断": "own",
@@ -4073,11 +4274,12 @@ function helpManualRoles() {
       can: ["查看发布决策", "读取 artifacts", "复盘 audit", "确认 evidence boundary"],
       blocked: "不能创建、审批、修复、写入凭据或修改成员。",
       scenarios: {
+        "打开登录页": "own",
+        "修改默认密码": "own",
         "创建租户": "read",
-        "管理租户与工作区": "read",
-        "邀请成员": "blocked",
-        "修改角色": "blocked",
-        "配置 GitHub App/Vault": "read",
+        "创建租户用户": "blocked",
+        "重置用户密码": "blocked",
+        "管理本租户权限": "read",
         "接入项目": "read",
         "启动 Source-to-GA Loop": "read",
         "AI 日志诊断": "read",
@@ -4091,6 +4293,7 @@ function helpManualRoles() {
 function helpManualScenarios() {
   const navBase = [
     { label: "租户总览" },
+    { label: "用户与权限" },
     { label: "工作区" },
     { label: "项目" },
     { label: "凭据" },
@@ -4103,35 +4306,37 @@ function helpManualScenarios() {
     {
       id: "platform-tenant-provisioning",
       category: "平台管理",
-      title: "平台管理员创建租户与工作区",
+      title: "平台高级管理员创建租户与工作区",
       page: "租户总览",
       persona: "负责 SaaS 控制面初始化的平台管理员",
-      roles: ["平台管理员", "租户管理员", "审计 Viewer"],
-      prerequisites: ["平台管理员账号", "目标租户编码", "初始 owner/admin 成员", "租户配额策略"],
-      outcome: "tenant、workspace、owner/admin、quota 和 audit 边界全部创建并可复盘",
-      goal: "从平台视角完成一个新租户的最小可运营单元：先创建 tenant，再创建 workspace，最后把 owner/admin、配额和审计边界交给租户管理员。",
+      roles: ["平台高级管理员", "租户管理员", "审计 Viewer"],
+      prerequisites: ["平台高级管理员账号", "首次 admin/admin 已完成改密", "目标租户编码", "初始租户管理员账号", "租户配额策略"],
+      outcome: "tenant、workspace、租户管理员、quota 和 audit 边界全部创建并可复盘",
+      goal: "从平台视角完成一个新租户的最小可运营单元：先创建 tenant 和 workspace，再创建租户管理员账号，最后把配额、权限和审计边界交给租户管理员。",
       steps: [
-        manualStep("创建租户", "在租户总览确认当前 token 是 admin 角色，创建新的 tenant。后台使用 POST /api/v1/tenants 写入租户边界，返回 tenantId 后才能继续创建 workspace。", "新 tenant 出现在租户总览，并带有独立 quota/evidence boundary", "创建租户", "租户总览", "Tenant provisioning", "POST /api/v1/tenants 创建 SaaS 租户边界", navFor("租户总览"), ["tenantId", "displayName", "quota", "evidence boundary"], "租户总览", "Token 不是 admin 或 tenantId 已存在"),
+        manualStep("登录并完成默认改密", "打开独立登录页，使用平台 bootstrap 账号登录；如果仍是默认 admin/admin，先按提示修改密码。登录成功后进入租户总览。", "当前用户显示为平台高级管理员，且 mustChangePassword=false", "登录改密", "登录页", "Platform login", "POST /api/v1/auth/login 与 /api/v1/auth/change-password", navFor("租户总览"), ["username/password", "platformAdmin", "mustChangePassword=false", "session"], "登录页", "默认密码未修改或账号被停用"),
+        manualStep("创建租户", "在租户总览确认当前用户是平台高级管理员，创建新的 tenant。后台使用 POST /api/v1/tenants 写入租户边界，返回 tenantId 后才能继续创建 workspace。", "新 tenant 出现在租户总览，并带有独立 quota/evidence boundary", "创建租户", "租户总览", "Tenant provisioning", "POST /api/v1/tenants 创建 SaaS 租户边界", navFor("租户总览"), ["tenantId", "displayName", "quota", "evidence boundary"], "租户总览", "当前用户不是 platformAdmin 或 tenantId 已存在"),
         manualStep("创建工作区", "在新 tenant 下创建第一个 workspace。后台使用 POST /api/v1/workspaces 绑定 tenantId、workspaceId、名称和默认 owner/admin。", "工作区页可看到新 workspace、默认 owner/admin 和 scoped projects", "创建工作区", "工作区", "Workspace provisioning", "POST /api/v1/workspaces 创建租户内工作区", navFor("工作区"), ["tenantId", "workspaceId", "owner", "default policy"], "工作区", "workspaceId 冲突或 tenantId 不存在"),
+        manualStep("创建租户管理员", "进入用户与权限页，选择目标 tenant/workspace，创建 role=admin 且 platformAdmin=false 的租户管理员。后台使用 POST /api/v1/users 写入持久化用户目录。", "租户管理员能用用户名密码登录，并只能看到本租户数据", "创建用户", "用户与权限", "Tenant admin account", "POST /api/v1/users 创建租户管理员", navFor("租户总览"), ["username", "role=admin", "platformAdmin=false", "mustChangePassword"], "用户与权限", "试图创建 platformAdmin 或 workspace 不属于该 tenant"),
         manualStep("设置配额与使用边界", "进入工作区查看 usage 与 quota，包括项目数、Loop、worker queue、release run 和 evidence 存储。", "GET /api/v1/workspaces/{workspaceId}/usage 返回当前使用量和配额", "租户配额", "工作区", "Quota boundary", "租户配额和 workspace usage 可视化", navFor("工作区"), ["usage", "quota", "Loop budget", "evidence storage"], "工作区", "配额未初始化或 usage scope 不一致"),
-        manualStep("交付租户管理员", "邀请租户管理员进入 workspace，使用 POST /api/v1/workspaces/{workspaceId}/invitations 创建邀请，并确认角色为 owner/admin。", "成员与角色出现租户管理员，状态为 invited 或 active", "邀请成员", "工作区", "Member invitation", "租户管理员接手工作区运营", navFor("工作区"), ["email", "role owner/admin", "invited", "active"], "工作区", "邀请邮箱无效或角色高于操作者权限"),
-        manualStep("确认审计记录", "切到审计页确认 tenant.created、workspace.created、workspace.member.invited 和 quota 初始化记录。", "审计 Viewer 能只读复盘租户开通全过程", "审计复盘", "审计", "Provisioning audit", "平台开通动作全部有审计证据", navFor("审计"), ["tenant.created", "workspace.created", "member.invited", "quota"], "审计", "审计记录缺失或未带 workspace scope")
+        manualStep("确认审计记录", "切到审计页确认 tenant.upserted、workspace.created、user.created 和 quota 初始化记录。", "审计 Viewer 能只读复盘租户开通全过程", "审计复盘", "审计", "Provisioning audit", "平台开通动作全部有审计证据", navFor("审计"), ["tenant.upserted", "workspace.created", "user.created", "quota"], "审计", "审计记录缺失或未带 workspace scope")
       ]
     },
     {
       id: "tenant-workspace-member-admin",
       category: "租户运营",
-      title: "租户管理员管理成员与工作区边界",
-      page: "工作区",
+      title: "租户管理员管理用户与权限",
+      page: "用户与权限",
       persona: "负责本租户 workspace 日常运营的 owner/admin",
       roles: ["租户管理员", "Workspace 开发者", "审计 Viewer"],
-      prerequisites: ["workspace owner/admin 权限", "已创建 workspace", "成员邮箱", "GitHub App/Vault 凭据边界"],
+      prerequisites: ["租户管理员账号", "已创建 workspace", "待创建成员用户名", "GitHub App/Vault 凭据边界"],
       outcome: "开发者、Viewer、凭据、项目和 Loop 都被限制在同一 workspace 内",
-      goal: "租户管理员不需要理解全局控制面，只需要在自己的 workspace 中完成成员邀请、角色调整、凭据检查和项目授权。",
+      goal: "租户管理员不需要理解全局控制面，只需要在本租户内完成用户创建、角色调整、凭据检查和项目授权。",
       steps: [
-        manualStep("检查成员与角色", "进入工作区的成员与角色区，确认 owner/admin/developer/viewer 四级边界。owner/admin 负责成员管理，developer 负责项目和 Loop，viewer 只读审计。", "成员列表显示 owner/admin/developer/viewer，并能区分 active/invited", "成员与角色", "工作区", "Workspace RBAC", "workspace 内角色边界清晰", navFor("工作区"), ["owner", "admin", "developer", "viewer"], "工作区", "成员没有 workspaceId 或角色不在允许集合内"),
-        manualStep("邀请开发者或 Viewer", "使用 POST /api/v1/workspaces/{workspaceId}/invitations 邀请 developer 或 viewer。邀请只在当前 workspace 生效。", "成员状态进入 invited，审计记录 member.invited", "邀请成员", "工作区", "Invitation flow", "按 workspace scope 邀请成员", navFor("工作区"), ["developer", "viewer", "invited", "audit"], "工作区", "操作者不是 owner/admin 或邮箱重复"),
-        manualStep("修改角色或状态", "需要升降级时使用 PATCH /api/v1/workspaces/{workspaceId}/members/{memberId} 修改 role/status，并复核权限矩阵。", "成员角色更新后，开发者可执行 Loop，Viewer 仍保持只读", "修改角色", "工作区", "Role update", "PATCH 成员角色并留下审计", navFor("工作区"), ["role", "status", "active", "suspended"], "工作区", "试图把成员升到高于操作者权限或跨 workspace 修改"),
+        manualStep("检查用户与角色", "进入用户与权限页，确认本租户用户列表、角色、状态、tenantId 和 workspaceId。租户管理员只能看到本租户用户以及平台管理员标识。", "用户列表显示 admin/operator/viewer，并能区分 active/suspended", "用户与权限", "用户与权限", "Tenant IAM", "本租户用户边界清晰", navFor("租户总览"), ["admin", "operator", "viewer", "active/suspended"], "用户与权限", "用户没有 tenantId/workspaceId 或角色不在允许集合内"),
+        manualStep("创建开发者或 Viewer", "在创建用户表单中填写用户名、初始密码、角色和 workspace。后台使用 POST /api/v1/users 创建账号，账号首次登录后可再改密。", "新用户能用用户名密码登录，并只能访问本 workspace", "创建用户", "用户与权限", "User creation", "按 tenant/workspace scope 创建用户", navFor("租户总览"), ["username", "role", "tenantId", "workspaceId"], "用户与权限", "操作者不是 admin、用户名重复或跨 tenant 创建"),
+        manualStep("修改角色或状态", "需要升降级时在用户行内启用/停用，或使用 PATCH /api/v1/users/{userId} 修改 role/status。", "用户角色更新后，operator 可执行 Loop，viewer 仍保持只读", "修改角色", "用户与权限", "Role update", "PATCH 用户角色并留下审计", navFor("租户总览"), ["role", "status", "active", "suspended"], "用户与权限", "试图创建 platformAdmin 或跨 tenant 修改"),
+        manualStep("重置用户密码", "成员忘记密码时，在行内执行重置密码。后台使用 POST /api/v1/users/{userId}/reset-password，并把 mustChangePassword 置为 true。", "用户使用临时密码登录后必须重新设置密码", "重置密码", "用户与权限", "Password reset", "重置密码但不泄露 passwordHash", navFor("租户总览"), ["temporary password", "mustChangePassword", "audit"], "用户与权限", "跨 tenant 重置或临时密码长度不足"),
         manualStep("配置 GitHub App/Vault", "进入凭据页配置或检查 GitHub App installation、tokenRef、deploy secret、LLM route 和 audit redaction。开发者只看到可用状态，不读取明文。", "Vault readiness 通过，项目接入和 Loop 可引用 tokenRef", "配置 GitHub App/Vault", "凭据", "Credential scope", "Secret Vault 按 workspace 隔离", navFor("凭据"), ["GitHub App", "tokenRef", "deploy secret", "audit redaction"], "凭据", "凭据没有绑定 workspace 或返回明文 secret"),
         manualStep("验证隔离效果", "用 developer 启动 Source-to-GA Loop，再用 viewer 查看发布证据和审计；确认其他 workspace 项目、Loop、凭据不可见。", "developer 可以推进 Loop，viewer 只能审计，跨 workspace 数据不可见", "Workspace boundary", "发布证据", "Scoped execution", "成员权限、项目、Loop 和 release evidence 同 workspace 闭环", navFor("发布证据"), ["Source-to-GA", "viewer read-only", "workspace boundary", "release evidence"], "发布证据", "跨 workspace 数据泄露或 Viewer 获得写权限")
       ]
@@ -5172,6 +5377,7 @@ function render() {
   bindLoopWorkspace();
   bindRoleDashboard();
   bindPageLinks();
+  bindSaasAdminForms();
   bindProjectRegistration();
   bindEvaluationDatasets();
   bindOpportunityActions();
@@ -5184,6 +5390,101 @@ function bindRoleDashboard() {
   for (const button of content.querySelectorAll("[data-dashboard-role]")) {
     button.addEventListener("click", () => {
       state.dashboardRole = button.dataset.dashboardRole;
+      render();
+    });
+  }
+}
+
+function bindSaasAdminForms() {
+  const tenantForm = content.querySelector("#tenant-provision-form");
+  tenantForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(tenantForm);
+    const tenantId = String(formData.get("tenantId") ?? "").trim();
+    const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+    if (!tenantId || !workspaceId) {
+      state.operationNotice = "请填写租户 ID 和工作区 ID。";
+      render();
+      return;
+    }
+    try {
+      await postJson("/api/v1/tenants", {
+        id: tenantId,
+        name: String(formData.get("tenantName") ?? "").trim() || tenantId,
+        status: "ACTIVE",
+        plan: "SaaS"
+      });
+      await postJson("/api/v1/workspaces", {
+        id: workspaceId,
+        tenantId,
+        name: String(formData.get("workspaceName") ?? "").trim() || workspaceId,
+        status: "ACTIVE"
+      });
+      state.operationNotice = `已创建租户 ${tenantId} 和工作区 ${workspaceId}。`;
+      await loadSaasControlPlane();
+    } catch (error) {
+      state.operationNotice = `租户开通失败：${error.message}`;
+    }
+    render();
+  });
+
+  const userForm = content.querySelector("#user-create-form");
+  userForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(userForm);
+    const tenantId = state.currentUser?.platformAdmin
+      ? String(formData.get("tenantId") ?? state.saasScope.tenantId)
+      : state.saasScope.tenantId;
+    try {
+      await postJson("/api/v1/users", {
+        username: String(formData.get("username") ?? "").trim(),
+        displayName: String(formData.get("displayName") ?? "").trim(),
+        password: String(formData.get("password") ?? ""),
+        tenantId,
+        workspaceId: String(formData.get("workspaceId") ?? state.saasScope.workspaceId),
+        role: String(formData.get("role") ?? "viewer"),
+        platformAdmin: Boolean(formData.get("platformAdmin"))
+      });
+      state.operationNotice = "用户已创建，首次登录后需要修改临时密码。";
+      await loadSaasControlPlane();
+    } catch (error) {
+      state.operationNotice = `创建用户失败：${error.message}`;
+    }
+    render();
+  });
+
+  for (const button of content.querySelectorAll('[data-action="refresh-iam"]')) {
+    button.addEventListener("click", async () => {
+      await loadSaasControlPlane();
+      state.operationNotice = "用户与权限数据已刷新。";
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="toggle-user-status"]')) {
+    button.addEventListener("click", async () => {
+      try {
+        await patchJson(`/api/v1/users/${encodeURIComponent(button.dataset.userId)}`, {
+          status: button.dataset.nextStatus
+        });
+        state.operationNotice = button.dataset.nextStatus === "SUSPENDED" ? "用户已禁用。" : "用户已启用。";
+        await loadSaasControlPlane();
+      } catch (error) {
+        state.operationNotice = `更新用户状态失败：${error.message}`;
+      }
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="reset-user-password"]')) {
+    button.addEventListener("click", async () => {
+      try {
+        await postJson(`/api/v1/users/${encodeURIComponent(button.dataset.userId)}/reset-password`, {
+          password: "change-me-1234"
+        });
+        state.operationNotice = "已重置为临时密码 change-me-1234，用户下次登录需要修改。";
+        await loadSaasControlPlane();
+      } catch (error) {
+        state.operationNotice = `重置密码失败：${error.message}`;
+      }
       render();
     });
   }
@@ -5242,15 +5543,6 @@ function renderLoginPage() {
           ${state.authNotice ? `<small class="login-notice">${escapeHtml(state.authNotice)}</small>` : ""}
         </form>
       </div>
-      <aside class="login-aside">
-        <strong>Source-to-GA 控制面</strong>
-        <span>租户、工作区、凭据、Loop、发布证据和审计记录在同一控制台内闭环。</span>
-        <div>
-          <span>RBAC</span>
-          <span>Tenant / Workspace</span>
-          <span>Release decision</span>
-        </div>
-      </aside>
     </section>
   `;
 }
@@ -5334,9 +5626,10 @@ async function refreshData() {
 
 async function loadSaasControlPlane() {
   try {
-    const [tenantsResponse, workspacesResponse, secretsResponse, githubAppsResponse, storeReadinessResponse, observabilityResponse] = await settledResponses([
+    const [tenantsResponse, workspacesResponse, usersResponse, secretsResponse, githubAppsResponse, storeReadinessResponse, observabilityResponse] = await settledResponses([
       "/api/v1/tenants",
       "/api/v1/workspaces",
+      "/api/v1/users",
       "/api/v1/secrets",
       "/api/v1/github-app/installations",
       "/api/v1/loop-store/readiness",
@@ -5355,6 +5648,10 @@ async function loadSaasControlPlane() {
         state.saasScope.workspaceId = activeWorkspace.id;
         await loadWorkspaceUsage(activeWorkspace.id);
       }
+    }
+    if (usersResponse?.ok) {
+      const { data } = await usersResponse.json();
+      state.users = Array.isArray(data) ? data : [];
     }
     if (secretsResponse?.ok) {
       const { data } = await secretsResponse.json();
@@ -6571,6 +6868,23 @@ async function loadServiceScorecards() {
 async function postJson(url, body) {
   const response = await apiFetch(url, {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const text = await response.text();
+  const parsed = text ? safeJsonParse(text) : {};
+  if (!response.ok) {
+    const error = new Error(summarizeApiError(parsed, response.status));
+    error.responseBody = parsed;
+    error.status = response.status;
+    throw error;
+  }
+  return parsed;
+}
+
+async function patchJson(url, body) {
+  const response = await apiFetch(url, {
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body)
   });
