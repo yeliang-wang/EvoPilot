@@ -1259,12 +1259,28 @@ test("pipeline list endpoint is viewer protected and initially empty", async () 
 test("release evidence endpoint persists release candidate evidence without leaking secrets", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-release-evidence-"));
   const repoRoot = path.join(dataRoot, "connected-project");
+  const otherRepoRoot = path.join(dataRoot, "other-project");
   fs.mkdirSync(repoRoot, { recursive: true });
+  fs.mkdirSync(otherRepoRoot, { recursive: true });
   fs.writeFileSync(path.join(repoRoot, "package.json"), `${JSON.stringify({ name: "connected-project", scripts: { test: "node --version" } }, null, 2)}\n`);
+  fs.writeFileSync(path.join(otherRepoRoot, "package.json"), `${JSON.stringify({ name: "other-project", scripts: { test: "node --version" } }, null, 2)}\n`);
   execFileSync("git", ["init"], { cwd: repoRoot, stdio: "ignore" });
   execFileSync("git", ["add", "package.json"], { cwd: repoRoot, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", "init"], {
     cwd: repoRoot,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "EvoPilot Test",
+      GIT_AUTHOR_EMAIL: "evopilot@example.test",
+      GIT_COMMITTER_NAME: "EvoPilot Test",
+      GIT_COMMITTER_EMAIL: "evopilot@example.test"
+    }
+  });
+  execFileSync("git", ["init"], { cwd: otherRepoRoot, stdio: "ignore" });
+  execFileSync("git", ["add", "package.json"], { cwd: otherRepoRoot, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], {
+    cwd: otherRepoRoot,
     stdio: "ignore",
     env: {
       ...process.env,
@@ -1314,6 +1330,20 @@ test("release evidence endpoint persists release candidate evidence without leak
       })
     });
     assert.equal(project.status, 201);
+    const otherProject = await fetch(`${baseUrl}/api/v1/projects`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "other-project",
+        name: "Other Project",
+        repository: {
+          provider: "local-git",
+          root: otherRepoRoot,
+          defaultBranch: "main"
+        }
+      })
+    });
+    assert.equal(otherProject.status, 201);
 
     const codeUpgrader = await fetch(`${baseUrl}/api/v1/connectors/openhands`, {
       method: "POST",
@@ -1483,6 +1513,10 @@ test("release evidence endpoint persists release candidate evidence without leak
       target.minActiveSoakPipelineDelta === 5 &&
       target.requiredScenarioIds.includes("mainstream-loop-harness-alignment")
     ));
+    assert.deepEqual(
+      ["experimental", "alpha", "beta", "rc", "ga"].every((id) => targetBody.data.some((target) => target.id === id)),
+      true
+    );
 
     const decisions = await fetch(`${baseUrl}/api/v1/release/decisions`, {
       headers: { authorization: "Bearer viewer-token" }
@@ -1509,7 +1543,118 @@ test("release evidence endpoint persists release candidate evidence without leak
     assert.equal(summaryBody.data.recentReleaseEvidence[0].connectedProjects, undefined);
     assert.equal(summaryBody.data.latestReleaseDecision.id, "decision-rc-2");
     assert.equal(summaryBody.data.currentReleaseDecision.id, "decision-rc-2");
-    assert.equal(summaryBody.data.releaseTargetCount, 1);
+    assert.equal(summaryBody.data.releaseTargetCount, 5);
+
+    const projectBetaTarget = await fetch(`${baseUrl}/api/v1/release/targets`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "connected-project-beta",
+        name: "Connected Project Beta",
+        scope: "project",
+        projectId: "connected-project",
+        templateId: "beta",
+        minConnectedProjects: 1,
+        minSucceededSoakSeconds: 0,
+        minSuccessfulRuns: 0,
+        minEvaluationDatasets: 0,
+        minOpportunities: 0,
+        minSuccessfulEvolutionBatches: 0,
+        minSuccessfulCodeUpgrades: 1,
+        minSuccessfulPipelines: 0,
+        requiredScenarioIds: ["beta-core-flow"],
+        requireNoHighOpenRisks: false
+      })
+    });
+    assert.equal(projectBetaTarget.status, 201);
+
+    const projectBetaEvidence = await fetch(`${baseUrl}/api/v1/release/evidence`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "connected-project-beta-evidence",
+        projectId: "connected-project",
+        candidate: "connected-project-beta",
+        releaseTargetId: "connected-project-beta",
+        scenarioMatrix: [
+          { id: "beta-core-flow", name: "Beta Core Flow", status: "PASS", evidence: ["project scoped beta loop passed"], required: true }
+        ]
+      })
+    });
+    assert.equal(projectBetaEvidence.status, 201);
+    const projectBetaEvidenceBody = await projectBetaEvidence.json();
+    assert.equal(projectBetaEvidenceBody.data.projectId, "connected-project");
+    assert.equal(projectBetaEvidenceBody.data.connectedProjects.length, 1);
+    assert.equal(projectBetaEvidenceBody.data.connectedProjects[0].id, "connected-project");
+    assert.equal(projectBetaEvidenceBody.data.status, "GO");
+
+    const otherProjectBetaTarget = await fetch(`${baseUrl}/api/v1/release/targets`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "other-project-beta",
+        name: "Other Project Beta",
+        scope: "project",
+        projectId: "other-project",
+        templateId: "beta",
+        minConnectedProjects: 1,
+        minSucceededSoakSeconds: 0,
+        minSuccessfulRuns: 0,
+        minEvaluationDatasets: 0,
+        minOpportunities: 0,
+        minSuccessfulEvolutionBatches: 0,
+        minSuccessfulCodeUpgrades: 1,
+        minSuccessfulPipelines: 0,
+        requiredScenarioIds: ["beta-core-flow"],
+        requireNoHighOpenRisks: false
+      })
+    });
+    assert.equal(otherProjectBetaTarget.status, 201);
+
+    const otherBetaEvidence = await fetch(`${baseUrl}/api/v1/release/evidence`, {
+      method: "POST",
+      headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "other-project-beta-evidence",
+        projectId: "other-project",
+        candidate: "other-project-beta",
+        releaseTargetId: "other-project-beta",
+        scenarioMatrix: [
+          { id: "beta-core-flow", name: "Beta Core Flow", status: "PASS", evidence: ["other project scenario passed"], required: true }
+        ]
+      })
+    });
+    assert.equal(otherBetaEvidence.status, 201);
+    const otherBetaEvidenceBody = await otherBetaEvidence.json();
+    assert.equal(otherBetaEvidenceBody.data.projectId, "other-project");
+    assert.equal(otherBetaEvidenceBody.data.connectedProjects.length, 1);
+    assert.equal(otherBetaEvidenceBody.data.connectedProjects[0].id, "other-project");
+    assert.equal(otherBetaEvidenceBody.data.status, "NO-GO");
+
+    const projectDecisions = await fetch(`${baseUrl}/api/v1/release/decisions?targetId=connected-project-beta&projectId=connected-project`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    assert.equal(projectDecisions.status, 200);
+    const projectDecisionsBody = await projectDecisions.json();
+    assert.equal(projectDecisionsBody.data.length, 1);
+    assert.equal(projectDecisionsBody.data[0].projectId, "connected-project");
+    assert.equal(projectDecisionsBody.data[0].status, "GO");
+
+    const otherProjectDecisions = await fetch(`${baseUrl}/api/v1/release/decisions?targetId=connected-project-beta&projectId=other-project`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    assert.equal(otherProjectDecisions.status, 200);
+    const otherProjectDecisionsBody = await otherProjectDecisions.json();
+    assert.equal(otherProjectDecisionsBody.data.length, 0);
+
+    const otherOwnProjectDecisions = await fetch(`${baseUrl}/api/v1/release/decisions?targetId=other-project-beta&projectId=other-project`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    assert.equal(otherOwnProjectDecisions.status, 200);
+    const otherOwnProjectDecisionsBody = await otherOwnProjectDecisions.json();
+    assert.equal(otherOwnProjectDecisionsBody.data.length, 1);
+    assert.equal(otherOwnProjectDecisionsBody.data[0].projectId, "other-project");
+    assert.equal(otherOwnProjectDecisionsBody.data[0].status, "NO-GO");
 
     const saasTarget = await fetch(`${baseUrl}/api/v1/release/targets`, {
       method: "POST",

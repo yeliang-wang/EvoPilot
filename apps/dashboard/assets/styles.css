@@ -4240,6 +4240,107 @@ td {
   margin-top: 12px;
 }
 
+.project-release-targets {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.section-title.compact {
+  margin-bottom: 0;
+}
+
+.release-template-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.release-template-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f8fafb;
+}
+
+.release-template-card span {
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.release-template-card strong,
+.release-template-card small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.release-template-card small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.release-template-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.release-template-card dl div {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.release-template-card dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.release-template-card dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.release-template-card .row-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.project-decision-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.project-decision-strip div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfd;
+}
+
+.project-decision-strip span,
+.project-decision-strip small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 .connector-tile {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -5991,6 +6092,11 @@ td {
   .source-ga-event,
   .source-ga-inspector-actions,
   .source-ga-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .release-template-grid,
+  .project-decision-strip {
     grid-template-columns: 1fr;
   }
 }

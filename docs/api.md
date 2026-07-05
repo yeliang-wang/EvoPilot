@@ -457,12 +457,62 @@ POST /api/v1/release/targets
 GET /api/v1/release/decisions
 GET /api/v1/release/decisions?current=true
 GET /api/v1/release/decisions?targetId=saas-ga
+GET /api/v1/release/decisions?targetId=<targetId>&projectId=<projectId>
 POST /api/v1/release/evidence
 ```
 
 EvoPilot 自身定义“什么才算 GA Release”。外部 AI、通用 sub agent、CI/CD 编排器或人工执行验证时，都应先读取发布目标，再按目标执行场景验证 loop，最后生成 release evidence 和 release decision。
 
 SaaS 多租户版本的正式发布状态以 `targetId=saas-ga` 为当前口径。`GET /api/v1/release/decisions?current=true` 只返回当前正式发布判定；历史 `ga` 判定仍保留为审计记录，但不会替代 SaaS 多租户版本的当前发布结论。`GET /api/v1/summary` 同时返回 `currentReleaseDecision` 和 `currentReleaseTargetId`，Dashboard 应优先使用这两个字段。
+
+项目级发布治理使用标准等级模板和项目专属 target。`GET /api/v1/release/targets` 默认返回 `experimental`、`alpha`、`beta`、`rc`、`ga` 五个内置模板。管理员可以复制模板并提交 `scope: "project"`、`projectId`、`templateId` 创建某个 GitHub 项目的专属 target；随后 `POST /api/v1/release/evidence` 传入同一个 `projectId` 和 `releaseTargetId`，EvoPilot 只统计该项目的 pipeline、code upgrade、source release run、风险和场景证据。若 project-scoped target 绑定了 `projectId`，但 evidence 使用其他项目，服务端会返回 `RELEASE_TARGET_PROJECT_MISMATCH`。
+
+项目级 target 示例：
+
+```json
+{
+  "id": "github-owner-repo-beta",
+  "name": "github-owner-repo Beta",
+  "scope": "project",
+  "projectId": "github-owner-repo",
+  "templateId": "beta",
+  "minConnectedProjects": 1,
+  "minSuccessfulCodeUpgrades": 1,
+  "minSuccessfulPipelines": 1,
+  "requiredScenarioIds": ["beta-core-flow", "ci-cd-pass", "manual-approval"],
+  "requireNoHighOpenRisks": true
+}
+```
+
+项目级 evidence 示例：
+
+```json
+{
+  "id": "github-owner-repo-beta-evidence",
+  "projectId": "github-owner-repo",
+  "releaseTargetId": "github-owner-repo-beta",
+  "candidate": "github-owner-repo-beta",
+  "scenarioMatrix": [
+    { "id": "beta-core-flow", "name": "Beta Core Flow", "status": "PASS", "evidence": ["source-to-beta loop passed"], "required": true }
+  ]
+}
+```
+
+查询项目判定：
+
+```http
+GET /api/v1/release/decisions?targetId=github-owner-repo-beta&projectId=github-owner-repo
+```
+
+默认内置等级模板：
+
+| 等级 | targetId | 用途 |
+|---|---|---|
+| Experimental | `experimental` | 早期实验，验证项目接入和最小证据链。 |
+| Alpha | `alpha` | 内部试用，要求 smoke、基础运行证据和人工确认。 |
+| Beta | `beta` | 有限用户试用，要求核心场景、CI/CD、代码升级和无高危开放风险。 |
+| Release Candidate | `rc` | 候选发布，要求源码闭环、部署健康、回滚或修复证据。 |
+| GA Release | `ga` | 正式稳定发布，要求完整 Source-to-GA 证据、稳定性和主流 Loop Harness 对齐。 |
 
 默认内置 `ga` 目标：
 

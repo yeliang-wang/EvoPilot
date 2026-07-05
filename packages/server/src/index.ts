@@ -637,6 +637,7 @@ interface ReleaseEvidenceBundle {
   id: string;
   tenantId: string;
   workspaceId: string;
+  projectId?: string;
   candidate: string;
   status: "GO" | "CONDITIONAL-GO" | "NO-GO";
   releaseTargetId?: string;
@@ -678,6 +679,7 @@ interface ReleaseEvidenceListItem {
   id: string;
   tenantId: string;
   workspaceId: string;
+  projectId?: string;
   candidate: string;
   status: ReleaseEvidenceBundle["status"];
   releaseTargetId?: string;
@@ -712,6 +714,9 @@ interface ReleaseTargetProfile {
   id: string;
   name: string;
   description: string;
+  scope?: "platform" | "tenant" | "workspace" | "project";
+  projectId?: string;
+  templateId?: string;
   minConnectedProjects: number;
   minSucceededSoakSeconds: number;
   requireActiveSoak?: boolean;
@@ -744,6 +749,7 @@ interface ReleaseDecision {
   id: string;
   tenantId: string;
   workspaceId: string;
+  projectId?: string;
   candidate: string;
   targetId: string;
   evidenceBundleId: string;
@@ -2089,10 +2095,12 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       if (request.method === "GET" && url.pathname === "/api/v1/release/decisions") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         const targetId = optionalTrimmedString(url.searchParams.get("targetId"));
+        const projectId = optionalTrimmedString(url.searchParams.get("projectId"));
         const currentOnly = url.searchParams.get("current") === "true";
         const decisions = store.listReleaseDecisions()
           .filter((decision) => canAccessScopedResource(auth, decision.tenantId, decision.workspaceId))
-          .filter((decision) => !targetId || decision.targetId === targetId);
+          .filter((decision) => !targetId || decision.targetId === targetId)
+          .filter((decision) => !projectId || decision.projectId === projectId);
         if (currentOnly) {
           const current = currentReleaseDecision(decisions);
           return writeJson(response, 200, envelope(current ? [current] : []));
@@ -3157,6 +3165,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           id: body.id ? String(body.id) : undefined,
           tenantId: optionalTrimmedString(body.tenantId) ?? auth.tenantId,
           workspaceId: optionalTrimmedString(body.workspaceId) ?? auth.workspaceId,
+          projectId: optionalTrimmedString(body.projectId),
           candidate: body.candidate ? String(body.candidate) : undefined,
           releaseTargetId: body.releaseTargetId ? String(body.releaseTargetId) : undefined,
           scenarioMatrix: normalizeScenarioMatrix(body.scenarioMatrix),
@@ -5610,7 +5619,8 @@ class FileStore {
     return {
       ...bundle,
       tenantId: safeFileName(String(bundle.tenantId ?? DEFAULT_TENANT_ID)),
-      workspaceId: safeFileName(String(bundle.workspaceId ?? DEFAULT_WORKSPACE_ID))
+      workspaceId: safeFileName(String(bundle.workspaceId ?? DEFAULT_WORKSPACE_ID)),
+      projectId: bundle.projectId ? safeFileName(String(bundle.projectId)) : undefined
     } as ReleaseEvidenceBundle;
   }
 
@@ -5619,16 +5629,16 @@ class FileStore {
       .filter((file) => file.endsWith(".json"))
       .sort()
       .map((file) => JSON.parse(fs.readFileSync(path.join(this.releaseTargetsDir, file), "utf8")) as ReleaseTargetProfile);
-    if (persisted.some((target) => target.id === "ga")) return persisted;
-    return [defaultGAReleaseTarget(), ...persisted];
+    const builtIns = defaultReleaseTargets();
+    const persistedIds = new Set(persisted.map((target) => target.id));
+    return [...builtIns.filter((target) => !persistedIds.has(target.id)), ...persisted];
   }
 
   readReleaseTarget(id: string): ReleaseTargetProfile | undefined {
     const safeId = safeFileName(id);
     const file = path.join(this.releaseTargetsDir, `${safeId}.json`);
     if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8")) as ReleaseTargetProfile;
-    if (safeId === "ga") return defaultGAReleaseTarget();
-    return undefined;
+    return defaultReleaseTargets().find((target) => target.id === safeId);
   }
 
   writeReleaseTarget(target: ReleaseTargetProfile): ReleaseTargetProfile {
@@ -5660,7 +5670,8 @@ class FileStore {
     return {
       ...decision,
       tenantId: safeFileName(String(decision.tenantId ?? DEFAULT_TENANT_ID)),
-      workspaceId: safeFileName(String(decision.workspaceId ?? DEFAULT_WORKSPACE_ID))
+      workspaceId: safeFileName(String(decision.workspaceId ?? DEFAULT_WORKSPACE_ID)),
+      projectId: decision.projectId ? safeFileName(String(decision.projectId)) : undefined
     } as ReleaseDecision;
   }
 
@@ -6425,6 +6436,7 @@ class FileStore {
     id?: string;
     tenantId?: string;
     workspaceId?: string;
+    projectId?: string;
     candidate?: string;
     releaseTargetId?: string;
     scenarioMatrix?: ReleaseScenarioResult[];
@@ -6434,10 +6446,16 @@ class FileStore {
     const id = safeFileName(input.id ?? `release-evidence-${Date.now()}`);
     const tenantId = safeFileName(String(input.tenantId ?? DEFAULT_TENANT_ID));
     const workspaceId = safeFileName(String(input.workspaceId ?? DEFAULT_WORKSPACE_ID));
+    const projectId = input.projectId ? safeFileName(input.projectId) : undefined;
     const releaseTargetId = input.releaseTargetId ?? "ga";
     const target = this.readReleaseTarget(releaseTargetId) ?? defaultGAReleaseTarget();
+    if (target.scope === "project" && target.projectId && target.projectId !== projectId) {
+      throw httpError(400, "RELEASE_TARGET_PROJECT_MISMATCH", `发布目标 ${target.id} 绑定项目 ${target.projectId}，不能用于项目 ${projectId ?? "未指定"}。`);
+    }
     const summary = compactReleaseEvidenceSummary(this.summary() as Record<string, unknown>);
-    const projects = this.listProjects().filter((project) => project.tenantId === tenantId && project.workspaceId === workspaceId);
+    const projects = this.listProjects()
+      .filter((project) => project.tenantId === tenantId && project.workspaceId === workspaceId)
+      .filter((project) => !projectId || project.id === projectId);
     const scopedProjectIds = new Set(projects.map((project) => project.id));
     const soakReports = this.listSoakReports();
     const pipelines = this.listPipelines().filter((pipeline) => scopedProjectIds.has(pipeline.projectId));
@@ -6472,6 +6490,7 @@ class FileStore {
       id,
       tenantId,
       workspaceId,
+      projectId,
       candidate: input.candidate ?? `candidate-${now}`,
       status,
       releaseTargetId,
@@ -6519,7 +6538,7 @@ class FileStore {
       createdAt: now,
       updatedAt: now
     };
-    const decision = this.generateReleaseDecision({ target, evidenceBundle: bundle, scenarioMatrix, riskRegister, summary, now });
+    const decision = this.generateReleaseDecision({ target, evidenceBundle: bundle, scenarioMatrix, riskRegister, summary, now, projectIds: scopedProjectIds });
     const releaseBundle = {
       ...bundle,
       status: decision.status,
@@ -6536,8 +6555,10 @@ class FileStore {
     riskRegister: ReleaseRisk[];
     summary: Record<string, unknown>;
     now: string;
+    projectIds?: Set<string>;
   }): ReleaseDecision {
     const { target, evidenceBundle, scenarioMatrix, riskRegister, summary, now } = args;
+    const projectIds = args.projectIds ?? new Set(this.listProjects().map((project) => project.id));
     const soakReports = this.listSoakReports();
     const succeededSoakSeconds = soakReports
       .filter((report) => report.status === "SUCCEEDED")
@@ -6546,11 +6567,12 @@ class FileStore {
       .filter((report) => report.status === "SUCCEEDED" && isActiveSoakReport(report, target))
       .reduce((sum, report) => sum + report.durationSeconds, 0);
     const requiredSoakSeconds = target.requireActiveSoak ? activeSucceededSoakSeconds : succeededSoakSeconds;
-    const successfulCodeUpgrades = this.listCodeUpgradeRuns().filter((upgrade) => upgrade.status === "SUCCEEDED").length;
-    const successfulPipelines = this.listPipelines().filter((pipeline) => pipeline.status === "SUCCEEDED").length;
+    const successfulCodeUpgrades = this.listCodeUpgradeRuns().filter((upgrade) => projectIds.has(upgrade.projectId) && upgrade.status === "SUCCEEDED").length;
+    const successfulPipelines = this.listPipelines().filter((pipeline) => projectIds.has(pipeline.projectId) && pipeline.status === "SUCCEEDED").length;
+    const connectedProjectCount = evidenceBundle.connectedProjects.length;
     const highOpenRiskCount = riskRegister.filter((risk) => risk.status === "OPEN" && (risk.severity === "HIGH" || risk.severity === "CRITICAL")).length;
     const criteria: ReleaseDecisionCriterion[] = [
-      numericCriterion("min-connected-projects", "最少接入项目数", this.listProjects().length, target.minConnectedProjects, [`connectedProjects=${this.listProjects().length}`]),
+      numericCriterion("min-connected-projects", "最少接入项目数", connectedProjectCount, target.minConnectedProjects, [`connectedProjects=${connectedProjectCount}`, evidenceBundle.projectId ? `projectId=${evidenceBundle.projectId}` : `workspaceId=${evidenceBundle.workspaceId}`]),
       numericCriterion("min-succeeded-soak-seconds", target.requireActiveSoak ? "有负载成功持续验证时长" : "成功持续验证时长", requiredSoakSeconds, target.minSucceededSoakSeconds, [
         `succeededSoakSeconds=${succeededSoakSeconds}`,
         `activeSucceededSoakSeconds=${activeSucceededSoakSeconds}`,
@@ -6584,6 +6606,7 @@ class FileStore {
       id: `decision-${safeFileName(evidenceBundle.id)}`,
       tenantId: evidenceBundle.tenantId,
       workspaceId: evidenceBundle.workspaceId,
+      projectId: evidenceBundle.projectId,
       candidate: evidenceBundle.candidate,
       targetId: target.id,
       evidenceBundleId: evidenceBundle.id,
@@ -12033,7 +12056,7 @@ function normalizeSoakReportStatus(value: unknown): SoakReport["status"] {
 function normalizeReleaseTarget(value: unknown): ReleaseTargetProfile {
   if (!isRecord(value)) throw httpError(400, "RELEASE_TARGET_INVALID", "发布目标必须是对象。");
   const now = new Date().toISOString();
-  const existing = value.id === "ga" ? defaultGAReleaseTarget() : undefined;
+  const existing = defaultReleaseTargets().find((target) => target.id === value.id);
   const id = safeFileName(String(value.id ?? existing?.id ?? ""));
   if (!id) throw httpError(400, "RELEASE_TARGET_ID_REQUIRED", "发布目标必须包含 id。");
   const requiredScenarioIds = Array.isArray(value.requiredScenarioIds)
@@ -12043,6 +12066,9 @@ function normalizeReleaseTarget(value: unknown): ReleaseTargetProfile {
     id,
     name: String(value.name ?? existing?.name ?? id),
     description: String(value.description ?? existing?.description ?? "自定义发布目标"),
+    scope: normalizeReleaseTargetScope(value.scope, existing?.scope ?? (value.projectId ? "project" : "workspace")),
+    projectId: optionalTrimmedString(value.projectId)?.replace(/[^a-zA-Z0-9_.:-]+/g, "-"),
+    templateId: optionalTrimmedString(value.templateId) ?? existing?.templateId,
     minConnectedProjects: nonNegativeInteger(value.minConnectedProjects, existing?.minConnectedProjects ?? 1),
     minSucceededSoakSeconds: nonNegativeInteger(value.minSucceededSoakSeconds, existing?.minSucceededSoakSeconds ?? 0),
     requireActiveSoak: value.requireActiveSoak === undefined ? existing?.requireActiveSoak ?? false : Boolean(value.requireActiveSoak),
@@ -12062,12 +12088,119 @@ function normalizeReleaseTarget(value: unknown): ReleaseTargetProfile {
   };
 }
 
+function normalizeReleaseTargetScope(value: unknown, fallback: ReleaseTargetProfile["scope"]): ReleaseTargetProfile["scope"] {
+  const normalized = String(value ?? fallback ?? "workspace").toLowerCase();
+  if (normalized === "platform" || normalized === "tenant" || normalized === "workspace" || normalized === "project") return normalized;
+  throw httpError(400, "RELEASE_TARGET_SCOPE_INVALID", `不支持的发布目标范围：${String(value)}`);
+}
+
+function defaultReleaseTargets(): ReleaseTargetProfile[] {
+  const now = "1970-01-01T00:00:00.000Z";
+  return [
+    {
+      id: "experimental",
+      name: "Experimental",
+      description: "早期实验目标，用于验证项目接入、基础构建和最小证据链，不代表可对外试用。",
+      scope: "workspace",
+      templateId: "experimental",
+      minConnectedProjects: 1,
+      minSucceededSoakSeconds: 0,
+      requireActiveSoak: false,
+      minActiveSoakRunDelta: 0,
+      minActiveSoakCodeUpgradeDelta: 0,
+      minActiveSoakPipelineDelta: 0,
+      minSuccessfulRuns: 0,
+      minEvaluationDatasets: 0,
+      minOpportunities: 0,
+      minSuccessfulEvolutionBatches: 0,
+      minSuccessfulCodeUpgrades: 0,
+      minSuccessfulPipelines: 0,
+      requiredScenarioIds: ["project-onboarding-smoke"],
+      requireNoHighOpenRisks: false,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "alpha",
+      name: "Alpha",
+      description: "内部试用目标，要求项目接入、关键 smoke、至少一条运行证据和显式风险记录。",
+      scope: "workspace",
+      templateId: "alpha",
+      minConnectedProjects: 1,
+      minSucceededSoakSeconds: 0,
+      requireActiveSoak: false,
+      minActiveSoakRunDelta: 0,
+      minActiveSoakCodeUpgradeDelta: 0,
+      minActiveSoakPipelineDelta: 0,
+      minSuccessfulRuns: 1,
+      minEvaluationDatasets: 0,
+      minOpportunities: 0,
+      minSuccessfulEvolutionBatches: 0,
+      minSuccessfulCodeUpgrades: 0,
+      minSuccessfulPipelines: 1,
+      requiredScenarioIds: ["alpha-smoke", "manual-approval"],
+      requireNoHighOpenRisks: false,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "beta",
+      name: "Beta",
+      description: "有限用户试用目标，要求核心场景、CI/CD、一次 Source-to-Target 证据和无高危开放风险。",
+      scope: "workspace",
+      templateId: "beta",
+      minConnectedProjects: 1,
+      minSucceededSoakSeconds: 0,
+      requireActiveSoak: false,
+      minActiveSoakRunDelta: 0,
+      minActiveSoakCodeUpgradeDelta: 0,
+      minActiveSoakPipelineDelta: 0,
+      minSuccessfulRuns: 1,
+      minEvaluationDatasets: 1,
+      minOpportunities: 0,
+      minSuccessfulEvolutionBatches: 0,
+      minSuccessfulCodeUpgrades: 1,
+      minSuccessfulPipelines: 1,
+      requiredScenarioIds: ["beta-core-flow", "ci-cd-pass", "manual-approval"],
+      requireNoHighOpenRisks: true,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "rc",
+      name: "Release Candidate",
+      description: "候选发布目标，要求源码闭环、CI/CD、部署健康、回滚或修复证据和无高危开放风险。",
+      scope: "workspace",
+      templateId: "rc",
+      minConnectedProjects: 1,
+      minSucceededSoakSeconds: 0,
+      requireActiveSoak: false,
+      minActiveSoakRunDelta: 0,
+      minActiveSoakCodeUpgradeDelta: 0,
+      minActiveSoakPipelineDelta: 0,
+      minSuccessfulRuns: 1,
+      minEvaluationDatasets: 1,
+      minOpportunities: 1,
+      minSuccessfulEvolutionBatches: 1,
+      minSuccessfulCodeUpgrades: 1,
+      minSuccessfulPipelines: 2,
+      requiredScenarioIds: ["source-to-production-closure", "deploy-health-ready", "rollback-or-repair", "manual-approval"],
+      requireNoHighOpenRisks: true,
+      createdAt: now,
+      updatedAt: now
+    },
+    defaultGAReleaseTarget()
+  ];
+}
+
 function defaultGAReleaseTarget(): ReleaseTargetProfile {
   const now = "1970-01-01T00:00:00.000Z";
   return {
     id: "ga",
     name: "GA Release",
     description: "EvoPilot 生产 GA 发布目标，供 AI 或外部工具执行场景验证 loop 时作为统一判定标准。",
+    scope: "workspace",
+    templateId: "ga",
     minConnectedProjects: 5,
     minSucceededSoakSeconds: 90 * 60,
     requireActiveSoak: true,
@@ -12452,6 +12585,7 @@ function releaseEvidenceListItem(bundle: ReleaseEvidenceBundle): ReleaseEvidence
     id: bundle.id,
     tenantId: bundle.tenantId,
     workspaceId: bundle.workspaceId,
+    projectId: bundle.projectId,
     candidate: bundle.candidate,
     status: bundle.status,
     releaseTargetId: bundle.releaseTargetId,

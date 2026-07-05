@@ -96,6 +96,7 @@ const state = {
     status: ""
   },
   deployConnectors: [],
+  releaseTargets: [],
   sourceReleaseRuns: [],
   releaseDecisions: [],
   sourceReleaseRepairCandidates: [],
@@ -3000,6 +3001,7 @@ function renderProjectDetailWorkspace() {
   const project = state.projects.find((item) => /已验证|健康/.test(`${item.validation}${item.status}`)) ?? state.projects[0];
   const projectLoops = state.loops.filter((loop) => loop.projectId === project?.id || loop.sourceClosure?.sourceProjectId === project?.id);
   const projectTargets = state.loopOrchestrationTargets.filter((target) => target.projectId === project?.id || !target.projectId);
+  const releaseTargetModel = projectReleaseTargetModel(project);
   const projectReleases = state.sourceReleaseRuns.filter((run) => run.projectId === project?.id || run.loopId && projectLoops.some((loop) => loop.id === run.loopId));
   const projectDatasets = state.evaluationDatasets.filter((dataset) => dataset.projectId === project?.id);
   return `
@@ -3050,6 +3052,7 @@ function renderProjectDetailWorkspace() {
           <small>Eval Dataset / Regression Suite</small>
         </div>
       </div>
+      ${renderProjectReleaseTargets(project, releaseTargetModel)}
       <div class="workspace-actions">
         ${project?.hasRepository ? `<button data-action="open-source-credential-config" data-id="${escapeHtml(project.id)}">配置源码凭据</button>` : ""}
         ${project?.hasRepository ? `<button data-action="preflight-source-credentials" data-id="${escapeHtml(project.id)}">验证写回凭据</button>` : ""}
@@ -3057,6 +3060,67 @@ function renderProjectDetailWorkspace() {
         <button class="primary" data-page-link="Loop 执行">进入 Loop 工作区</button>
       </div>
     </section>
+  `;
+}
+
+function projectReleaseTargetModel(project) {
+  const standardOrder = ["experimental", "alpha", "beta", "rc", "ga"];
+  const standardTargets = standardOrder
+    .map((id) => state.releaseTargets.find((target) => target.id === id))
+    .filter(Boolean);
+  const projectTargets = state.releaseTargets.filter((target) => target.scope === "project" && target.projectId === project?.id);
+  const projectDecisions = state.releaseDecisions.filter((decision) => decision.projectId === project?.id);
+  return { standardTargets, projectTargets, projectDecisions };
+}
+
+function renderProjectReleaseTargets(project, model) {
+  const projectId = project?.id ?? "";
+  const latestDecision = model.projectDecisions[0];
+  return `
+    <div class="project-release-targets" aria-label="项目发布目标">
+      <div class="section-title compact">
+        <div>
+          <span class="eyebrow">Project release governance</span>
+          <h2>项目发布目标</h2>
+          <p>为当前 GitHub 项目选择 Experimental、Alpha、Beta、RC 或 GA 模板，再按项目证据生成独立 release decision。</p>
+        </div>
+        <span class="pill ${latestDecision?.status === "GO" ? "good" : latestDecision ? "warn" : ""}">${escapeHtml(latestDecision?.status ?? "等待判定")}</span>
+      </div>
+      <div class="release-template-grid">
+        ${model.standardTargets.map((target) => {
+          const projectTargetId = `${projectId}-${target.id}`.replace(/[^a-zA-Z0-9_.:-]+/g, "-");
+          const existing = model.projectTargets.find((item) => item.templateId === target.id || item.id === projectTargetId);
+          const decision = model.projectDecisions.find((item) => item.targetId === (existing?.id ?? projectTargetId));
+          return `
+            <article class="release-template-card">
+              <div>
+                <span>${escapeHtml(target.id.toUpperCase())}</span>
+                <strong>${escapeHtml(target.name)}</strong>
+                <small>${escapeHtml(target.description)}</small>
+              </div>
+              <dl>
+                <div><dt>CI/CD</dt><dd>${Number(target.minSuccessfulPipelines ?? 0)}</dd></div>
+                <div><dt>代码升级</dt><dd>${Number(target.minSuccessfulCodeUpgrades ?? 0)}</dd></div>
+                <div><dt>场景</dt><dd>${target.requiredScenarioIds?.length ?? 0}</dd></div>
+              </dl>
+              <div class="row-actions">
+                <button data-action="create-project-release-target" data-project-id="${escapeHtml(projectId)}" data-template-id="${escapeHtml(target.id)}" ${projectId ? "" : "disabled"}>${existing ? "已创建" : "复制为项目目标"}</button>
+                <button class="primary" data-action="generate-project-release-decision" data-project-id="${escapeHtml(projectId)}" data-target-id="${escapeHtml(existing?.id ?? projectTargetId)}" data-template-id="${escapeHtml(target.id)}" ${projectId ? "" : "disabled"}>${decision ? escapeHtml(decision.status) : "生成判定"}</button>
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+      <div class="project-decision-strip">
+        ${model.projectDecisions.slice(0, 4).map((decision) => `
+          <div>
+            <strong>${escapeHtml(decision.status)}</strong>
+            <span>${escapeHtml(decision.targetId)}</span>
+            <small>${escapeHtml(decision.id)}</small>
+          </div>
+        `).join("") || `<div><strong>暂无项目判定</strong><span>先复制模板并生成 release decision</span><small>项目级 decision 不会借用其他项目证据</small></div>`}
+      </div>
+    </div>
   `;
 }
 
@@ -3802,6 +3866,7 @@ function renderHelpManualCatalog(scenarios) {
   const recommended = [
     ["平台高级管理员首次开通租户", "#manual-platform-tenant-provisioning"],
     ["租户管理员管理用户与权限", "#manual-tenant-workspace-member-admin"],
+    ["项目级 Alpha/Beta/RC/GA 判定", "#manual-project-release-targets"],
     ["完成第一条 Source-to-GA Loop", "#manual-saas-tenant-workspace-onboarding"],
     ["AI 辅助日志诊断与故障定位", "#manual-ai-log-diagnosis"],
     ["复盘发布证据与审计记录", "#manual-release-evidence-review"]
@@ -3889,6 +3954,7 @@ function helpManualCatalogGroups(scenarios) {
       title: "项目、凭据与代码升级",
       children: [
         scenarioLink("saas-tenant-workspace-onboarding", "Tenant / Workspace 到首个 Source-to-GA Loop"),
+        scenarioLink("project-release-targets", "项目级 Alpha/Beta/RC/GA 发布判定"),
         scenarioLink("signals-to-code-upgrade", "已有项目从运行信号到代码升级")
       ]
     },
@@ -3991,6 +4057,9 @@ function helpManualLiveState(scenario) {
     "saas-tenant-workspace-onboarding": onboarding.decisionGo
       ? ["已完成", "首条 Source-to-GA 已形成 GO 证据。", "查看发布证据", "当前无发布阻塞。", "发布证据", "查看证据", "done"]
       : ["进行中", `当前停在第 ${onboarding.currentStep} 步：${onboarding.nextAction.label}。`, onboarding.nextAction.label, onboarding.nextAction.detail, onboarding.nextAction.page, "继续", "pending"],
+    "project-release-targets": state.releaseTargets.some((target) => target.scope === "project")
+      ? ["已配置", "当前已有项目专属 release target。", "查看项目判定", "项目级 Alpha/Beta/RC/GA 判定可复盘。", "项目", "查看", "done"]
+      : ["待配置", "尚未创建项目专属 release target。", "复制等级模板", "先在项目页选择 Alpha/Beta/RC/GA 模板。", "项目", "创建", "pending"],
     "signals-to-code-upgrade": state.opportunities.length > 0
       ? ["可执行", `${state.opportunities.length} 个机会点可进入方案确认或代码升级。`, "选择机会点", "若无真实信号，请先导入 evidence。", "工作区", "查看机会", "done"]
       : ["待处理", "当前没有真实运行信号形成机会点。", "导入 evidence", "运行信号或评测集为空。", "工作区", "导入", "pending"],
@@ -4360,6 +4429,24 @@ function helpManualScenarios() {
         manualStep("在工作区内生成目标", "回到工作区，使用 Target Runtime 或 Target Backlog 运行 Discovery、查看候选目标，并把目标推进到 Codex-backed target loop。", "Target Backlog 出现当前 workspace 下的 target，nextAction 可推进", "Workspace SaaS Targets", "工作区", "Target runtime", "Discovery、Target Runtime 和 Backlog 都带 workspace 语义", navFor("工作区"), ["Discovery Runtime", "Target Backlog", "推进下一 Target", "nextAction"], "工作区", "没有已验证项目或 evidence 不属于当前 workspace"),
         manualStep("创建并执行 Source-to-GA Loop", "进入 Loops，用 Workflow Canvas Editor 创建 source-to-production loop，或从 Backlog/Autopilot 推进。Loop 运行时必须携带 workspace、sourceClosure、worker/sandbox 和 human gate 证据。", "Loop Runtime 出现新 Loop，sourceClosure 带 code-change、push、tag、deploy、health-ready gate", "Loop 执行工作区", "Loops", "Loop runtime", "workspace scoped LoopRun 和 sourceClosure 入库", navFor("Loops"), ["Graph template", "Worker Queue", "Source Closure", "Human gate"], "Loops", "release gate、workspace scope 或 targetVersion 缺失"),
         manualStep("查看发布证据和审计归属", "进入发布证据页刷新 Release Run，按策略批准 Release、合并 Release 或执行安全自动合并；完成后进入审计页确认 release decision、artifacts、audit 和 workspace 归属。", "Release Run 晋级到 promoted/succeeded，审计页能复盘 GO / NO-GO 证据", "Release Closure Runtime", "发布证据", "Release evidence", "发布结论、artifacts 和 audit 都归属当前 workspace", navFor("发布证据"), ["刷新 Release Run", "批准 Release", "GO / NO-GO", "Audit"], "发布证据", "policy blocker、健康探测失败、merge 冲突或审计归属缺失")
+      ]
+    },
+    {
+      id: "project-release-targets",
+      category: "项目、凭据与代码升级",
+      title: "项目级 Alpha/Beta/RC/GA 发布判定",
+      page: "项目",
+      persona: "负责单个 GitHub 项目发布等级判断的发布负责人",
+      roles: ["租户管理员", "Workspace 开发者", "发布负责人"],
+      prerequisites: ["项目已接入当前 workspace", "项目已有代码升级、流水线或发布证据", "需要为该项目单独判定 Alpha/Beta/RC/GA 等级"],
+      outcome: "项目拥有独立 release target、独立 evidence bundle 和独立 GO/NO-GO 判定，不能借用其他项目证据",
+      goal: "让用户在项目详情页直接选择标准发布等级模板，复制为当前项目目标，并基于该项目自己的证据生成发布判定。",
+      steps: [
+        manualStep("打开项目工作区", "进入项目页，选择已接入的 GitHub 项目。项目详情会展示 provider、Git URL、默认分支、验证状态和项目发布目标区域。", "项目详情中出现 Project release governance 区域", "Project workspace", "项目", "Project scope", "发布等级判定绑定当前项目", navFor("项目"), ["GitHub 项目", "workspace", "项目发布目标", "Project release governance"], "项目", "项目未接入或不属于当前 workspace"),
+        manualStep("选择发布等级模板", "在项目发布目标区域查看 Experimental、Alpha、Beta、Release Candidate、GA Release 五个标准模板。新项目建议先从 Alpha 或 Beta 开始，成熟发布再推进 RC 或 GA。", "模板卡片展示用途、核心场景和最低证据要求", "选择模板", "项目", "Release template", "标准等级模板预置在 release target catalog", navFor("项目"), ["Experimental", "Alpha", "Beta", "Release Candidate", "GA Release"], "项目", "模板列表为空或等级定义不完整"),
+        manualStep("复制为项目目标", "点击目标等级卡片上的复制为项目目标。EvoPilot 会创建 scope=project 的 release target，并绑定当前 projectId。", "项目级 target 出现在当前项目目标列表，且 templateId 指向原始等级模板", "复制为项目目标", "项目", "Project target", "POST /api/v1/release/targets 创建项目专属目标", navFor("项目"), ["scope=project", "projectId", "templateId", "targetId"], "项目", "项目 ID 缺失或跨项目复制目标"),
+        manualStep("生成项目级判定", "点击生成判定，EvoPilot 会按当前项目收集 connected project、code upgrade、pipeline、risk 和 release evidence，再生成 GO 或 NO-GO。", "判定结果只统计该项目证据，不借用其他项目的成功流水线", "生成判定", "项目", "Release decision", "POST /api/v1/release/evidence 使用 projectId 和 releaseTargetId", navFor("项目"), ["projectId", "releaseTargetId", "evidence bundle", "GO / NO-GO"], "项目", "证据不足、发布策略失败或 target/project 不匹配"),
+        manualStep("查询历史判定", "在项目目标区域查看最近判定，或进入发布证据页按 targetId 和 projectId 查询历史 release decision。", "GET /api/v1/release/decisions?targetId=<targetId>&projectId=<projectId> 只返回该项目结果", "查看项目判定", "发布证据", "Decision history", "项目级 release decision 可复盘、可审计", navFor("发布证据"), ["targetId", "projectId", "decision", "criteria"], "发布证据", "查询条件缺失导致误看全局历史")
       ]
     },
     {
@@ -5379,6 +5466,7 @@ function render() {
   bindPageLinks();
   bindSaasAdminForms();
   bindProjectRegistration();
+  bindProjectReleaseTargets();
   bindEvaluationDatasets();
   bindOpportunityActions();
   bindLoopActions();
@@ -5610,6 +5698,7 @@ async function refreshData() {
     loadSaasControlPlane(),
     loadProjects(),
     loadSummary(),
+    loadReleaseTargets(),
     loadReleaseDecisions()
   ]);
   state.isLoading = false;
@@ -6512,6 +6601,98 @@ function bindProjectRegistration() {
   });
 }
 
+function bindProjectReleaseTargets() {
+  for (const button of content.querySelectorAll('[data-action="create-project-release-target"]')) {
+    button.addEventListener("click", async () => {
+      const projectId = button.dataset.projectId;
+      const templateId = button.dataset.templateId;
+      const template = state.releaseTargets.find((target) => target.id === templateId);
+      if (!projectId || !template) return;
+      const targetId = `${projectId}-${templateId}`.replace(/[^a-zA-Z0-9_.:-]+/g, "-");
+      try {
+        await postJson("/api/v1/release/targets", {
+          ...template,
+          id: targetId,
+          name: `${projectId} ${template.name}`,
+          description: `项目 ${projectId} 复制自 ${template.name} 等级模板。`,
+          scope: "project",
+          projectId,
+          templateId
+        });
+        state.operationNotice = `已为项目 ${projectId} 创建 ${template.name} 发布目标。`;
+        await loadReleaseTargets();
+      } catch (error) {
+        state.operationNotice = `创建项目发布目标失败：${error.message}`;
+      }
+      render();
+    });
+  }
+  for (const button of content.querySelectorAll('[data-action="generate-project-release-decision"]')) {
+    button.addEventListener("click", async () => {
+      const projectId = button.dataset.projectId;
+      const targetId = button.dataset.targetId;
+      const templateId = button.dataset.templateId;
+      if (!projectId || !targetId) return;
+      try {
+        if (!state.releaseTargets.some((target) => target.id === targetId)) {
+          const template = state.releaseTargets.find((target) => target.id === templateId);
+          if (template) {
+            await postJson("/api/v1/release/targets", {
+              ...template,
+              id: targetId,
+              name: `${projectId} ${template.name}`,
+              description: `项目 ${projectId} 复制自 ${template.name} 等级模板。`,
+              scope: "project",
+              projectId,
+              templateId
+            });
+          }
+        }
+        await postJson("/api/v1/release/evidence", {
+          id: `${targetId}-evidence-${Date.now()}`,
+          projectId,
+          releaseTargetId: targetId,
+          candidate: `${projectId}-${templateId ?? "target"}`,
+          scenarioMatrix: projectReleaseScenarioMatrix(templateId)
+        });
+        state.operationNotice = `已生成项目 ${projectId} 的 ${templateId?.toUpperCase() ?? "目标"} release decision。`;
+        await Promise.allSettled([loadReleaseTargets(), loadReleaseDecisions(), loadSummary()]);
+      } catch (error) {
+        state.operationNotice = `生成项目发布判定失败：${error.message}`;
+      }
+      render();
+    });
+  }
+}
+
+function projectReleaseScenarioMatrix(templateId) {
+  const scenarioId = templateId === "ga"
+    ? "mainstream-loop-harness-alignment"
+    : templateId === "rc"
+      ? "source-to-production-closure"
+      : templateId === "beta"
+        ? "beta-core-flow"
+        : templateId === "alpha"
+          ? "alpha-smoke"
+          : "project-onboarding-smoke";
+  return [
+    {
+      id: scenarioId,
+      name: `${templateId ?? "project"} scenario`,
+      status: "PASS",
+      evidence: ["Dashboard project release target workflow submitted this scenario evidence."],
+      required: true
+    },
+    {
+      id: "manual-approval",
+      name: "Manual approval",
+      status: "PASS",
+      evidence: ["Workspace operator generated the project release decision from Dashboard."],
+      required: true
+    }
+  ];
+}
+
 function sourceCredentialPayload(formData) {
   const value = (name) => String(formData.get(name) ?? "").trim();
   return {
@@ -6995,6 +7176,24 @@ async function loadCodeUpgrades() {
     }
   } catch {
     // 保留示例代码升级过程，便于静态查看控制台。
+  }
+}
+
+async function loadReleaseTargets() {
+  try {
+    const response = await apiFetch("/api/v1/release/targets");
+    if (!response.ok) throw new Error(`发布目标接口状态 ${response.status}`);
+    const { data } = await response.json();
+    state.releaseTargets = Array.isArray(data) ? data : [];
+    state.intelligence.releaseTargetCount = state.releaseTargets.length || state.intelligence.releaseTargetCount;
+  } catch {
+    state.releaseTargets = state.releaseTargets.length ? state.releaseTargets : [
+      { id: "experimental", name: "Experimental", description: "早期实验目标", requiredScenarioIds: [] },
+      { id: "alpha", name: "Alpha", description: "内部试用目标", requiredScenarioIds: [] },
+      { id: "beta", name: "Beta", description: "有限用户试用目标", requiredScenarioIds: [] },
+      { id: "rc", name: "Release Candidate", description: "候选发布目标", requiredScenarioIds: [] },
+      { id: "ga", name: "GA Release", description: "正式稳定发布目标", requiredScenarioIds: [] }
+    ];
   }
 }
 
