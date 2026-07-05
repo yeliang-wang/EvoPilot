@@ -295,6 +295,8 @@ async function assertDashboardContract(baseUrl) {
   assert.match(app, /const releaseRun = activeLoop \? latestSourceReleaseRun\(activeLoop\.id\) : latestReleaseRun;/);
   assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: !activeLoop \}\);/);
   assert.match(app, /await Promise\.allSettled\(\[/);
+  assert.match(app, /function settledResponses\(urls\)/);
+  assert.match(app, /const \[tenantsResponse, workspacesResponse, secretsResponse, githubAppsResponse, storeReadinessResponse, observabilityResponse\] = await settledResponses\(\[/);
   assert.doesNotMatch(app, /latestSourceReleaseRun\(activeLoop\.id\) \?\? latestReleaseRun/);
   assert.doesNotMatch(app, /当前进行中 \$\{currentLoops\.length \|\|/);
   for (const removed of ["演进计划", "新建评审"]) {

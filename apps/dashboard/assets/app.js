@@ -5199,19 +5199,19 @@ async function refreshData() {
 
 async function loadSaasControlPlane() {
   try {
-    const [tenantsResponse, workspacesResponse, secretsResponse, githubAppsResponse, storeReadinessResponse, observabilityResponse] = await Promise.all([
-      apiFetch("/api/v1/tenants"),
-      apiFetch("/api/v1/workspaces"),
-      apiFetch("/api/v1/secrets"),
-      apiFetch("/api/v1/github-app/installations"),
-      apiFetch("/api/v1/loop-store/readiness"),
-      apiFetch("/api/v1/saas/observability")
+    const [tenantsResponse, workspacesResponse, secretsResponse, githubAppsResponse, storeReadinessResponse, observabilityResponse] = await settledResponses([
+      "/api/v1/tenants",
+      "/api/v1/workspaces",
+      "/api/v1/secrets",
+      "/api/v1/github-app/installations",
+      "/api/v1/loop-store/readiness",
+      "/api/v1/saas/observability"
     ]);
-    if (tenantsResponse.ok) {
+    if (tenantsResponse?.ok) {
       const { data } = await tenantsResponse.json();
       state.tenants = Array.isArray(data) ? data : [];
     }
-    if (workspacesResponse.ok) {
+    if (workspacesResponse?.ok) {
       const { data } = await workspacesResponse.json();
       state.workspaces = Array.isArray(data) ? data : [];
       const activeWorkspace = state.workspaces.find((workspace) => workspace.id === state.saasScope.workspaceId) ?? state.workspaces[0];
@@ -5225,25 +5225,30 @@ async function loadSaasControlPlane() {
         }
       }
     }
-    if (secretsResponse.ok) {
+    if (secretsResponse?.ok) {
       const { data } = await secretsResponse.json();
       state.secrets = Array.isArray(data) ? data : [];
     }
-    if (githubAppsResponse.ok) {
+    if (githubAppsResponse?.ok) {
       const { data } = await githubAppsResponse.json();
       state.githubAppInstallations = Array.isArray(data) ? data : [];
     }
-    if (storeReadinessResponse.ok) {
+    if (storeReadinessResponse?.ok) {
       const { data } = await storeReadinessResponse.json();
       state.loopStoreReadiness = data;
     }
-    if (observabilityResponse.ok) {
+    if (observabilityResponse?.ok) {
       const { data } = await observabilityResponse.json();
       state.saasObservability = data;
     }
   } catch {
     // 静态打开 Dashboard 时保留内置 SaaS 示例模型。
   }
+}
+
+async function settledResponses(urls) {
+  const results = await Promise.allSettled(urls.map((url) => apiFetch(url)));
+  return results.map((result) => result.status === "fulfilled" ? result.value : undefined);
 }
 
 function bindPageLinks() {
