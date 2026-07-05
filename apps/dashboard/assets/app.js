@@ -90,6 +90,7 @@ const state = {
   },
   deployConnectors: [],
   sourceReleaseRuns: [],
+  releaseDecisions: [],
   sourceReleaseRepairCandidates: [],
   sourceReleaseDeployFinalizers: [],
   loopAutopilotRuns: [],
@@ -2219,11 +2220,16 @@ function sourceToGaTone(status) {
 }
 
 function releaseDecisionLabel(releaseRun, options = {}) {
-  const decision = String(state.intelligence.latestReleaseDecisionStatus ?? "").trim();
+  const decision = String(latestReleaseDecision()?.status ?? state.intelligence.latestReleaseDecisionStatus ?? "").trim();
   if (options.allowGlobalDecision !== false && decision && decision !== "未判定") return decision;
   if (["FAILED", "HEALTH_FAILED", "ROLLED_BACK", "POLICY_BLOCKED"].includes(releaseRun?.status)) return "NO-GO";
   if (releaseRun) return releaseRun.policy?.status ?? "AWAITING_DECISION";
   return "AWAITING";
+}
+
+function latestReleaseDecision() {
+  return [...(state.releaseDecisions ?? [])]
+    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
 }
 
 function releaseDecisionTone(releaseRun) {
@@ -5192,6 +5198,7 @@ async function refreshData() {
     loadEvaluationDatasets(),
     loadCodeUpgrades(),
     loadDeployConnectors(),
+    loadReleaseDecisions(),
     loadLoops(),
     loadPipelines()
   ]);
@@ -6546,6 +6553,25 @@ async function loadCodeUpgrades() {
     }
   } catch {
     // 保留示例代码升级过程，便于静态查看控制台。
+  }
+}
+
+async function loadReleaseDecisions() {
+  try {
+    const response = await apiFetch("/api/v1/release/decisions");
+    if (!response.ok) throw new Error(`发布决策接口状态 ${response.status}`);
+    const { data } = await response.json();
+    state.releaseDecisions = Array.isArray(data) ? data : [];
+    const decision = latestReleaseDecision();
+    if (decision) {
+      state.intelligence.latestReleaseDecisionStatus = decision.status ?? state.intelligence.latestReleaseDecisionStatus;
+      state.intelligence.currentReleaseDecisionId = decision.id ?? state.intelligence.currentReleaseDecisionId;
+      state.intelligence.currentReleaseTargetId = decision.releaseTargetId ?? decision.targetId ?? state.intelligence.currentReleaseTargetId;
+      state.intelligence.releaseReadyCount = decision.summary?.passedCriteria ?? state.intelligence.releaseReadyCount;
+      state.intelligence.releaseBlockedCount = decision.summary?.failedCriteria ?? state.intelligence.releaseBlockedCount;
+    }
+  } catch {
+    // Summary and source release runs can still render if decision history is unavailable.
   }
 }
 
