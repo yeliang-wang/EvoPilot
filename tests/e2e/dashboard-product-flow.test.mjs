@@ -295,6 +295,7 @@ async function assertDashboardContract(baseUrl) {
   assert.match(app, /function loadReleaseDecisions\(\)/);
   assert.match(app, /apiFetch\("\/api\/v1\/release\/decisions"\)/);
   assert.match(app, /function latestReleaseDecision\(\)/);
+  assert.match(app, /loadReleaseDecisions\(\)\s*\]\);\s*state\.isLoading = false;\s*render\(\);/s);
   assert.match(app, /function sortedSourceReleaseRuns/);
   assert.match(app, /const releaseRun = activeLoop \? latestSourceReleaseRun\(activeLoop\.id\) : latestReleaseRun;/);
   assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: !activeLoop \}\);/);

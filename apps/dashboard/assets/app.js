@@ -5194,11 +5194,15 @@ async function refreshData() {
     loadSaasControlPlane(),
     loadProjects(),
     loadSummary(),
+    loadReleaseDecisions()
+  ]);
+  state.isLoading = false;
+  render();
+  await Promise.allSettled([
     loadRules(),
     loadEvaluationDatasets(),
     loadCodeUpgrades(),
     loadDeployConnectors(),
-    loadReleaseDecisions(),
     loadLoops(),
     loadPipelines()
   ]);
