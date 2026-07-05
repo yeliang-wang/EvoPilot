@@ -5218,11 +5218,7 @@ async function loadSaasControlPlane() {
       if (activeWorkspace) {
         state.saasScope.tenantId = activeWorkspace.tenantId ?? state.saasScope.tenantId;
         state.saasScope.workspaceId = activeWorkspace.id;
-        const usageResponse = await apiFetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/usage`);
-        if (usageResponse.ok) {
-          const { data: usageData } = await usageResponse.json();
-          state.workspaceUsage = usageData;
-        }
+        await loadWorkspaceUsage(activeWorkspace.id);
       }
     }
     if (secretsResponse?.ok) {
@@ -5249,6 +5245,18 @@ async function loadSaasControlPlane() {
 async function settledResponses(urls) {
   const results = await Promise.allSettled(urls.map((url) => apiFetch(url)));
   return results.map((result) => result.status === "fulfilled" ? result.value : undefined);
+}
+
+async function loadWorkspaceUsage(workspaceId) {
+  try {
+    const usageResponse = await apiFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/usage`);
+    if (usageResponse?.ok) {
+      const { data: usageData } = await usageResponse.json();
+      state.workspaceUsage = usageData;
+    }
+  } catch {
+    // Workspace usage is helpful but must not hide release readiness.
+  }
 }
 
 function bindPageLinks() {
