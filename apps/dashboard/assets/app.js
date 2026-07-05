@@ -492,7 +492,9 @@ function productionReadinessModel(scopeModel, onboarding) {
   const store = state.loopStoreReadiness ?? state.loopStore;
   const storeStatus = store?.status ?? (store?.backend === "postgres" ? "READY" : "PENDING");
   const storeBackend = store?.backend ?? state.loopStore?.backend ?? "file";
-  const postgresReady = storeBackend === "postgres" && (storeStatus === "READY" || store?.postgresReachable === true);
+  const observabilityPostgresReady = state.saasObservability?.postgresStoreReady === true;
+  const postgresReady = storeBackend === "postgres" && (storeStatus === "READY" || store?.postgresReachable === true || observabilityPostgresReady);
+  const effectiveStoreStatus = postgresReady ? "READY" : storeStatus;
   const decision = onboarding.decisionGo ? "GO" : releaseDecisionLabel(onboarding.releaseRun, { allowGlobalDecision: true });
   const decisionReady = decision === "GO";
   const observabilityBlockers = Array.isArray(state.saasObservability?.blockers) ? state.saasObservability.blockers.length : 0;
@@ -502,7 +504,7 @@ function productionReadinessModel(scopeModel, onboarding) {
     : releaseBlockedCount + Number(state.saasObservability?.blockedLoopCount ?? 0);
   const dataMode = state.apiStatus === "实时数据" ? "live" : "demo";
   const connected = dataMode === "live" || Boolean(state.apiToken);
-  const ready = connected && decisionReady && highRiskCount === 0 && (postgresReady || storeStatus === "READY");
+  const ready = connected && decisionReady && highRiskCount === 0 && (postgresReady || effectiveStoreStatus === "READY");
   const status = ready ? "运行正常" : connected ? "待处理" : "待连接";
   const summary = ready
     ? "租户、工作区、项目接入、Loop 执行、发布证据和审计链路均处于可用状态。当前没有高风险阻塞，发布结论和证据包可在发布中心查看。"
@@ -519,7 +521,7 @@ function productionReadinessModel(scopeModel, onboarding) {
     currentReleaseTargetId: state.intelligence.currentReleaseTargetId ?? "saas-ga",
     currentReleaseDecisionId: state.intelligence.currentReleaseDecisionId ?? "",
     storeBackend,
-    storeStatus,
+    storeStatus: effectiveStoreStatus,
     postgresReady,
     highRiskCount,
     blockerCount: releaseBlockedCount,
@@ -1167,12 +1169,13 @@ function renderSaasCredentialCenter() {
 function sourceToGaExperienceModel() {
   const latestReleaseRun = latestSourceReleaseRun();
   const activeLoop = primarySourceToGaLoop(state.loops);
+  const currentDecision = latestReleaseDecision();
   const project = state.projects.find((item) => item.id === activeLoop?.projectId || item.id === activeLoop?.sourceClosure?.sourceProjectId)
     ?? state.projects.find((item) => /已验证|健康/.test(`${item.validation}${item.status}`))
     ?? state.projects[0];
   const releaseRun = activeLoop ? latestSourceReleaseRun(activeLoop.id) : latestReleaseRun;
   const closureState = activeLoop?.sourceClosure?.closureState ?? releaseRun?.status ?? "PLANNED";
-  const decisionStatus = releaseDecisionLabel(releaseRun, { allowGlobalDecision: !activeLoop });
+  const decisionStatus = releaseDecisionLabel(releaseRun, { allowGlobalDecision: true });
   const prUrl = releaseRun?.artifacts?.pullRequestUrl
     ?? releaseRun?.sourceClosure?.artifacts?.pullRequestUrl
     ?? activeLoop?.sourceClosure?.artifacts?.pullRequestUrl
@@ -1200,6 +1203,7 @@ function sourceToGaExperienceModel() {
     project,
     activeLoop,
     releaseRun,
+    currentDecision,
     closureState,
     decisionStatus: decisionGo ? "GO" : decisionStatus,
     prUrl,
@@ -1966,7 +1970,7 @@ function renderSimplifiedRelease() {
     <section class="source-ga-release-hero">
       <div>
         <span class="eyebrow">发布决策</span>
-        <h2>${escapeHtml(model.decisionGo ? `${model.project?.name ?? "当前项目"} 可以进入 GA Release` : "等待形成 GA Release 结论")}</h2>
+        <h2>${escapeHtml(model.decisionGo ? "当前工作区发布判定为 GO" : "等待形成 GA Release 结论")}</h2>
         <p>默认只展示结论、关键证据和用户下一步。完整 matrix、policy、repair 和 deploy finalizer 进入高级详情。</p>
         <div class="source-ga-home-actions">
           <button class="primary" data-page-link="帮助手册">归档到 E2E 教程</button>
@@ -1976,7 +1980,7 @@ function renderSimplifiedRelease() {
       </div>
       <aside class="source-ga-release-decision ${model.decisionGo ? "go" : ""}">
         <strong>${escapeHtml(model.decisionGo ? "GO" : model.decisionStatus)}</strong>
-        <span>${escapeHtml(model.releaseRun?.id ?? "release decision")}</span>
+        <span>${escapeHtml(model.currentDecision?.id ?? model.releaseRun?.id ?? "release decision")}</span>
       </aside>
     </section>
     <div class="source-ga-release-grid">
@@ -1990,6 +1994,7 @@ function renderSimplifiedRelease() {
         <table class="compact-facts">
           <tr><td>Project</td><td>${escapeHtml(model.project?.id ?? "未选择")}</td></tr>
           <tr><td>Loop</td><td>${escapeHtml(model.activeLoop?.id ?? "尚未启动")}</td></tr>
+          <tr><td>Release decision</td><td>${escapeHtml(model.currentDecision?.id ?? "等待生成")}</td></tr>
           <tr><td>Source closure</td><td>${statusPill(model.loopDone ? "已晋级" : model.closureState)}</td></tr>
           <tr><td>Pull request</td><td>${model.prUrl ? `<a href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">${escapeHtml(model.prUrl)}</a>` : "等待创建"}</td></tr>
           <tr><td>Merge commit</td><td>${escapeHtml(model.mergeCommit || "等待合并")}</td></tr>
@@ -2229,7 +2234,7 @@ function releaseDecisionLabel(releaseRun, options = {}) {
 
 function latestReleaseDecision() {
   return [...(state.releaseDecisions ?? [])]
-    .sort((left, right) => new Date(right.updatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.createdAt ?? 0))[0];
+    .sort((left, right) => new Date(right.updatedAt ?? right.generatedAt ?? right.createdAt ?? 0) - new Date(left.updatedAt ?? left.generatedAt ?? left.createdAt ?? 0))[0];
 }
 
 function releaseDecisionTone(releaseRun) {

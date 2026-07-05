@@ -298,7 +298,8 @@ async function assertDashboardContract(baseUrl) {
   assert.match(app, /loadReleaseDecisions\(\)\s*\]\);\s*state\.isLoading = false;\s*render\(\);/s);
   assert.match(app, /function sortedSourceReleaseRuns/);
   assert.match(app, /const releaseRun = activeLoop \? latestSourceReleaseRun\(activeLoop\.id\) : latestReleaseRun;/);
-  assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: !activeLoop \}\);/);
+  assert.match(app, /const currentDecision = latestReleaseDecision\(\);/);
+  assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: true \}\);/);
   assert.match(app, /await Promise\.allSettled\(\[/);
   assert.match(app, /function settledResponses\(urls\)/);
   assert.match(app, /function loadWorkspaceUsage\(workspaceId\)/);
