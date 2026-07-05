@@ -4147,7 +4147,7 @@ function helpManualScenarios() {
       outcome: "workspace 完成项目接入、凭据预检、首个 Loop 和发布证据归属",
       goal: "把 EvoPilot 从单机控制台使用方式切换为 SaaS 多租户操作方式：先确认 tenant/workspace/member/credential 边界，再在工作区内推进项目闭环。",
       steps: [
-        manualStep("连接多租户生产控制面", "在顶部登录 EvoPilot 控制台。未登录时 Dashboard 只能使用示例数据，不能读写真正 tenant、workspace、Loop 和发布证据。", "顶部显示当前登录身份，Dashboard 使用真实 tenant/workspace scope", "多租户生产控制面", "租户总览", "Production control", "账号登录解锁真实租户、工作区和发布证据数据", navFor("租户总览"), ["账号登录", "Tenant", "Workspace", "Release evidence"], "租户总览", "未登录或权限不足"),
+        manualStep("连接多租户生产控制面", "打开 EvoPilot 登录页，输入用户名和密码进入控制台。未登录时不能进入 Dashboard，也不能读写真正 tenant、workspace、Loop 和发布证据。", "登录成功后主界面显示当前身份，Dashboard 使用真实 tenant/workspace scope", "多租户生产控制面", "租户总览", "Production control", "账号登录解锁真实租户、工作区和发布证据数据", navFor("租户总览"), ["账号登录", "Tenant", "Workspace", "Release evidence"], "租户总览", "未登录或权限不足"),
         manualStep("确认 Tenant 和 Workspace 边界", "进入租户总览，先确认当前 tenant、workspace、SaaS target、配额和 evidence boundary。不要直接从项目表单开始，否则后续凭据和证据归属会不清楚。", "租户总览显示 tenant-production、workspace-agent-products 和 SaaS 演进路线", "SaaS service control plane", "租户总览", "Tenant scope", "Tenant / Workspace / SaaS target / Evidence boundary", navFor("租户总览"), ["Tenant", "Workspace", "SaaS target", "租户配额"], "租户总览", "租户或工作区上下文缺失"),
         manualStep("检查成员、角色和 SaaS targets", "进入工作区，确认成员、角色、项目、Loop 和 evidence 都在同一个 workspace 下；同时检查 tenant-workspace-model、GitHub App、Secret Vault、Quota、Postgres Worker Queue 等 SaaS targets。", "工作区显示成员与角色、Workspace SaaS Targets、Target Runtime 和 Target Backlog", "Workspace boundary", "工作区", "Workspace control", "成员、项目、Loop 和证据归属在同一工作区", navFor("工作区"), ["Members", "Projects", "Workspace SaaS Targets", "Target Runtime"], "工作区", "成员角色或项目归属不明确"),
         manualStep("配置 GitHub App 与 Vault 边界", "进入凭据页，确认 GitHub App、source writeback、deploy credentials、LLM provider keys 和 audit redaction。生产环境优先使用 GitHub App installation 或服务器端 tokenRef。", "Vault readiness 显示各类凭据状态，source blocker 有明确 next boundary", "GitHub App 与 Secret Vault", "凭据", "Credential boundary", "workspace 级凭据中心统一管理源码、部署和 LLM 密钥", navFor("凭据"), ["GitHub App", "Source writeback", "Deploy credentials", "Audit redaction"], "凭据", "tokenRef 未解析、GitHub App 未安装或 secret 明文泄露风险"),
@@ -5155,11 +5155,19 @@ function translateImpactPill(impact) {
 function render() {
   const isHelpManual = state.active === "帮助手册";
   const isTenantOverview = state.active === "租户总览";
+  const requiresLogin = !isHelpManual && !state.currentUser;
   document.body.classList.toggle("help-page-mode", isHelpManual);
-  title.textContent = isHelpManual ? "帮助文档" : state.active;
+  document.body.classList.toggle("login-page-mode", requiresLogin);
+  title.textContent = requiresLogin ? "登录" : isHelpManual ? "帮助文档" : state.active;
+  if (requiresLogin) {
+    nav.innerHTML = "";
+    content.innerHTML = renderLoginPage();
+    bindLoginForm();
+    return;
+  }
   renderNav();
   content.innerHTML = `${isHelpManual ? "" : `${renderAuthBar()}${isTenantOverview ? "" : renderTenantScopeBar()}`}${renderPage(state.active)}`;
-  if (!isHelpManual) bindAuthBar();
+  if (!isHelpManual) bindSessionBar();
   bindFlowHeader();
   bindLoopWorkspace();
   bindRoleDashboard();
@@ -5187,36 +5195,67 @@ if (topHelpButton) {
 
 function renderAuthBar() {
   const user = state.currentUser;
-  const authCopy = user
-    ? `${user.displayName ?? user.username} 已登录，角色 ${roleLabel(user.role)}，当前范围 ${user.tenantId}/${user.workspaceId}。`
-    : state.apiStatus === "实时数据"
-      ? "控制面已连接实时数据；当前环境未要求登录。生产公网环境应启用账号登录和 RBAC。"
-      : "请输入 EvoPilot 用户名和密码。登录后会按平台管理员、租户管理员、开发者或审计员展示对应数据和操作权限。";
+  if (!user) return "";
+  const authCopy = `${user.displayName ?? user.username} 已登录，角色 ${roleLabel(user.role)}，当前范围 ${user.tenantId}/${user.workspaceId}。`;
   return `
-    <section class="auth-bar ${user ? "signed-in" : "login-required"}">
+    <section class="auth-bar signed-in">
       <div>
-        <strong>${user ? "当前登录身份" : "登录 EvoPilot 控制台"}</strong>
+        <strong>当前登录身份</strong>
         <span>${escapeHtml(authCopy)}</span>
         ${state.authNotice ? `<small>${escapeHtml(state.authNotice)}</small>` : ""}
       </div>
-      ${user ? `
-        <div class="login-session">
-          <span>${escapeHtml(roleLabel(user.role))}</span>
-          <span>${escapeHtml(user.tenantId)} / ${escapeHtml(user.workspaceId)}</span>
-          <button type="button" data-action="logout">退出登录</button>
-        </div>
-      ` : `
-        <form id="login-form" class="login-form">
-          <input name="username" type="text" placeholder="用户名" autocomplete="username" />
-          <input name="password" type="password" placeholder="密码" autocomplete="current-password" />
-          <button type="submit">登录</button>
-        </form>
-      `}
+      <div class="login-session">
+        <span>${escapeHtml(roleLabel(user.role))}</span>
+        <span>${escapeHtml(user.tenantId)} / ${escapeHtml(user.workspaceId)}</span>
+        <button type="button" data-action="logout">退出登录</button>
+      </div>
     </section>
   `;
 }
 
-function bindAuthBar() {
+function renderLoginPage() {
+  return `
+    <section class="login-screen">
+      <div class="login-panel">
+        <div class="login-brand">
+          <div class="brand-mark login-brand-mark">EP</div>
+          <div>
+            <strong>EvoPilot</strong>
+            <span>进化领航</span>
+          </div>
+        </div>
+        <div class="login-copy">
+          <p class="eyebrow">AI Agent 产品演进与交付控制</p>
+          <h1>登录 EvoPilot 控制台</h1>
+          <p>使用平台或租户账号进入工作区。系统会按角色显示管理员、操作员、开发者或审计员对应的数据与操作权限。</p>
+        </div>
+        <form id="login-form" class="login-form-panel">
+          <label>
+            <span>用户名</span>
+            <input name="username" type="text" placeholder="请输入用户名" autocomplete="username" autofocus />
+          </label>
+          <label>
+            <span>密码</span>
+            <input name="password" type="password" placeholder="请输入密码" autocomplete="current-password" />
+          </label>
+          <button class="primary" type="submit">登录</button>
+          ${state.authNotice ? `<small class="login-notice">${escapeHtml(state.authNotice)}</small>` : ""}
+        </form>
+      </div>
+      <aside class="login-aside">
+        <strong>Source-to-GA 控制面</strong>
+        <span>租户、工作区、凭据、Loop、发布证据和审计记录在同一控制台内闭环。</span>
+        <div>
+          <span>RBAC</span>
+          <span>Tenant / Workspace</span>
+          <span>Release decision</span>
+        </div>
+      </aside>
+    </section>
+  `;
+}
+
+function bindLoginForm() {
   const form = content.querySelector("#login-form");
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -5243,6 +5282,9 @@ function bindAuthBar() {
     }
     render();
   });
+}
+
+function bindSessionBar() {
   content.querySelector('[data-action="logout"]')?.addEventListener("click", async () => {
     clearAuthenticatedSession();
     state.authNotice = "已退出登录。";
