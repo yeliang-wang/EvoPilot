@@ -809,12 +809,21 @@ function extractBalancedJsonObjects(text) {
 }
 
 function toLlmTrace(response) {
+  const totalTokens = response.usage?.totalTokens ?? 0;
+  const creditsConsumed = response.usage?.creditsConsumed ?? totalTokens;
   return {
     mode: "llm",
     provider: response.provider,
     model: response.model,
+    version: response.model,
     durationMs: response.durationMs,
     usage: response.usage,
+    credits: {
+      consumed: creditsConsumed,
+      unit: response.usage?.creditUnit ?? "token",
+      basis: "llm.usage.totalTokens"
+    },
+    creditsConsumed,
     finishReason: response.finishReason,
     resolvedIntent: response.resolvedIntent,
     resolvedProfile: response.resolvedProfile,
@@ -1038,7 +1047,79 @@ function readBody(request) {
 
 function writeJson(response, statusCode, body) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(body));
+  response.end(JSON.stringify(withLlmResponseMeta(body)));
+}
+
+function withLlmResponseMeta(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  if (body.meta?.llm) return body;
+  return {
+    ...body,
+    meta: {
+      ...(body.meta ?? {}),
+      llm: currentLlmResponseUsageMeta()
+    }
+  };
+}
+
+function currentLlmResponseUsageMeta() {
+  const metricsPath = resolveLlmMetricsPath();
+  const records = readRecentLlmMetricRecords(metricsPath, 200);
+  const latest = records[records.length - 1];
+  const totals = records.reduce((acc, record) => {
+    const totalTokens = Number(record.totalTokens ?? 0);
+    acc.calls += 1;
+    acc.succeeded += String(record.status ?? "").toUpperCase() === "SUCCEEDED" ? 1 : 0;
+    acc.failed += String(record.status ?? "").toUpperCase() === "FAILED" ? 1 : 0;
+    acc.totalTokens += totalTokens;
+    acc.inputTokens += Number(record.inputTokens ?? 0);
+    acc.outputTokens += Number(record.outputTokens ?? 0);
+    acc.creditsConsumed += Number(record.creditsConsumed ?? totalTokens);
+    return acc;
+  }, { calls: 0, succeeded: 0, failed: 0, totalTokens: 0, inputTokens: 0, outputTokens: 0, creditsConsumed: 0 });
+  return {
+    schema: "evopilot-llm-usage-meta/v1",
+    configured: Boolean(process.env.EVOPILOT_LLM_PROVIDER_NAME || process.env.EVOPILOT_LLM_MODEL_NAME || process.env.EVOPILOT_LLM_API_KEY),
+    provider: latest?.provider || process.env.EVOPILOT_LLM_PROVIDER_NAME,
+    model: latest?.model || process.env.EVOPILOT_LLM_MODEL_NAME,
+    version: latest?.model || process.env.EVOPILOT_LLM_MODEL_NAME,
+    metricsPath,
+    creditUnit: "token",
+    ...totals,
+    latest: latest ? {
+      requestId: latest.requestId,
+      caller: latest.caller,
+      intent: latest.intent,
+      provider: latest.provider,
+      model: latest.model,
+      version: latest.model,
+      totalTokens: Number(latest.totalTokens ?? 0),
+      creditsConsumed: Number(latest.creditsConsumed ?? latest.totalTokens ?? 0),
+      status: latest.status,
+      recordedAt: latest.recordedAt
+    } : undefined
+  };
+}
+
+function resolveLlmMetricsPath() {
+  const metricsPath = process.env.EVOPILOT_LLM_METRICS_PATH?.trim();
+  if (!metricsPath) return undefined;
+  if (path.isAbsolute(metricsPath)) return metricsPath;
+  const dataRoot = process.env.EVOPILOT_DATA_ROOT?.trim();
+  if (!dataRoot) return metricsPath;
+  const normalized = metricsPath.replace(/^data\/evopilot\/?/, "");
+  return path.join(dataRoot, normalized || "llm-metrics.jsonl");
+}
+
+function readRecentLlmMetricRecords(file, maxRecords) {
+  if (!file || !fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean).slice(-maxRecords).flatMap((line) => {
+    try {
+      return [JSON.parse(line)];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function loadEnvFile(file) {

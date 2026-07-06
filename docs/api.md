@@ -1,5 +1,45 @@
 # EvoPilot API
 
+## LLM 调用与 Credits 观测
+
+所有 JSON API 响应都会附带 `meta.llm`，用于让 Dashboard、WorkBuddy、E2E 测试工具判断当前生产环境是否真的发生过 LLM 调用：
+
+```json
+{
+  "data": {},
+  "meta": {
+    "llm": {
+      "schema": "evopilot-llm-usage-meta/v1",
+      "configured": true,
+      "provider": "zhipu",
+      "model": "glm-5.1",
+      "version": "glm-5.1",
+      "calls": 1,
+      "succeeded": 1,
+      "failed": 0,
+      "totalTokens": 1024,
+      "inputTokens": 768,
+      "outputTokens": 256,
+      "creditsConsumed": 1024,
+      "creditUnit": "token",
+      "latest": {
+        "requestId": "llm-request-id",
+        "caller": "evopilot-loop-runtime",
+        "intent": "plan.generation",
+        "provider": "zhipu",
+        "model": "glm-5.1",
+        "version": "glm-5.1",
+        "totalTokens": 1024,
+        "creditsConsumed": 1024,
+        "status": "SUCCEEDED"
+      }
+    }
+  }
+}
+```
+
+`creditsConsumed` 当前按 `1 token = 1 LLM credit` 计量，`creditUnit` 固定为 `token`。如果 `calls=0` 或 `totalTokens=0`，只能证明 LLM 已配置，不能证明当前场景真的调用了 LLM。具体执行点还会在 `llmTrace`、Loop executor step output/evidence、code-upgrader session 中记录 `provider`、`model/version`、`usage` 和 `creditsConsumed`。
+
 ## 健康检查
 
 ```http

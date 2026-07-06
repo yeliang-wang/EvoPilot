@@ -33,6 +33,8 @@ test("LLM gateway resolves profile and calls OpenAI-compatible provider", async 
   assert.equal(response.model, "unit-model");
   assert.equal(response.resolvedProfile, "markdown-writer");
   assert.equal(response.usage.totalTokens, 15);
+  assert.equal(response.usage.creditsConsumed, 15);
+  assert.equal(response.usage.creditUnit, "token");
   assert.equal(calls[0].url, "http://llm.local/chat/completions");
   assert.equal(calls[0].authorization, "Bearer unit-key");
   assert.equal(calls[0].body.model, "unit-model");
@@ -138,6 +140,9 @@ test("LLM gateway records metrics and compresses long context", async () => {
   assert.match(calls[0].body.messages[0].content, /上下文压缩/);
   const metric = JSON.parse(fs.readFileSync(metricsPath, "utf8").trim());
   assert.equal(metric.promptCompressed, true);
+  assert.equal(metric.totalTokens, 82);
+  assert.equal(metric.creditsConsumed, 82);
+  assert.equal(metric.creditUnit, "token");
   assert.equal(metric.outputContract, "engine_package");
   assert.equal(metric.finalMaxOutputTokens, 2048);
 });

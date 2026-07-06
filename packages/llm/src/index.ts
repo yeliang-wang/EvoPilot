@@ -33,6 +33,8 @@ export interface LlmUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  creditsConsumed: number;
+  creditUnit: "token";
 }
 
 export interface LlmGenerateResponse {
@@ -368,7 +370,7 @@ export class LlmMetricsWriter {
 
   write(request: LlmGenerateRequest, response: LlmGenerateResponse): void {
     if (this.config?.enabled === false) return;
-    const metricsPath = trim(this.config?.path) || trim(process.env.EVOPILOT_LLM_METRICS_PATH);
+    const metricsPath = resolveMetricsPath(trim(this.config?.path) || trim(process.env.EVOPILOT_LLM_METRICS_PATH));
     if (!metricsPath) return;
     const record = {
       recordedAt: new Date().toISOString(),
@@ -399,7 +401,9 @@ export class LlmMetricsWriter {
       finalMaxOutputTokens: response.finalMaxOutputTokens ?? 0,
       inputTokens: response.usage?.inputTokens ?? 0,
       outputTokens: response.usage?.outputTokens ?? 0,
-      totalTokens: response.usage?.totalTokens ?? 0
+      totalTokens: response.usage?.totalTokens ?? 0,
+      creditsConsumed: response.usage?.creditsConsumed ?? response.usage?.totalTokens ?? 0,
+      creditUnit: response.usage?.creditUnit ?? "token"
     };
     writeMetricsRecord(metricsPath, record);
   }
@@ -469,7 +473,7 @@ export function createLlmConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Ll
     },
     metrics: {
       enabled: parseBoolean(env.EVOPILOT_LLM_METRICS_ENABLED, true),
-      path: env.EVOPILOT_LLM_METRICS_PATH
+      path: resolveMetricsPath(env.EVOPILOT_LLM_METRICS_PATH, env)
     },
     contextCompression: {
       enabled: parseBoolean(env.EVOPILOT_LLM_CONTEXT_COMPRESSION_ENABLED, true),
@@ -524,7 +528,17 @@ function parseUsage(value: any): LlmUsage {
   const input = Number(value?.prompt_tokens ?? value?.input_tokens ?? 0);
   const output = Number(value?.completion_tokens ?? value?.output_tokens ?? 0);
   const total = Number(value?.total_tokens ?? input + output);
-  return { inputTokens: input, outputTokens: output, totalTokens: total };
+  return { inputTokens: input, outputTokens: output, totalTokens: total, creditsConsumed: total, creditUnit: "token" };
+}
+
+function resolveMetricsPath(value: string | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const metricsPath = value?.trim();
+  if (!metricsPath) return undefined;
+  if (path.isAbsolute(metricsPath)) return metricsPath;
+  const dataRoot = env.EVOPILOT_DATA_ROOT?.trim();
+  if (!dataRoot) return metricsPath;
+  const normalized = metricsPath.replace(/^data\/evopilot\/?/, "");
+  return path.join(dataRoot, normalized || "llm-metrics.jsonl");
 }
 
 function preflightPrompt(request: LlmGenerateRequest): string {

@@ -14624,12 +14624,21 @@ function extractJsonObject(text: string): string {
 }
 
 function llmTraceFromResponse(mode: string, response: LlmGenerateResponse, startedAt: string): Record<string, unknown> {
+  const totalTokens = response.usage?.totalTokens ?? 0;
+  const creditsConsumed = response.usage?.creditsConsumed ?? totalTokens;
   return {
     mode,
     provider: response.provider,
     model: response.model,
+    version: response.model,
     durationMs: response.durationMs,
     usage: response.usage,
+    credits: {
+      consumed: creditsConsumed,
+      unit: response.usage?.creditUnit ?? "token",
+      basis: "llm.usage.totalTokens"
+    },
+    creditsConsumed,
     resolvedIntent: response.resolvedIntent,
     resolvedProfile: response.resolvedProfile,
     preflightUsed: response.preflightUsed,
@@ -14981,8 +14990,102 @@ async function readJson(request: http.IncomingMessage, maxBodyBytes: number = 10
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function envelope<T>(data: T): { data: T } {
-  return { data };
+function envelope<T>(data: T): { data: T; meta: { llm: LlmResponseUsageMeta } } {
+  return { data, meta: { llm: currentLlmResponseUsageMeta() } };
+}
+
+interface LlmResponseUsageMeta {
+  schema: "evopilot-llm-usage-meta/v1";
+  configured: boolean;
+  provider?: string;
+  model?: string;
+  version?: string;
+  metricsPath?: string;
+  calls: number;
+  succeeded: number;
+  failed: number;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  creditsConsumed: number;
+  creditUnit: "token";
+  latest?: {
+    requestId?: string;
+    caller?: string;
+    intent?: string;
+    provider?: string;
+    model?: string;
+    version?: string;
+    totalTokens: number;
+    creditsConsumed: number;
+    status?: string;
+    recordedAt?: string;
+  };
+}
+
+function currentLlmResponseUsageMeta(): LlmResponseUsageMeta {
+  const configuredProvider = optionalTrimmedString(process.env.EVOPILOT_LLM_PROVIDER_NAME);
+  const configuredModel = optionalTrimmedString(process.env.EVOPILOT_LLM_MODEL_NAME);
+  const metricsPath = resolveLlmMetricsPath();
+  const records = readRecentLlmMetricRecords(metricsPath, 200);
+  const latest = records[records.length - 1];
+  const totals = records.reduce((acc, record) => {
+    const totalTokens = Number(record.totalTokens ?? 0);
+    acc.calls += 1;
+    acc.succeeded += String(record.status ?? "").toUpperCase() === "SUCCEEDED" ? 1 : 0;
+    acc.failed += String(record.status ?? "").toUpperCase() === "FAILED" ? 1 : 0;
+    acc.totalTokens += totalTokens;
+    acc.inputTokens += Number(record.inputTokens ?? 0);
+    acc.outputTokens += Number(record.outputTokens ?? 0);
+    acc.creditsConsumed += Number(record.creditsConsumed ?? totalTokens);
+    return acc;
+  }, { calls: 0, succeeded: 0, failed: 0, totalTokens: 0, inputTokens: 0, outputTokens: 0, creditsConsumed: 0 });
+  return {
+    schema: "evopilot-llm-usage-meta/v1",
+    configured: Boolean(configuredProvider || configuredModel || process.env.EVOPILOT_LLM_API_KEY),
+    provider: latest?.provider || configuredProvider,
+    model: latest?.model || configuredModel,
+    version: latest?.model || configuredModel,
+    metricsPath,
+    creditUnit: "token",
+    ...totals,
+    latest: latest ? {
+      requestId: optionalTrimmedString(latest.requestId),
+      caller: optionalTrimmedString(latest.caller),
+      intent: optionalTrimmedString(latest.intent),
+      provider: optionalTrimmedString(latest.provider),
+      model: optionalTrimmedString(latest.model),
+      version: optionalTrimmedString(latest.model),
+      totalTokens: Number(latest.totalTokens ?? 0),
+      creditsConsumed: Number(latest.creditsConsumed ?? latest.totalTokens ?? 0),
+      status: optionalTrimmedString(latest.status),
+      recordedAt: optionalTrimmedString(latest.recordedAt)
+    } : undefined
+  };
+}
+
+function resolveLlmMetricsPath(): string | undefined {
+  const configured = optionalTrimmedString(process.env.EVOPILOT_LLM_METRICS_PATH);
+  if (!configured) return undefined;
+  if (path.isAbsolute(configured)) return configured;
+  const dataRoot = optionalTrimmedString(process.env.EVOPILOT_DATA_ROOT);
+  if (!dataRoot) return configured;
+  const normalized = configured.replace(/^data\/evopilot\/?/, "");
+  return path.join(dataRoot, normalized || "llm-metrics.jsonl");
+}
+
+function readRecentLlmMetricRecords(file: string | undefined, maxRecords: number): any[] {
+  if (!file || !fs.existsSync(file)) return [];
+  const lines = fs.readFileSync(file, "utf8").trim().split(/\r?\n/).filter(Boolean).slice(-maxRecords);
+  const records: any[] = [];
+  for (const line of lines) {
+    try {
+      records.push(JSON.parse(line));
+    } catch {
+      // Ignore malformed metric lines so API responses stay available.
+    }
+  }
+  return records;
 }
 
 class HttpError extends Error {
@@ -15196,7 +15299,23 @@ function redactUrlSearch(params: URLSearchParams): Record<string, string> | unde
 
 function writeJson(response: http.ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(body));
+  response.end(JSON.stringify(withLlmResponseMeta(body)));
+}
+
+function withLlmResponseMeta(body: unknown): unknown {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const value = body as Record<string, unknown>;
+  const meta = value.meta && typeof value.meta === "object" && !Array.isArray(value.meta)
+    ? value.meta as Record<string, unknown>
+    : {};
+  if (meta.llm) return body;
+  return {
+    ...value,
+    meta: {
+      ...meta,
+      llm: currentLlmResponseUsageMeta()
+    }
+  };
 }
 
 function writeEventStream(response: http.ServerResponse, events: LoopStreamEvent[]): void {

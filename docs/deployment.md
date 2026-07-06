@@ -51,6 +51,14 @@ EVOPILOT_LOOP_STORE_DSN=postgres://evopilot:<password>@evopilot-postgres:5432/ev
 
 `GET /api/v1/loop-store/readiness` 不只检查环境变量；当 backend 为 `postgres` 时会解析 DSN 并探测 Postgres TCP 端口。只有返回 `status=READY`、`postgresConfigured=true`、`postgresReachable=true` 且 `blockers=[]`，`worker-queue-and-postgres-store` 才能作为 SaaS GA 场景证据。
 
+所有 JSON API 响应都会携带 `meta.llm`，其中包含当前配置的 provider/model、最近一次 LLM 调用、累计 tokens 和 `creditsConsumed`。生产验证时，测试工具应同时检查：
+
+- `meta.llm.configured=true` 且 `provider/model/version` 为预期模型。
+- 触发真实 LLM 场景后，`meta.llm.calls > 0`、`meta.llm.totalTokens > 0`、`meta.llm.creditsConsumed > 0`。
+- Loop executor step、rule compile、opportunity draft 或 code-upgrader session 中存在具体 `llmTrace`，不能只凭健康检查判断 LLM 有效。
+
+如果 `EVOPILOT_LLM_METRICS_PATH` 是相对路径，EvoPilot 会把它解析到 `EVOPILOT_DATA_ROOT` 下，便于 server、worker 和 code-upgrader 共享同一份 LLM metrics。
+
 文件态业务数据迁移、Postgres business store 备份和恢复见 [SaaS 生产发布包](./saas-production-release-package.md)。生产发布前至少执行：
 
 ```bash
