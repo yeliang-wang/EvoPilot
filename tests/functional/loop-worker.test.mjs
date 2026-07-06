@@ -66,6 +66,39 @@ test("Loop worker process advances durable loops and loop soak proves runtime co
     assert.equal(preferred.currentIteration, 1);
     assert.equal(nonPreferred.currentIteration, 0);
 
+    const stalePreferredFallbackWorker = await runNodeScript("scripts/loop-worker.mjs", ["--once"], {
+      EVOPILOT_BASE_URL: baseUrl,
+      EVOPILOT_API_TOKEN: "operator-token",
+      EVOPILOT_ACTOR: "operator",
+      EVOPILOT_LOOP_WORKER_ID: "fallback-test-worker",
+      EVOPILOT_LOOP_WORKER_LOOP_ID: "preferred-worker-loop",
+      EVOPILOT_LOOP_WORKER_ONCE: "1"
+    });
+    assert.equal(stalePreferredFallbackWorker.code, 0, stalePreferredFallbackWorker.stderr);
+    assert.match(stalePreferredFallbackWorker.stdout, /loop-worker.preferred-unavailable/);
+    const fallbackAdvanced = await get(baseUrl, "/api/v1/loops/non-preferred-worker-loop");
+    assert.equal(fallbackAdvanced.currentIteration, 1);
+
+    await post(baseUrl, "/api/v1/loops", {
+      id: "strict-non-preferred-worker-loop",
+      source: "schedule",
+      objective: "Strict preferred worker must stay idle when the preferred loop is unavailable.",
+      stopPolicy: { maxIterations: 2, requireApprovalForRelease: false }
+    });
+    const strictPreferredWorker = await runNodeScript("scripts/loop-worker.mjs", ["--once"], {
+      EVOPILOT_BASE_URL: baseUrl,
+      EVOPILOT_API_TOKEN: "operator-token",
+      EVOPILOT_ACTOR: "operator",
+      EVOPILOT_LOOP_WORKER_ID: "strict-preferred-test-worker",
+      EVOPILOT_LOOP_WORKER_LOOP_ID: "preferred-worker-loop",
+      EVOPILOT_LOOP_WORKER_STRICT_LOOP_ID: "1",
+      EVOPILOT_LOOP_WORKER_ONCE: "1"
+    });
+    assert.equal(strictPreferredWorker.code, 0, strictPreferredWorker.stderr);
+    assert.match(strictPreferredWorker.stdout, /loop-worker.idle/);
+    const strictNonPreferred = await get(baseUrl, "/api/v1/loops/strict-non-preferred-worker-loop");
+    assert.equal(strictNonPreferred.currentIteration, 0);
+
     const reportPath = path.join(dataRoot, "loop-soak.jsonl");
     const soak = await runNodeScript("scripts/loop-soak.mjs", [], {
       EVOPILOT_BASE_URL: baseUrl,

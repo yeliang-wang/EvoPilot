@@ -1,0 +1,84 @@
+services:
+  evopilot-server:
+    build: ..
+    image: evopilot:prod-main
+    ports:
+      - "19876:19876"
+    depends_on:
+      - evopilot-postgres
+      - evopilot-code-upgrader
+    env_file:
+      - .env.production
+    environment:
+      EVOPILOT_PORT: "19876"
+      EVOPILOT_RUN_MODE: "prod"
+      EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
+      EVOPILOT_DASHBOARD_ROOT: "/app/apps/dashboard"
+      EVOPILOT_CODE_UPGRADER_BASE_URL: "http://evopilot-code-upgrader:3000"
+      EVOPILOT_LOG_LEVEL: "info"
+      EVOPILOT_LOG_STACK: "true"
+    volumes:
+      - evopilot-data:/var/lib/evopilot
+      - ..:/workspace:Z
+    restart: unless-stopped
+
+  evopilot-code-upgrader:
+    build: ..
+    image: evopilot:prod-main
+    command: ["npm", "run", "code-upgrader"]
+    env_file:
+      - .env.production
+    environment:
+      EVOPILOT_RUN_MODE: "prod"
+      EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
+      EVOPILOT_CODE_UPGRADER_HOST: "0.0.0.0"
+      EVOPILOT_CODE_UPGRADER_PORT: "3000"
+      EVOPILOT_LOG_LEVEL: "info"
+      EVOPILOT_LOG_STACK: "true"
+    volumes:
+      - evopilot-data:/var/lib/evopilot
+      - ..:/workspace:Z
+    restart: unless-stopped
+
+  evopilot-loop-worker:
+    build: ..
+    image: evopilot:prod-main
+    command: ["npm", "run", "loop-worker"]
+    depends_on:
+      - evopilot-server
+      - evopilot-postgres
+      - evopilot-code-upgrader
+    env_file:
+      - .env.production
+    environment:
+      EVOPILOT_BASE_URL: "http://evopilot-server:19876"
+      EVOPILOT_RUN_MODE: "prod"
+      EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
+      EVOPILOT_LOOP_WORKER_ID: "evopilot-prod-worker"
+      EVOPILOT_LOOP_WORKER_POLL_MS: "5000"
+      EVOPILOT_LOOP_WORKER_LEASE_SECONDS: "120"
+      EVOPILOT_LOG_LEVEL: "info"
+      EVOPILOT_LOG_STACK: "true"
+    volumes:
+      - evopilot-data:/var/lib/evopilot
+      - ..:/workspace:Z
+    restart: unless-stopped
+
+  evopilot-postgres:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_DB: evopilot
+      POSTGRES_USER: evopilot
+      POSTGRES_PASSWORD: "${EVOPILOT_POSTGRES_PASSWORD:?set in .env.production}"
+    volumes:
+      - evopilot-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evopilot -d evopilot"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  evopilot-data:
+  evopilot-postgres-data:

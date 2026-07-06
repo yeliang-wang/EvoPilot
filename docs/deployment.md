@@ -35,10 +35,11 @@ docker run --rm \
 docker compose up --build
 ```
 
-Compose 会同时启动 `evopilot-server` 和 `evopilot-loop-worker`。生产连续 loop 依赖 worker 常驻进程：
+Compose 会同时启动 `evopilot-server`、`evopilot-code-upgrader` 和 `evopilot-loop-worker`。生产连续 loop 依赖 worker 常驻进程和可访问的代码升级执行器：
 
 - `evopilot-server` 只负责 API、Dashboard、持久化状态和控制面。
-- `evopilot-loop-worker` 通过 `/api/v1/loop-workers/claim` 领取可执行 loop，写入 heartbeat lease，再调用 `start` 或 `resume` 推进下一轮。
+- `evopilot-code-upgrader` 通过 `npm run code-upgrader` 暴露 `/health` 和 `/api/v1/conversations`，在生产模式下会读取 `EVOPILOT_DATA_ROOT/llm.env` 并要求真实 LLM。
+- `evopilot-loop-worker` 通过 `/api/v1/loop-workers/claim` 领取可执行 loop，写入 heartbeat lease，再调用 `start` 或 `resume` 推进下一轮。若配置了 `EVOPILOT_LOOP_WORKER_LOOP_ID`，worker 会优先推进该 loop；当该 loop 已完成、不可领取或不存在时，默认回退领取队列中的下一条可执行 loop，避免生产队列被旧 preferred loop 饿死。
 - 如果只运行 server，Loop 会停在 `RUNNING / claimable=true / nextAction=claim`，这表示状态可恢复、可领取，但不是后台正在执行。
 
 SaaS 多租户 GA 还要求 Loop Store 使用 Postgres-backed readiness。Compose 默认给 `evopilot-server` 和 `evopilot-loop-worker` 配置：
@@ -72,7 +73,10 @@ EVOPILOT_LOOP_WORKER_LEASE_SECONDS=120
 
 ```text
 EVOPILOT_LOOP_WORKER_LOOP_ID=target-tenant-workspace-model-1783071349806
+EVOPILOT_LOOP_WORKER_STRICT_LOOP_ID=1
 ```
+
+如果未设置 `EVOPILOT_LOOP_WORKER_STRICT_LOOP_ID=1`，`EVOPILOT_LOOP_WORKER_LOOP_ID` 只是优先级提示，不会阻止 worker 消费其他 claimable loop。
 
 ## 生产控制面接入 EvoPilot 自身
 

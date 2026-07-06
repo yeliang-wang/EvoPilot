@@ -13,6 +13,7 @@
     "dashboard": "open apps/dashboard/index.html",
     "server": "node packages/server/dist/index.js",
     "server:debug": "EVOPILOT_RUN_MODE=debug node packages/server/dist/index.js",
+    "code-upgrader": "node scripts/internal-code-upgrader.mjs",
     "loop-worker": "node scripts/loop-worker.mjs",
     "loop:soak": "node scripts/loop-soak.mjs",
     "saas-ga:ladder": "node scripts/saas-ga-ladder-runner.mjs",

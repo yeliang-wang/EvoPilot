@@ -1041,7 +1041,25 @@ function writeJson(response, statusCode, body) {
   response.end(JSON.stringify(body));
 }
 
+function loadEnvFile(file) {
+  if (!file || !fs.existsSync(file)) return;
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const index = trimmed.indexOf("=");
+    if (index <= 0) continue;
+    const key = trimmed.slice(0, index).trim();
+    const raw = trimmed.slice(index + 1).trim();
+    const value = raw.replace(/^["']|["']$/g, "");
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
+  loadEnvFile(process.env.EVOPILOT_ENV_FILE ?? path.resolve("data/evopilot/evopilot.env"));
+  const dataRoot = process.env.EVOPILOT_DATA_ROOT ?? path.resolve("data/evopilot");
+  loadEnvFile(process.env.EVOPILOT_LLM_ENV_FILE ?? path.join(dataRoot, "llm.env"));
   const port = Number(process.env.EVOPILOT_CODE_UPGRADER_PORT ?? 3000);
   const host = process.env.EVOPILOT_CODE_UPGRADER_HOST ?? "0.0.0.0";
   const runtime = await startInternalCodeUpgrader({ host, port });

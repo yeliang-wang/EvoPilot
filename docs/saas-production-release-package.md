@@ -15,7 +15,10 @@ EVOPILOT_RUN_MODE=prod
 EVOPILOT_LOOP_STORE_BACKEND=postgres
 EVOPILOT_LOOP_STORE_DSN=postgres://evopilot:<password>@evopilot-postgres:5432/evopilot
 EVOPILOT_TOKENS=admin:<admin-token>:admin,operator:<operator-token>:operator,viewer:<viewer-token>:viewer
+EVOPILOT_CODE_UPGRADER_BASE_URL=http://evopilot-code-upgrader:3000
 ```
+
+`evopilot-code-upgrader` 必须和 server/worker 挂载同一个 `EVOPILOT_DATA_ROOT`，并能读取 `llm.env`。生产模式下不能只启动 server/worker；否则用户创建的 loop 只能进入队列，无法形成真实 GLM -> code-upgrade -> release closure 证据链。
 
 ## 2. 发布前检查
 

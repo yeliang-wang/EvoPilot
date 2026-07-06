@@ -5,6 +5,7 @@ const token = process.env.EVOPILOT_API_TOKEN ?? process.env.EVOPILOT_ADMIN_TOKEN
 const workerId = process.env.EVOPILOT_LOOP_WORKER_ID ?? `loop-worker-${crypto.randomUUID().slice(0, 8)}`;
 const actor = process.env.EVOPILOT_ACTOR ?? workerId;
 const preferredLoopId = process.env.EVOPILOT_LOOP_WORKER_LOOP_ID ?? "";
+const strictPreferredLoop = process.env.EVOPILOT_LOOP_WORKER_STRICT_LOOP_ID === "1" || process.env.EVOPILOT_LOOP_WORKER_STRICT_LOOP_ID === "true";
 const pollIntervalMs = positiveInteger(process.env.EVOPILOT_LOOP_WORKER_POLL_MS, 2000);
 const leaseSeconds = positiveInteger(process.env.EVOPILOT_LOOP_WORKER_LEASE_SECONDS, 30);
 const once = process.env.EVOPILOT_LOOP_WORKER_ONCE === "1" || process.argv.includes("--once");
@@ -17,7 +18,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-console.log(JSON.stringify({ event: "loop-worker.started", workerId, baseUrl, preferredLoopId: preferredLoopId || undefined, pollIntervalMs, leaseSeconds, once }));
+console.log(JSON.stringify({ event: "loop-worker.started", workerId, baseUrl, preferredLoopId: preferredLoopId || undefined, strictPreferredLoop, pollIntervalMs, leaseSeconds, once }));
 
 let cycles = 0;
 while (!stopped && cycles < maxCycles) {
@@ -40,7 +41,7 @@ while (!stopped && cycles < maxCycles) {
         currentIteration: updated.currentIteration
       }));
     } else {
-      console.log(JSON.stringify({ event: "loop-worker.idle", workerId, cycle: cycles, preferredLoopId: preferredLoopId || undefined }));
+      console.log(JSON.stringify({ event: "loop-worker.idle", workerId, cycle: cycles, preferredLoopId: preferredLoopId || undefined, strictPreferredLoop }));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -61,7 +62,7 @@ async function claimCandidate() {
   if (preferredLoopId) {
     const queue = await get("/api/v1/loop-workers/queue");
     const preferred = queue.find((item) => item.loopId === preferredLoopId);
-    if (!preferred) return undefined;
+    if (!preferred) return strictPreferredLoop ? undefined : claimNextAvailable();
     if (preferred.claimable) {
       const claim = await post("/api/v1/loop-workers/claim", { workerId, leaseSeconds, loopId: preferredLoopId });
       return claim.claimed?.loopId === preferredLoopId ? claim.claimed : undefined;
@@ -69,8 +70,20 @@ async function claimCandidate() {
     if (preferred.workerLease?.workerId === workerId && ["PENDING", "RUNNING", "BLOCKED"].includes(preferred.status)) {
       return preferred;
     }
-    return undefined;
+    if (strictPreferredLoop) return undefined;
+    console.log(JSON.stringify({
+      event: "loop-worker.preferred-unavailable",
+      workerId,
+      preferredLoopId,
+      preferredStatus: preferred.status,
+      preferredClaimable: preferred.claimable
+    }));
+    return claimNextAvailable();
   }
+  return claimNextAvailable();
+}
+
+async function claimNextAvailable() {
   const claim = await post("/api/v1/loop-workers/claim", { workerId, leaseSeconds });
   return claim.claimed;
 }
