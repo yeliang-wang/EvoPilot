@@ -9578,11 +9578,15 @@ class ExecutorAdapterRegistry {
 function createExecutorAdapterRegistry(): ExecutorAdapterRegistry {
   return new ExecutorAdapterRegistry([
     createLlmContextExecutorAdapter("evopilot.llm-context-adapter"),
+    createLlmContextExecutorAdapter("evopilot.target-contract-adapter"),
     createPolicyAwareExecutorAdapter("evopilot.code-upgrader-adapter", "code-upgrader"),
     createPolicyAwareExecutorAdapter("evopilot.ci-adapter", "ci"),
     createPolicyAwareExecutorAdapter("evopilot.validator-adapter", "validator"),
+    createPolicyAwareExecutorAdapter("evopilot.discovery-runtime-adapter", "validator"),
+    createPolicyAwareExecutorAdapter("evopilot.adversarial-evaluator-adapter", "validator"),
     createPolicyAwareExecutorAdapter("evopilot.approval-adapter", "approval"),
-    createPolicyAwareExecutorAdapter("evopilot.release-action-adapter", "release-action")
+    createPolicyAwareExecutorAdapter("evopilot.release-action-adapter", "release-action"),
+    createPolicyAwareExecutorAdapter("evopilot.source-release-adapter", "release-action")
   ]);
 }
 

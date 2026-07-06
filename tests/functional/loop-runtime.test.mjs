@@ -696,6 +696,17 @@ test("EvoPilot Loop Runtime supports long-task loop engineering controls", async
     assert.ok(graphEvent.payload.edges.some((edge) => edge.type === "fan-out"));
     assert.ok(graphEvent.payload.evidence.some((item) => item === "schemaValidation=true"));
 
+    const startedOrchestrated = await jsonFetch(`${baseUrl}/api/v1/loops/${encodeURIComponent(orchestrated.body.data.id)}/start`, {
+      method: "POST",
+      token: "operator-token",
+      body: { decision: "CONTINUE" }
+    });
+    assert.equal(startedOrchestrated.status, 200);
+    assert.equal(startedOrchestrated.body.data.iterations.at(-1).executorSteps[0].input.adapterId, "evopilot.target-contract-adapter");
+    assert.ok(startedOrchestrated.body.data.iterations.at(-1).executorSteps.some((step) => step.input.adapterId === "evopilot.discovery-runtime-adapter"));
+    assert.ok(startedOrchestrated.body.data.iterations.at(-1).executorSteps.some((step) => step.input.adapterId === "evopilot.adversarial-evaluator-adapter"));
+    assert.ok(startedOrchestrated.body.data.iterations.at(-1).executorSteps.some((step) => step.input.adapterId === "evopilot.source-release-adapter"));
+
     const targets = await jsonFetch(`${baseUrl}/api/v1/loop-orchestration/targets`, {
       token: "viewer-token"
     });
