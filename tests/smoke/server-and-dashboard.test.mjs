@@ -270,6 +270,17 @@ test("bootstrap admin, password change, and tenant user management are enforced"
     });
     assert.equal(workspaceUsage.status, 200);
     assert.equal((await workspaceUsage.json()).data.workspaceId, "workspace-acme");
+    const platformWorkspaces = await fetch(`${baseUrl}/api/v1/workspaces`, {
+      headers: { authorization: `Bearer ${activeAdminToken}` }
+    });
+    assert.equal(platformWorkspaces.status, 200);
+    const platformWorkspacesBody = await platformWorkspaces.json();
+    assert.ok(platformWorkspacesBody.data.some((item) => item.id === "workspace-acme" && item.tenantId === "tenant-acme"));
+    const acmeWorkspaces = await fetch(`${baseUrl}/api/v1/workspaces?tenantId=tenant-acme`, {
+      headers: { authorization: `Bearer ${activeAdminToken}` }
+    });
+    assert.equal(acmeWorkspaces.status, 200);
+    assert.deepEqual((await acmeWorkspaces.json()).data.map((item) => item.id), ["workspace-acme"]);
 
     const tenantAdmin = await fetch(`${baseUrl}/api/v1/users`, {
       method: "POST",

@@ -2211,7 +2211,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       }
       if (request.method === "GET" && url.pathname === "/api/v1/workspaces") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
-        const tenantId = auth.platformAdmin ? optionalTrimmedString(url.searchParams.get("tenantId")) ?? auth.tenantId : auth.tenantId;
+        const tenantId = auth.platformAdmin ? optionalTrimmedString(url.searchParams.get("tenantId")) : auth.tenantId;
         return writeJson(response, 200, envelope(store.listWorkspaces(tenantId)));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/secrets") {

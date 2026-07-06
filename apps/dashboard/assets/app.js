@@ -1172,7 +1172,8 @@ function renderSaasWorkspace() {
 function renderUserAccessControl() {
   const isPlatformAdmin = Boolean(state.currentUser?.platformAdmin);
   const visibleTenants = state.tenants.length ? state.tenants : [{ id: state.saasScope.tenantId, name: state.saasScope.tenantId }];
-  const visibleWorkspaces = state.workspaces.length ? state.workspaces : [{ id: state.saasScope.workspaceId, name: state.saasScope.workspaceId, tenantId: state.saasScope.tenantId }];
+  const selectedTenantId = isPlatformAdmin ? state.saasScope.tenantId : state.currentUser?.tenantId ?? state.saasScope.tenantId;
+  const selectedTenantWorkspaceOptions = userWorkspaceOptionsForTenant(selectedTenantId);
   const currentTenantUsers = state.users.filter((user) => isPlatformAdmin || user.tenantId === state.saasScope.tenantId);
   return `
     <section class="iam-hero">
@@ -1211,14 +1212,14 @@ function renderUserAccessControl() {
           </label>
           <label>
             <span>租户</span>
-            <select name="tenantId" ${isPlatformAdmin ? "" : "disabled"}>
-              ${visibleTenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}" ${tenant.id === state.saasScope.tenantId ? "selected" : ""}>${escapeHtml(tenant.name ?? tenant.id)}</option>`).join("")}
+            <select name="tenantId" data-action="user-tenant-select" ${isPlatformAdmin ? "" : "disabled"}>
+              ${visibleTenants.map((tenant) => `<option value="${escapeHtml(tenant.id)}" ${tenant.id === selectedTenantId ? "selected" : ""}>${escapeHtml(tenant.name ?? tenant.id)}</option>`).join("")}
             </select>
           </label>
           <label>
             <span>工作区</span>
-            <select name="workspaceId">
-              ${visibleWorkspaces.map((workspace) => `<option value="${escapeHtml(workspace.id)}" ${workspace.id === state.saasScope.workspaceId ? "selected" : ""}>${escapeHtml(workspace.name ?? workspace.id)}</option>`).join("")}
+            <select name="workspaceId" data-action="user-workspace-select" ${selectedTenantWorkspaceOptions.length ? "" : "disabled"}>
+              ${renderUserWorkspaceOptions(selectedTenantId)}
             </select>
           </label>
           <label>
@@ -1284,6 +1285,22 @@ function renderUserAccessControl() {
       </div>
     </section>
   `;
+}
+
+function userWorkspaceOptionsForTenant(tenantId) {
+  const fallback = [{ id: state.saasScope.workspaceId, name: state.saasScope.workspaceId, tenantId: state.saasScope.tenantId }];
+  const workspaces = state.workspaces.length ? state.workspaces : fallback;
+  return workspaces.filter((workspace) => workspace.tenantId === tenantId);
+}
+
+function renderUserWorkspaceOptions(tenantId) {
+  const options = userWorkspaceOptionsForTenant(tenantId);
+  if (!options.length) return `<option value="">该租户暂无工作区</option>`;
+  const currentBelongsToTenant = options.some((workspace) => workspace.id === state.saasScope.workspaceId);
+  return options.map((workspace, index) => {
+    const selected = currentBelongsToTenant ? workspace.id === state.saasScope.workspaceId : index === 0;
+    return `<option value="${escapeHtml(workspace.id)}" ${selected ? "selected" : ""}>${escapeHtml(workspace.name ?? workspace.id)}</option>`;
+  }).join("");
 }
 
 function renderSaasCredentialCenter() {
@@ -5525,19 +5542,34 @@ function bindSaasAdminForms() {
   });
 
   const userForm = content.querySelector("#user-create-form");
+  const userTenantSelect = content.querySelector('[data-action="user-tenant-select"]');
+  const userWorkspaceSelect = content.querySelector('[data-action="user-workspace-select"]');
+  userTenantSelect?.addEventListener("change", () => {
+    if (!userWorkspaceSelect) return;
+    const tenantId = String(userTenantSelect.value ?? state.saasScope.tenantId);
+    const workspaceOptions = userWorkspaceOptionsForTenant(tenantId);
+    userWorkspaceSelect.innerHTML = renderUserWorkspaceOptions(tenantId);
+    userWorkspaceSelect.disabled = workspaceOptions.length === 0;
+  });
   userForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(userForm);
     const tenantId = state.currentUser?.platformAdmin
       ? String(formData.get("tenantId") ?? state.saasScope.tenantId)
       : state.saasScope.tenantId;
+    const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+    if (!workspaceId) {
+      state.operationNotice = "创建用户失败：请先为所选租户创建工作区。";
+      render();
+      return;
+    }
     try {
       await postJson("/api/v1/users", {
         username: String(formData.get("username") ?? "").trim(),
         displayName: String(formData.get("displayName") ?? "").trim(),
         password: String(formData.get("password") ?? ""),
         tenantId,
-        workspaceId: String(formData.get("workspaceId") ?? state.saasScope.workspaceId),
+        workspaceId,
         role: String(formData.get("role") ?? "viewer"),
         platformAdmin: Boolean(formData.get("platformAdmin"))
       });
