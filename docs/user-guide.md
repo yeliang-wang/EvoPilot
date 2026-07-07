@@ -1,5 +1,11 @@
 # EvoPilot 用户操作手册
 
+## 当前发布状态
+
+EvoPilot SaaS 多租户版本已在 2026-07-07 生产环境验收中达到生产级 GA stable Release 标准。真实生产用户 E2E 汇总覆盖 92 项检查，结果为 88 PASS、0 FAIL、4 个低严重性 WARN。低严重性 WARN 不影响发布：`admin/admin` 是受控平台 bootstrap 账号；`WAITING_APPROVAL` 是正常 Human Gate，表示系统按治理规则停下等待人工批准。
+
+用户执行生产验收或日常使用时，应优先以 Dashboard 的真实 API 数据、release decision、Loop trace、LLM credits/tokens 和审计记录为准。外部报告中的截图数量或 token 汇总若与生产 API 不一致，应回到 EvoPilot 生产 API 复核。
+
 ## 操作总览
 
 EvoPilot 的日常使用不是“调用一次 agent”，而是把真实 AI Agent 产品放进一个可持续推进长任务的工程框架。用户操作时可以按四层理解：

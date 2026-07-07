@@ -1,5 +1,19 @@
 # 真实生产用户 E2E 场景
 
+## 当前验收结论
+
+2026-07-07 生产环境真人/数字用户联合验收显示：EvoPilot SaaS 多租户版本已达到生产级 GA stable Release 标准。验收覆盖 Track A 功能场景和 Track B 端到端链路，共 92 项，88 PASS，0 FAIL，4 WARN，综合通过率 95.7%。
+
+本结论成立的关键条件：
+
+- 未登录业务 API 返回 401，Viewer 写操作返回 403，RBAC 边界有效。
+- 平台高级管理员、租户管理员、开发者和 Viewer 的核心路径可用。
+- 真实 GitHub 项目完成项目接入、Alpha/Beta/RC/GA release target、release evidence、trace/events/executor graph。
+- Loop Runtime 使用真实 GLM-5.1，经 `meta.llm`、Loop trace 和 `totalTokens` 验证，不是 smoke/mock。
+- `WAITING_APPROVAL` 是 Human Gate 合法终态，需要人工审批，不按失败处理。
+
+验收报告工具中的派生统计不能替代生产 API：LLM token 总量以生产 `meta.llm` 和 Loop trace 为准，截图数量以实际产物目录为准。
+
 ## 场景目标
 
 生产用户已经接入一个真实 AI Agent 项目。线上 Trace / Tool Call / RAG / Cost 证据显示订单助手链路 p95 超过 3 秒，用户希望 EvoPilot 自动形成演进机会点，生成可编辑方案，在用户确认后完成代码升级，并进入真实 CI/CD。

@@ -2,6 +2,21 @@
 
 本文档用于把 EvoPilot SaaS 多租户控制面部署到生产环境，并把文件态业务数据迁移到 Postgres business store。Dashboard 可以展示发布状态和证据，但最终发布结论仍以 `GET /api/v1/release/decisions` 为准。
 
+## 当前发布状态
+
+截至 2026-07-07 生产验收，EvoPilot SaaS 多租户版本已达到生产级 GA stable Release 标准，可以进入对外公开发布阶段。
+
+已验证的生产状态：
+
+- 生产健康检查：`/health=UP`。
+- 生产就绪检查：`/ready=READY`。
+- SaaS observability：`status=READY`，`postgresStoreReady=true`，`blockers=[]`。
+- 真实用户 E2E 汇总：92 项检查，88 PASS，0 FAIL，4 WARN，综合通过率 95.7%。
+- 真实 GLM 调用：生产 `meta.llm` 记录 `provider=zhipu`、`model=glm-5.1`、`creditsConsumed/tokens`。
+- 低严重性 WARN：`admin/admin` 保留、`WAITING_APPROVAL` Human Gate 停点，均不构成发布阻断。
+
+归档生产验收报告时需要区分产品证据和报告工具统计口径：LLM tokens 应以生产 `meta.llm` 和 Loop trace 中的 `totalTokens` 为准；截图数量应以实际产物目录为准。
+
 ## 1. 启动生产依赖
 
 ```bash

@@ -16,6 +16,8 @@ It is not an agent runtime, a prompt playground, or a generic code generator. Ag
 
 EvoPilot is marked **GA Release V1.0** for its product control plane and Loop Engineering runtime. The release standard is not a health-only soak: the GA target requires production-representative projects, successful evolution loops, code-upgrader changes, Jenkins/GitLab delivery, residual scenarios, active workload stability, and product-native `GO` / `NO-GO` release evidence.
 
+As of the 2026-07-07 production validation, the **EvoPilot SaaS multi-tenant deployment has reached GA stable Release status**. The latest production user E2E run covered 92 checks with 88 PASS, 0 FAIL, and 4 low-severity WARN items. The WARN items are non-blocking: `admin/admin` remains available by product decision, and `WAITING_APPROVAL` is the expected Human Gate stop state. Production health is `UP`, readiness is `READY`, Postgres business store is ready, and GLM-5.1 calls are recorded with LLM credits/tokens.
+
 The authoritative release verdict lives in:
 
 ```http

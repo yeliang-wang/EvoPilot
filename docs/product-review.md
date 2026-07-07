@@ -2,6 +2,8 @@
 
 ## 评审结论
 
+当前结论：EvoPilot SaaS 多租户版本已在 2026-07-07 生产验收中达到生产级 GA stable Release 标准，可以进入对外公开发布阶段。此前的产品评审结论已经落地为独立产品控制面、SaaS 多租户 Dashboard、角色化帮助手册、Postgres business store、真实 GLM Loop Runtime、项目级 release decision 和生产观测证据。
+
 EvoPilot 应该作为从 `domainforge-fabric-self-evolution` 演化出的独立产品化平台建设，而不是作为 `domainforge-fabric` 内部模块存在。
 
 继承下来的核心链路是：
