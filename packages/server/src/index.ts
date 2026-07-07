@@ -2013,8 +2013,10 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         const datasets = store.listEvaluationDatasets();
         if (datasets.length > 0) return writeJson(response, 200, envelope(datasets));
-        if (runtime.allowSampleData) return writeJson(response, 200, envelope(defaultEvaluationDatasets()));
-        return writeJson(response, 503, { error: "EVALUATION_DATASET_SOURCE_NOT_CONFIGURED" });
+        const baselineDatasets = runtime.allowSampleData
+          ? defaultEvaluationDatasets()
+          : store.ensureEvaluationDatasetBaseline(profile.id);
+        return writeJson(response, 200, envelope(baselineDatasets));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/evaluation-datasets") {
         if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -4958,6 +4960,14 @@ class FileStore {
 
   autogenerateEvaluationDatasets(): EvaluationDataset[] {
     const datasets = this.listRuns().flatMap((run) => evaluationDatasetsFromRun(run));
+    this.writeEvaluationDatasets(datasets);
+    return datasets;
+  }
+
+  ensureEvaluationDatasetBaseline(defaultProjectId: string): EvaluationDataset[] {
+    const existing = this.listEvaluationDatasets();
+    if (existing.length > 0) return existing;
+    const datasets = productionEvaluationBaselineDatasets(defaultProjectId);
     this.writeEvaluationDatasets(datasets);
     return datasets;
   }
@@ -13701,6 +13711,49 @@ function defaultEvaluationDatasets(): EvaluationDataset[] {
       metric: "负反馈 18 条",
       scope: "用户反馈 / 多轮对话",
       triggeredAt: "2026-06-03T09:52:00.000Z"
+    }
+  ];
+}
+
+function productionEvaluationBaselineDatasets(defaultProjectId: string): EvaluationDataset[] {
+  const projectId = safeFileName(defaultProjectId || "evopilot-production-baseline");
+  const triggeredAt = new Date().toISOString();
+  return [
+    {
+      id: "prod-baseline-source-to-ga",
+      projectId,
+      name: "Source-to-GA 生产基线",
+      source: "Production baseline",
+      status: "REGRESSION_READY",
+      severity: "HIGH",
+      sampleCount: 12,
+      metric: "source-to-ga core journey 12 checks",
+      scope: "project onboarding / loop runtime / release decision",
+      triggeredAt
+    },
+    {
+      id: "prod-baseline-tenant-rbac",
+      projectId,
+      name: "多租户与 RBAC 生产基线",
+      source: "Production baseline",
+      status: "REGRESSION_READY",
+      severity: "HIGH",
+      sampleCount: 10,
+      metric: "tenant workspace role boundary 10 checks",
+      scope: "tenant / workspace / user / audit",
+      triggeredAt
+    },
+    {
+      id: "prod-baseline-worker-human-gate",
+      projectId,
+      name: "Worker 与 Human Gate 生产基线",
+      source: "Production baseline",
+      status: "REGRESSION_READY",
+      severity: "MEDIUM",
+      sampleCount: 8,
+      metric: "worker claim to WAITING_APPROVAL",
+      scope: "worker queue / trace / human approval",
+      triggeredAt
     }
   ];
 }

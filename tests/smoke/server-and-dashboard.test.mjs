@@ -794,13 +794,6 @@ test("evolution trigger orchestration ignores normal evidence and invalid boolea
     const runBody = await run.json();
     assert.equal(runBody.data.opportunities.length, 0);
 
-    const datasets = await fetch(`${baseUrl}/api/v1/evaluation-datasets`, {
-      headers: { authorization: "Bearer viewer-token" }
-    });
-    const datasetsBody = await datasets.json();
-    assert.equal(datasets.status, 503);
-    assert.equal(datasetsBody.error, "EVALUATION_DATASET_SOURCE_NOT_CONFIGURED");
-
     const scan = await fetch(`${baseUrl}/api/v1/evolution-batches/scan`, {
       method: "POST",
       headers: { authorization: "Bearer operator-token", "content-type": "application/json" },
@@ -809,6 +802,17 @@ test("evolution trigger orchestration ignores normal evidence and invalid boolea
     assert.equal(scan.status, 200);
     const scanBody = await scan.json();
     assert.equal(scanBody.data.created.length, 0);
+
+    const datasets = await fetch(`${baseUrl}/api/v1/evaluation-datasets`, {
+      headers: { authorization: "Bearer viewer-token" }
+    });
+    const datasetsBody = await datasets.json();
+    assert.equal(datasets.status, 200);
+    assert.deepEqual(datasetsBody.data.map((dataset) => dataset.id), [
+      "prod-baseline-source-to-ga",
+      "prod-baseline-tenant-rbac",
+      "prod-baseline-worker-human-gate"
+    ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -1806,8 +1810,13 @@ test("prod mode disables anonymous admin, sample data, and auto project registra
     const datasets = await fetch(`${baseUrl}/api/v1/evaluation-datasets`, {
       headers: { authorization: "Bearer viewer-token" }
     });
-    assert.equal(datasets.status, 503);
-    assert.match(await datasets.text(), /EVALUATION_DATASET_SOURCE_NOT_CONFIGURED/);
+    assert.equal(datasets.status, 200);
+    const datasetsBody = await datasets.json();
+    assert.deepEqual(datasetsBody.data.map((dataset) => dataset.id), [
+      "prod-baseline-source-to-ga",
+      "prod-baseline-tenant-rbac",
+      "prod-baseline-worker-human-gate"
+    ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

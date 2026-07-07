@@ -292,6 +292,9 @@ async function assertDashboardContract(baseUrl) {
   for (const roleHelpLabel of ["角色化手册", "角色与权限", "未登录用户", "平台高级管理员", "租户管理员", "Workspace 开发者", "发布负责人", "Loop 运维", "审计 Viewer", "场景权限矩阵", "打开登录页", "修改默认密码", "创建租户", "创建租户用户", "重置用户密码", "管理本租户权限", "AI 日志诊断", "平台高级管理员创建租户与工作区", "租户管理员管理用户与权限", "POST /api/v1/auth/login", "POST /api/v1/auth/change-password", "POST /api/v1/tenants", "POST /api/v1/workspaces", "POST /api/v1/users", "PATCH /api/v1/users/{userId}", "POST /api/v1/users/{userId}/reset-password", "platformAdmin=true"]) {
     assert.ok(app.includes(roleHelpLabel), `missing role help label ${roleHelpLabel}`);
   }
+  for (const gaHardeningLabel of ["打开 Loop 详情", "WAITING_APPROVAL 是正常 Human Gate", "Human Gate：等待人工批准，属于正常治理停点", "查看发布证据", "查看发布判定", "Loop detail evidence", "LLM tokens", "只停留在总览导致多个场景截图相同"]) {
+    assert.ok(app.includes(gaHardeningLabel), `missing GA hardening label ${gaHardeningLabel}`);
+  }
   for (const cloudDocLabel of ["文档目录", "用户指南", "开始使用", "快速入门", "API 参考", "推荐阅读", "操作指南", "操作场景", "前提条件", "操作步骤", "结果验证", "后续操作", "相关 API", "控制台位置"]) {
     assert.ok(app.includes(cloudDocLabel), `missing cloud doc label ${cloudDocLabel}`);
   }

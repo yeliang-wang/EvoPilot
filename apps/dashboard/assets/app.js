@@ -1970,7 +1970,7 @@ function renderSimplifiedLoopRows(loops) {
           <span>${escapeHtml(loop.status ?? "-")}</span>
           <span>${escapeHtml(`${loop.currentIteration ?? 0}/${loop.stopPolicy?.maxIterations ?? "-"}`)}</span>
           <span>${escapeHtml(loop.sourceClosure?.closureState ?? "-")}</span>
-          <button data-loop-workspace-view="advanced" data-loop-detail-id="${escapeHtml(loop.id)}">细节</button>
+          <button data-loop-workspace-view="detail" data-loop-detail-id="${escapeHtml(loop.id)}">打开 Loop 详情</button>
         </article>
       `).join("")}
     </div>
@@ -2003,9 +2003,9 @@ function renderSimplifiedLoopCard(loop, model) {
         `).join("")}
       </div>
       <div class="source-ga-home-actions">
-        <button class="primary" data-page-link="${model.decisionGo ? "发布证据" : "Loops"}">${model.decisionGo ? "查看发布决策" : "继续 Loop"}</button>
+        <button class="primary" data-loop-workspace-view="detail" data-loop-detail-id="${escapeHtml(loop.id)}">${model.decisionGo ? "查看 Loop 详情" : "继续 Loop"}</button>
         ${model.prUrl ? `<a class="button-like" href="${escapeHtml(model.prUrl)}" target="_blank" rel="noreferrer">打开 PR</a>` : ""}
-        <button data-loop-workspace-view="advanced">高级细节</button>
+        <button data-page-link="发布证据">查看发布判定</button>
       </div>
     </article>
   `;
@@ -2039,6 +2039,7 @@ function loopWorkspaceView() {
 
 function renderLoopWorkspaceHeader(loops, selectedLoop, view) {
   const blocked = loops.filter((loop) => ["BLOCKED", "WAITING_APPROVAL", "FAILED"].includes(loop.status)).length;
+  const humanGateCount = loops.filter((loop) => loop.status === "WAITING_APPROVAL").length;
   const releasePending = loops.filter((loop) => loop.sourceClosure?.closureState && loop.sourceClosure.closureState !== "PROMOTED").length;
   const running = loops.filter((loop) => loop.status === "RUNNING").length;
   return `
@@ -2046,12 +2047,12 @@ function renderLoopWorkspaceHeader(loops, selectedLoop, view) {
       <div>
         <span class="eyebrow">Loop workspace</span>
         <h2>Loop 执行工作区</h2>
-        <p>总览页只处理队列和调度；进入单个 Loop 后再查看 Source-to-GA 动态链路、trace、sandbox、replay 和 release evidence；创建页只负责新建或调整 graph。</p>
+        <p>总览页只处理队列和调度；进入单个 Loop 后再查看 Source-to-GA 动态链路、trace、sandbox、replay 和 release evidence。WAITING_APPROVAL 是正常 Human Gate，不按超时失败处理。</p>
       </div>
       <div class="loop-workspace-metrics">
         <div><span>全部 Loop</span><strong>${loops.length}</strong></div>
         <div><span>运行中</span><strong>${running}</strong></div>
-        <div><span>需处理</span><strong>${blocked}</strong></div>
+        <div><span>待人工审批</span><strong>${humanGateCount}</strong></div>
         <div><span>Release 待闭合</span><strong>${releasePending}</strong></div>
       </div>
       <div class="loop-workspace-tabs" role="tablist" aria-label="Loop 工作区视图">
@@ -3123,6 +3124,7 @@ function renderProjectReleaseTargets(project, model) {
               <div class="row-actions">
                 <button data-action="create-project-release-target" data-project-id="${escapeHtml(projectId)}" data-template-id="${escapeHtml(target.id)}" ${projectId ? "" : "disabled"}>${existing ? "已创建" : "复制为项目目标"}</button>
                 <button class="primary" data-action="generate-project-release-decision" data-project-id="${escapeHtml(projectId)}" data-target-id="${escapeHtml(existing?.id ?? projectTargetId)}" data-template-id="${escapeHtml(target.id)}" ${projectId ? "" : "disabled"}>${decision ? escapeHtml(decision.status) : "生成判定"}</button>
+                <button data-page-link="发布证据">查看发布证据</button>
               </div>
             </article>
           `;
@@ -4444,7 +4446,7 @@ function helpManualScenarios() {
         manualStep("配置 GitHub App 与 Vault 边界", "进入凭据页，确认 GitHub App、source writeback、deploy credentials、LLM provider keys 和 audit redaction。生产环境优先使用 GitHub App installation 或服务器端 tokenRef。", "Vault readiness 显示各类凭据状态，source blocker 有明确 next boundary", "GitHub App 与 Secret Vault", "凭据", "Credential boundary", "workspace 级凭据中心统一管理源码、部署和 LLM 密钥", navFor("凭据"), ["GitHub App", "Source writeback", "Deploy credentials", "Audit redaction"], "凭据", "tokenRef 未解析、GitHub App 未安装或 secret 明文泄露风险"),
         manualStep("在 Workspace 内接入项目", "进入项目页注册 GitHub、GitLab 或本地 Git 项目。项目必须归属到当前 workspace，凭据只保存引用或预检结果，不在 API 响应中明文返回。", "项目列表出现目标项目，validation 显示已验证或明确阻塞原因", "Project workspace", "项目", "Project onboarding", "项目注册进入 workspace scoped source project", navFor("项目"), ["Provider", "Git URL", "默认分支", "验证并注册"], "项目", "Git URL 不可达、默认分支错误或项目归属缺失"),
         manualStep("在工作区内生成目标", "回到工作区，使用 Target Runtime 或 Target Backlog 运行 Discovery、查看候选目标，并把目标推进到 Codex-backed target loop。", "Target Backlog 出现当前 workspace 下的 target，nextAction 可推进", "Workspace SaaS Targets", "工作区", "Target runtime", "Discovery、Target Runtime 和 Backlog 都带 workspace 语义", navFor("工作区"), ["Discovery Runtime", "Target Backlog", "推进下一 Target", "nextAction"], "工作区", "没有已验证项目或 evidence 不属于当前 workspace"),
-        manualStep("创建并执行 Source-to-GA Loop", "进入 Loops，用 Workflow Canvas Editor 创建 source-to-production loop，或从 Backlog/Autopilot 推进。Loop 运行时必须携带 workspace、sourceClosure、worker/sandbox 和 human gate 证据。", "Loop Runtime 出现新 Loop，sourceClosure 带 code-change、push、tag、deploy、health-ready gate", "Loop 执行工作区", "Loops", "Loop runtime", "workspace scoped LoopRun 和 sourceClosure 入库", navFor("Loops"), ["Graph template", "Worker Queue", "Source Closure", "Human gate"], "Loops", "release gate、workspace scope 或 targetVersion 缺失"),
+        manualStep("创建并执行 Source-to-GA Loop", "进入 Loops，用 Workflow Canvas Editor 创建 source-to-production loop，或从 Backlog/Autopilot 推进。Loop 出现后点击“打开 Loop 详情”，不要只停留在概览列表；详情页会展示 workspace、sourceClosure、worker/sandbox、Human Gate、LLM tokens、trace 和 release evidence。", "Loop Runtime 出现新 Loop，详情页能看到当前 loopId、项目、sourceClosure、LLM 调用和 health-ready gate", "Loop 执行工作区", "Loops", "Loop detail runtime", "workspace scoped LoopRun 和 sourceClosure 入库", navFor("Loops"), ["打开 Loop 详情", "Graph template", "Worker Queue", "Source Closure", "Human Gate", "LLM tokens"], "Loops", "只截取 Loop 概览、release gate/workspace scope/targetVersion 缺失"),
         manualStep("查看发布证据和审计归属", "进入发布证据页刷新 Release Run，按策略批准 Release、合并 Release 或执行安全自动合并；完成后进入审计页确认 release decision、artifacts、audit 和 workspace 归属。", "Release Run 晋级到 promoted/succeeded，审计页能复盘 GO / NO-GO 证据", "Release Closure Runtime", "发布证据", "Release evidence", "发布结论、artifacts 和 audit 都归属当前 workspace", navFor("发布证据"), ["刷新 Release Run", "批准 Release", "GO / NO-GO", "Audit"], "发布证据", "policy blocker、健康探测失败、merge 冲突或审计归属缺失")
       ]
     },
@@ -4549,7 +4551,8 @@ function helpManualScenarios() {
       outcome: "卡住的 Loop 被定位到 worker、context、sandbox、trace 或 release gate，并继续或形成人工阻塞",
       goal: "当长任务中断或状态不清时，用 Dashboard 的 runtime workbench 找到当前阻塞点并恢复。",
       steps: [
-        manualStep("查看 Source-to-GA 动态链路定位阻塞", "打开 Source-to-GA 本体链路图，选择当前 loopId，用 Git Project、Discovery、Target、Executor Graph、Worker/Sandbox、Human Gate、Source Closure、CI/CD Deploy、Release Decision 和 GA Release 判断卡点。", "能定位当前节点、阻塞类型、关联 API 和下一动作", "Source-to-GA 本体链路图", "Loops", "Dynamic ontology map", "同一张动态图根据所选 Loop Run 实时展示从源码到 GA 的进度", navFor("Loops"), ["Loop 选择器", "当前节点高亮", "Node Inspector", "实时事件流"], "Loops", "状态数据未刷新或 release decision 缺失"),
+        manualStep("打开单个 Loop 详情", "在 Loops 概览中点击目标行的“打开 Loop 详情”，确认页面标题、loopId、项目、当前轮次、Source-to-GA 动态链路图和 Interactive run console 都对应同一个 loop。真人验收截图必须来自详情页，而不是 Loops 概览页。", "截图能区分不同 loopId，并显示项目、Human Gate、LLM tokens、trace 或 release evidence", "Loop 详情", "Loops", "Loop detail evidence", "不同 Loop 的详情页截图不再完全相同", navFor("Loops"), ["打开 Loop 详情", "loopId", "项目", "Human Gate", "LLM tokens", "Interactive run console"], "Loops", "只停留在总览导致多个场景截图相同"),
+        manualStep("查看 Source-to-GA 动态链路定位阻塞", "在 Loop 详情中查看 Source-to-GA 本体链路图，选择当前 loopId，用 Git Project、Discovery、Target、Executor Graph、Worker/Sandbox、Human Gate、Source Closure、CI/CD Deploy、Release Decision 和 GA Release 判断卡点。", "能定位当前节点、阻塞类型、关联 API 和下一动作；WAITING_APPROVAL 是正常 Human Gate，表示等待人工批准，不按超时失败处理", "Source-to-GA 本体链路图", "Loops", "Dynamic ontology map", "同一张动态图根据所选 Loop Run 实时展示从源码到 GA 的进度", navFor("Loops"), ["Loop 选择器", "当前节点高亮", "Node Inspector", "实时事件流", "WAITING_APPROVAL 是正常 Human Gate"], "Loops", "状态数据未刷新、release decision 缺失或把 Human Gate 误判为失败"),
         manualStep("Claim worker 或执行 Watchdog", "在 Worker Queue Workbench 中 claim 下一 Loop，或触发 Watchdog 检查 expired lease、crash-resume 和 side-effect guard。", "worker lease 更新或 watchdog 给出恢复动作", "Worker Queue Workbench", "Loops", "Worker recovery", "claimable loop 和 lease 过期恢复", navFor("Loops"), ["Claim 下一 Loop", "Watchdog", "Lease", "side-effect guard"], "Loops", "已有 worker 持有有效 lease"),
         manualStep("执行 Context Time Travel Replay", "在 Context Time Travel Workbench 选择 checkpoint，编辑 context JSON 并 Replay 生成 Diff。", "出现 replay diff，Loop 从指定 checkpoint 继续", "Context Time Travel Workbench", "Loops", "Replay", "修改上下文后继续执行", navFor("Loops"), ["Checkpoint", "Replay 并生成 Diff", "contextPatch", "diff"], "Loops", "context JSON 无效或 checkpoint 不存在"),
         manualStep("验证 Sandbox 和 Trace", "用 Sandbox Boundary Workbench 验证 Docker/K8s 边界，用 Streaming Trace Workbench 读取 trace tree 和 events。", "sandbox proof、trace tree、events 都有可读证据", "Sandbox Boundary Workbench", "Loops", "Runtime proof", "沙箱边界、trace tree 和事件流", navFor("Loops"), ["验证 Sandbox Proof", "刷新 Trace Tree", "/events", "failure-group"], "Loops", "沙箱权限不足或事件流断开")
@@ -4568,7 +4571,7 @@ function helpManualScenarios() {
       steps: [
         manualStep("注册 EvoPilot 仓库为目标项目", "在项目中选择 Local Git 或 GitHub，把 EvoPilot 仓库作为目标项目，并配置默认分支和凭据。", "项目工作区显示 EvoPilot 项目和源码凭据状态", "Project workspace", "项目", "Self target", "EvoPilot 作为被治理项目", navFor("项目"), ["Local Git", "GitHub", "默认分支", "Credentials"], "项目", "把 controller 运行目录和目标改动范围混淆"),
         manualStep("限定自演进范围", "在方案或 Loop 创建时明确 allowed paths、validation commands、rollback metadata 和人工审批边界。", "Loop 的上下文包含允许路径、验证命令和 rollback 信息", "Workflow Canvas Editor", "Loops", "Governed self-loop", "自演进必须受限并可回滚", navFor("Loops"), ["allowed paths", "validation commands", "rollback", "human gate"], "Loops", "范围过大或没有审批人"),
-        manualStep("执行自举 Loop", "启动 source-to-production loop，但在 human gate、release policy 和 safe merge 前必须停下等待审批。", "Loop Runtime 显示 WAITING_APPROVAL 或 release policy 状态", "Loop Runtime", "Loops", "Self-evolution loop", "不绕过治理的自举执行", navFor("Loops"), ["WAITING_APPROVAL", "Release policy", "safe merge", "evidence"], "Loops", "自动合并绕过审批"),
+        manualStep("执行自举 Loop", "启动 source-to-production loop，但在 human gate、release policy 和 safe merge 前必须停下等待审批。进入单个 Loop 详情确认 WAITING_APPROVAL 的 Human Gate 说明、批准按钮、trace 和 release policy 证据。", "Loop 详情显示 WAITING_APPROVAL 或 release policy 状态，并解释这是正常治理停点", "Loop 详情", "Loops", "Self-evolution loop", "不绕过治理的自举执行", navFor("Loops"), ["WAITING_APPROVAL", "Human Gate：等待人工批准，属于正常治理停点", "Release policy", "safe merge", "evidence"], "Loops", "自动合并绕过审批或把 WAITING_APPROVAL 当成超时失败"),
         manualStep("审计自举结果", "在审计中确认自举变更的 release decision、artifact、audit 和回滚证据。", "能区分目标项目自演进和控制器进程自修改", "历史详情", "审计", "Self audit", "自举 Loop 可审计", navFor("审计"), ["release decision", "artifact", "audit", "rollback"], "审计", "只看到文件变更，没有 release decision")
       ]
     },
@@ -4637,7 +4640,7 @@ function renderLoopRunTable(loops) {
       : table(["操作", "Loop", "状态", "轮次", "源码闭环", "执行图", "Sandbox", "Worker", "Trace"], loops.map((loop) => [
           renderLoopActions(loop),
           `<strong>${loop.objective}</strong><span class="subtext">${loop.id}</span>`,
-          statusPill(loop.status),
+          loopStatusPill(loop),
           `${loop.currentIteration}/${loop.stopPolicy?.maxIterations ?? "-"}`,
           renderLoopSourceClosure(loop),
           `${loop.executorGraphId}<span class="subtext">${loop.coordination?.mode ?? "serial"}</span>`,
@@ -4645,6 +4648,13 @@ function renderLoopRunTable(loops) {
           loop.workerLease ? `${loop.workerLease.workerId}<span class="subtext">到期 ${formatDate(loop.workerLease.expiresAt)}</span>` : "未持有",
           `${loop.trace?.executorStepCount ?? 0} steps / ${loop.trace?.failedStepCount ?? 0} failed<span class="subtext">${loop.timeline?.at(-1)?.message ?? "等待启动"}</span>`
         ]));
+}
+
+function loopStatusPill(loop) {
+  if (loop.status === "WAITING_APPROVAL") {
+    return `${statusPill("WAITING_APPROVAL")}<span class="subtext">Human Gate：等待人工批准，属于正常治理停点</span>`;
+  }
+  return statusPill(loop.status);
 }
 
 function renderLoopTargetRuntimePanel() {
@@ -4963,6 +4973,7 @@ function renderLoopActions(loop) {
     buttons.push(`<button data-action="execute-source-closure" data-id="${encodedId}">执行闭环</button>`);
   }
   buttons.push(`<button data-action="watchdog-loop" data-id="${encodedId}">Watchdog</button>`);
+  buttons.push(`<button data-page-link="发布证据">查看判定</button>`);
   return `<div class="table-actions">${buttons.join("")}</div>`;
 }
 
@@ -5011,6 +5022,7 @@ function renderLoopDetail(loop) {
         <div><span>Closure</span><strong>${translateSourceClosureState(closure.closureState ?? "PLANNED")}</strong><small>${artifacts.tag ?? artifacts.commitSha ?? artifacts.branch ?? "等待执行"}</small></div>
         <div><span>Deploy</span><strong>${gateEvidence.deploy?.status ?? "PENDING"}</strong><small>${artifacts.deploymentConnectorId ?? "未绑定连接器"} / ${artifacts.deploymentId ?? "未发布"}</small></div>
         <div><span>Health</span><strong>${gateEvidence["health-ready"]?.status ?? "PENDING"}</strong><small>${artifacts.healthUrl ?? artifacts.readyUrl ?? "等待探测"}</small></div>
+        <div><span>Human Gate</span><strong>${loop.status === "WAITING_APPROVAL" ? "等待审批" : "无待审批"}</strong><small>${loop.status === "WAITING_APPROVAL" ? "正常治理停点，可批准继续或闭合发布" : "继续读取 trace / release evidence"}</small></div>
       </div>
       ${renderReleaseInspector(loop, releaseRun, deployFinalizers)}
       <div class="loop-columns">
@@ -5978,7 +5990,9 @@ function bindLoopWorkspace() {
   for (const button of content.querySelectorAll("[data-loop-workspace-view]")) {
     button.addEventListener("click", () => {
       state.loopWorkspaceView = button.dataset.loopWorkspaceView ?? "overview";
-      if (state.loopWorkspaceView === "advanced") state.active = "Loop 执行";
+      if (button.dataset.loopDetailId) state.sourceToGaLoopId = button.dataset.loopDetailId;
+      if (["advanced", "detail", "overview", "create"].includes(state.loopWorkspaceView)) state.active = "Loops";
+      if (state.loopWorkspaceView === "advanced") state.loopWorkspaceView = "detail";
       render();
     });
   }
@@ -5987,6 +6001,7 @@ function bindLoopWorkspace() {
       state.sourceToGaLoopId = button.dataset.loopDetailId ?? "";
       state.sourceToGaNodeId = "executor";
       state.loopWorkspaceView = "detail";
+      state.active = "Loops";
       render();
     });
   }
