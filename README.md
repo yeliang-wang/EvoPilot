@@ -43,7 +43,7 @@ Detailed release evidence and deployment checklists live in [docs/saas-productio
 | Capability | What EvoPilot provides |
 |---|---|
 | Loop Engineering | Durable loop state, executor graphs, checkpoints, replay, watchdog recovery, worker leases, sandbox proof, and timeline audit. |
-| Evidence ingestion | Runtime events, OpenTelemetry/SkyWalking-derived data, logs, evaluations, release signals, and user feedback. |
+| Evidence ingestion | Runtime events, traces, logs, evaluations, release signals, APM-derived data, and user feedback. |
 | Human approval | Reviewable proposals before high-risk evolution, source writeback, merge, or release actions. |
 | Code upgrades | Bounded code-upgrader execution with allowed paths, validation commands, branch/commit evidence, and source closure. |
 | CI/CD delivery | Jenkins/GitLab/GitHub/local-git integration boundaries with delivery and release artifacts. |
@@ -201,21 +201,6 @@ Governance verification:
 ```bash
 npm run verify:oss-governance
 ```
-
-## Relationship to SkyWalking
-
-EvoPilot can ingest SkyWalking/OpenTelemetry-derived evidence, but it does not replace observability platforms.
-
-```text
-SkyWalking / OpenTelemetry / logs / evals / user feedback
--> EvoPilot evidence ingestion
--> opportunity discovery
--> human approval
--> code upgrade and CI/CD
--> release decision
-```
-
-SkyWalking focuses on observability and diagnosis. EvoPilot focuses on turning evidence into controlled AI-agent product evolution and auditable release readiness.
 
 ## License
 
