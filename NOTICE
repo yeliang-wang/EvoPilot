@@ -1,0 +1,11 @@
+EvoPilot
+Copyright 2026 EvoPilot contributors
+
+This product includes software developed by EvoPilot contributors.
+
+EvoPilot is licensed under the Apache License, Version 2.0. See the
+LICENSE file in this repository for the full license text.
+
+Third-party dependencies and example integrations are governed by their
+own license terms. See package manifests, lockfiles, and dependency
+metadata for the applicable third-party notices.

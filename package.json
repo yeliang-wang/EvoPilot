@@ -21,7 +21,7 @@
     "store:postgres:backup": "npm run build && node scripts/postgres-business-store.mjs backup",
     "store:postgres:restore": "npm run build && node scripts/postgres-business-store.mjs restore",
     "self-loop": "node scripts/evopilot-self-loop.mjs",
-    "check": "npm run build && npm test && npm run verify:production-assets && npm run audit:security",
+    "check": "npm run build && npm test && npm run verify:production-assets && npm run verify:oss-governance && npm run audit:security",
     "test": "npm run test:unit && npm run test:smoke && npm run test:functional && npm run test:e2e",
     "test:unit": "npm run build && node --test tests/unit/*.test.mjs",
     "test:smoke": "npm run build && node --test tests/smoke/*.test.mjs",
@@ -34,6 +34,7 @@
     "release:soak:ga": "node scripts/ga-soak.mjs",
     "release:soak:ga:active": "EVOPILOT_GA_SOAK_WORKLOAD_COMMAND=\"node scripts/release-matrix-project-loop.mjs\" node scripts/ga-soak.mjs",
     "verify:production-assets": "node scripts/verify-production-assets.mjs",
+    "verify:oss-governance": "node scripts/verify-open-source-governance.mjs",
     "verify:runtime-lock": "node scripts/verify-runtime-lock.mjs",
     "verify:runtime-lock:strict": "EVOPILOT_REQUIRE_RUNTIME_LOCK=1 node scripts/verify-runtime-lock.mjs",
     "audit:security": "npm audit --audit-level=high"

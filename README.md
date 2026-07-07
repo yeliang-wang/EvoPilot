@@ -581,6 +581,22 @@ tests/                                  单元、烟测、功能和 E2E 测试
 - [生命周期说明](docs/lifecycle.md)
 - [产品 Review](docs/product-review.md)
 
+## 开源治理
+
+EvoPilot 使用 Apache License 2.0，并补齐面向公开 GitHub 仓库的基础治理入口：
+
+- [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md)
+- [NOTICE](NOTICE)
+- [LICENSE](LICENSE)
+
+校验命令：
+
+```bash
+npm run verify:oss-governance
+```
+
 ## 与 SkyWalking 的关系
 
 EvoPilot 可以接收 SkyWalking 链路或查询结果转换后的 JSON，但 EvoPilot 不替代 SkyWalking。
