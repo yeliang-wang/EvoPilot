@@ -99,6 +99,7 @@ const state = {
   releaseTargets: [],
   sourceReleaseRuns: [],
   releaseDecisions: [],
+  globalGoals: [],
   sourceReleaseRepairCandidates: [],
   sourceReleaseDeployFinalizers: [],
   loopAutopilotRuns: [],
@@ -1840,8 +1841,437 @@ function renderSimplifiedLoopExecution(loops) {
         ["failed", `失败/修复 ${failedLoops.length + state.sourceReleaseRepairCandidates.length}`]
       ].map(([id, label]) => `<button class="${activeTab === id ? "active" : ""}" data-loop-execution-tab="${id}">${escapeHtml(label)}</button>`).join("")}
     </div>
-    ${renderSimplifiedLoopTab(activeTab, { primaryLoop, model, currentLoops, completedLoops, failedLoops, inbox })}
+    ${activeTab === "current"
+      ? renderLoopWorkflowRuntimeDashboard({ primaryLoop, model, currentLoops, completedLoops, failedLoops, inbox })
+      : `${renderGlobalGoalCockpit()}${renderSimplifiedLoopTab(activeTab, { primaryLoop, model, currentLoops, completedLoops, failedLoops, inbox })}`}
   `;
+}
+
+function activeGlobalGoalRuntimeModel() {
+  const goals = [...(state.globalGoals ?? [])].sort((left, right) => Date.parse(right.updatedAt ?? right.createdAt ?? 0) - Date.parse(left.updatedAt ?? left.createdAt ?? 0));
+  const goal = goals.find((item) => !["COMPLETED", "FAILED"].includes(item.status)) ?? goals[0];
+  if (!goal) {
+    return {
+      goal: undefined,
+      snapshot: {},
+      progress: { percent: 0, completedTargets: 0, requiredTargets: 0 },
+      targets: [],
+      activeTarget: undefined,
+      blockers: [],
+      timeline: [],
+      nextAction: "create-goal",
+      finalReport: undefined
+    };
+  }
+  const snapshot = goal.dashboardSnapshot ?? {};
+  const targets = snapshot.goal?.plan?.targets ?? goal.plan?.targets ?? [];
+  return {
+    goal,
+    snapshot,
+    progress: snapshot.progress ?? globalGoalProgress(goal),
+    targets,
+    activeTarget: snapshot.activeTarget ?? targets.find((target) => !["DONE", "COMPLETED"].includes(target.status)) ?? targets[0],
+    blockers: snapshot.blockers ?? targets.filter((target) => target.blocker).map((target) => `${target.id}: ${target.blocker}`),
+    timeline: goal.timeline ?? snapshot.goal?.timeline ?? [],
+    nextAction: snapshot.nextAction ?? (goal.plan?.status === "MISSING" ? "plan-goal" : "advance-target"),
+    finalReport: goal.finalReport ?? snapshot.goal?.finalReport
+  };
+}
+
+function renderLoopWorkflowRuntimeDashboard({ primaryLoop, model, currentLoops, completedLoops, failedLoops, inbox }) {
+  const runtime = activeGlobalGoalRuntimeModel();
+  const releaseDecision = loopRuntimeReleaseDecision(model, runtime);
+  const releaseTarget = runtime.goal?.releaseTargetId ?? model.releaseRun?.releaseTargetId ?? model.currentDecision?.releaseTargetId ?? "GA target";
+  const releaseStable = releaseDecision === "GO" && !runtime.blockers.length;
+  const graphNodes = loopRuntimeGraphNodes(runtime, model);
+  const evidenceLinked = graphNodes.filter((node) => node.evidence && node.done).length;
+  const evidenceTotal = graphNodes.filter((node) => node.evidence).length;
+  const timeline = loopRuntimeTimeline(runtime, model);
+  const latestEvent = timeline[0]?.title ?? "Loop workflow opened";
+  return `
+    <section class="loop-runtime-shell" aria-label="Loop Workflow Runtime">
+      <section class="loop-runtime-canvas ${releaseStable ? "stable" : "waiting"}" aria-label="Loop Workflow Runtime Canvas">
+        <header class="loop-runtime-canvas-head">
+          <div class="loop-runtime-title">
+            <span class="pill ${releaseStable ? "good" : "warn"}">${escapeHtml(releaseStable ? "GA stable" : releaseDecision)}</span>
+            <div>
+              <h2>Loop Workflow Runtime</h2>
+              <p>${escapeHtml(loopRuntimeGraphSummary(graphNodes, runtime.blockers))}</p>
+            </div>
+          </div>
+          <div class="loop-runtime-canvas-kpis" aria-label="Loop runtime state">
+            <span><small>Target</small><strong>${escapeHtml(releaseTarget)}</strong></span>
+            <span><small>Decision</small><strong>${escapeHtml(releaseDecision)}</strong></span>
+            <span><small>Evidence</small><strong>${escapeHtml(`${evidenceLinked}/${evidenceTotal} linked`)}</strong></span>
+          </div>
+        </header>
+        <section class="loop-runtime-graph-panel">
+          <div class="loop-runtime-graph-head">
+            <h3>Loop Workflow Graph</h3>
+            <span>${escapeHtml(`Latest event · ${latestEvent}`)}</span>
+          </div>
+          ${renderLoopRuntimeGraph(graphNodes, { releaseStable, releaseTarget, releaseDecision, blockers: runtime.blockers, latestEvent })}
+        </section>
+      </section>
+    </section>
+  `;
+}
+
+function loopRuntimeReleaseDecision(model, runtime) {
+  const finalStatus = String(runtime.finalReport?.status ?? "").toUpperCase();
+  if (model.decisionGo || finalStatus === "GO" || finalStatus === "COMPLETED") return "GO";
+  if (runtime.blockers.length) return "WAITING";
+  return model.decisionStatus === "AWAITING_DECISION" ? "PENDING" : model.decisionStatus ?? "PENDING";
+}
+
+function loopRuntimeGraphNodes(runtime, model) {
+  const targetByTitle = (pattern) => runtime.targets.find((target) => pattern.test(`${target.title} ${target.id} ${target.layer}`));
+  const isDone = (target) => ["DONE", "COMPLETED", "SUCCEEDED"].includes(String(target?.status ?? "").toUpperCase());
+  const taskMeta = (target, fallbackTaskId) => ({
+    taskId: target?.id ?? fallbackTaskId,
+    loopId: target?.loopId,
+    layer: target?.layer,
+    blocker: target?.blocker
+  });
+  const sourceTarget = targetByTitle(/source|credential|readiness/i);
+  const e2eTarget = targetByTitle(/e2e|evidence|harness/i);
+  const sandboxTarget = targetByTitle(/sandbox|secret/i);
+  const approvalTarget = targetByTitle(/approval|human|gate|decision/i);
+  const releaseDone = model.decisionGo || ["COMPLETED", "GO"].includes(String(runtime.finalReport?.status ?? "").toUpperCase());
+  return [
+    {
+      id: "plan",
+      title: "Plan",
+      shortTitle: "Plan",
+      detail: runtime.goal?.plan?.status === "APPROVED" ? "target and boundary verified" : "waiting for approved plan",
+      status: runtime.goal?.plan?.status === "APPROVED" || runtime.goal ? "DONE" : "PENDING",
+      done: Boolean(runtime.goal?.plan?.status === "APPROVED" || runtime.goal),
+      evidence: false,
+      ...taskMeta(runtime.activeTarget, "global-goal-plan")
+    },
+    {
+      id: "source",
+      title: "Source closure",
+      shortTitle: "Source",
+      detail: model.prUrl ? "PR merged, writeback sealed" : sourceTarget?.loopId ? "LoopRun bound" : "waiting for writeback",
+      status: model.decisionGo || model.loopDone || isDone(sourceTarget) ? "DONE" : sourceTarget?.status ?? "PENDING",
+      done: Boolean(model.decisionGo || model.loopDone || isDone(sourceTarget)),
+      evidence: true,
+      ...taskMeta(sourceTarget, "source-closure")
+    },
+    {
+      id: "deploy",
+      title: "Deploy smoke",
+      shortTitle: "Deploy",
+      detail: model.decisionGo ? "health and rollback probe OK" : "waiting for deploy proof",
+      status: model.decisionGo ? "DONE" : "PENDING",
+      done: Boolean(model.decisionGo),
+      evidence: true,
+      ...taskMeta(undefined, "deploy-smoke")
+    },
+    {
+      id: "e2e",
+      title: "Core E2E",
+      shortTitle: "E2E",
+      detail: "production-boundary evidence",
+      status: model.decisionGo || isDone(e2eTarget) ? "DONE" : e2eTarget?.status ?? "PENDING",
+      done: Boolean(model.decisionGo || isDone(e2eTarget)),
+      evidence: true,
+      ...taskMeta(e2eTarget, "core-e2e")
+    },
+    {
+      id: "sandbox",
+      title: "Sandbox & secrets",
+      shortTitle: "Sandbox",
+      detail: "credential and path proof",
+      status: model.decisionGo || isDone(sandboxTarget) ? "DONE" : sandboxTarget?.status ?? "PENDING",
+      done: Boolean(model.decisionGo || isDone(sandboxTarget)),
+      evidence: true,
+      ...taskMeta(sandboxTarget, "sandbox-secrets")
+    },
+    {
+      id: "approval",
+      title: "Human gate",
+      shortTitle: "Approval",
+      detail: "manual approval recorded",
+      status: model.decisionGo || isDone(approvalTarget) ? "DONE" : approvalTarget?.status ?? "PENDING",
+      done: Boolean(model.decisionGo || isDone(approvalTarget)),
+      evidence: true,
+      ...taskMeta(approvalTarget, "human-gate")
+    },
+    {
+      id: "release",
+      title: "Release GO",
+      shortTitle: "Release",
+      detail: releaseDone ? "final report sealed" : "waiting for release decision",
+      status: releaseDone ? "DONE" : "PENDING",
+      done: releaseDone,
+      evidence: true,
+      release: true,
+      ...taskMeta(undefined, "release-decision")
+    }
+  ];
+}
+
+function renderLoopRuntimeGraph(nodes, { releaseStable, releaseTarget, releaseDecision, blockers, latestEvent }) {
+  const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
+  const node = (id, style) => renderLoopRuntimeGraphNode(nodeById[id], style, { releaseTarget, releaseDecision, latestEvent });
+  const doneEvidence = nodes.filter((item) => item.evidence && item.done).length;
+  const totalEvidence = nodes.filter((item) => item.evidence).length;
+  const blockedCount = blockers.length + nodes.filter((item) => ["BLOCKED", "FAILED"].includes(String(item.status ?? "").toUpperCase())).length;
+  return `
+    <div class="loop-runtime-graph">
+      <div class="loop-runtime-edge h" style="left:177px; top:100px; width:552px"></div>
+      <div class="loop-runtime-edge v" style="left:453px; top:100px; height:72px"></div>
+      <div class="loop-runtime-edge h" style="left:177px; top:172px; width:552px"></div>
+      <div class="loop-runtime-edge v" style="left:177px; top:172px; height:48px"></div>
+      <div class="loop-runtime-edge v" style="left:453px; top:172px; height:48px"></div>
+      <div class="loop-runtime-edge v" style="left:729px; top:172px; height:48px"></div>
+      <div class="loop-runtime-edge h" style="left:177px; top:314px; width:552px"></div>
+      <div class="loop-runtime-edge v" style="left:453px; top:314px; height:34px"></div>
+      ${node("plan", "left:72px; top:52px")}
+      ${node("source", "left:348px; top:52px")}
+      ${node("deploy", "left:624px; top:52px")}
+      <span class="loop-runtime-branch" style="left:124px; top:164px">evidence</span>
+      <span class="loop-runtime-branch" style="left:407px; top:164px">policy</span>
+      <span class="loop-runtime-branch" style="left:680px; top:164px">approval</span>
+      ${node("e2e", "left:72px; top:220px")}
+      ${node("sandbox", "left:348px; top:220px")}
+      ${node("approval", "left:624px; top:220px")}
+      ${node("release", "left:348px; top:348px")}
+      <div class="loop-runtime-graph-foot" aria-label="Loop workflow graph state">
+        <span>${escapeHtml(doneEvidence)}/${escapeHtml(totalEvidence)} evidence linked</span>
+        <span>${escapeHtml(blockedCount ? `${blockedCount} blockers` : "no active blockers")}</span>
+        <span>${escapeHtml(releaseStable ? "final report sealed" : `decision ${releaseDecision}`)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderLoopRuntimeGraphNode(node, style, { releaseTarget, releaseDecision, latestEvent }) {
+  const statusClass = node.done ? "done" : node.status === "BLOCKED" || node.status === "FAILED" ? "blocked" : "pending";
+  const tooltip = [
+    `${node.title}: ${node.detail}`,
+    `Task ${node.taskId ?? node.id}${node.loopId ? ` · LoopRun ${node.loopId}` : ""}`,
+    `Target ${releaseTarget} · Decision ${releaseDecision}`,
+    `Status ${node.release && node.done ? "GA stable" : loopRuntimeStatusLabel(node.status)}`,
+    node.evidence ? `Evidence ${node.done ? "linked" : "waiting"}` : "Evidence not required",
+    node.blocker ? `Blocker ${node.blocker}` : null,
+    latestEvent ? `Latest ${latestEvent}` : null
+  ].filter(Boolean).join(". ");
+  return `
+    <article class="loop-runtime-node ${statusClass} ${node.release ? "release" : ""}" style="${style}" tabindex="0" data-tooltip="${escapeHtml(tooltip)}">
+      <div class="loop-runtime-node-top">
+        <span>${node.done ? "✓" : "·"}</span>
+        <em>${escapeHtml(node.release && node.done ? "GA stable" : loopRuntimeStatusLabel(node.status))}</em>
+      </div>
+      <h4>${escapeHtml(node.title)}</h4>
+      <p>${escapeHtml(node.detail)}</p>
+    </article>
+  `;
+}
+
+function loopRuntimeGraphSummary(nodes, blockers) {
+  const done = nodes.filter((node) => node.done).length;
+  if (blockers.length) return `${done}/${nodes.length} nodes passed · ${blockers.length} active blockers`;
+  return done === nodes.length ? "all nodes passed · no active blockers · final report sealed" : `${done}/${nodes.length} nodes passed · waiting for evidence`;
+}
+
+function loopRuntimeTimeline(runtime, model) {
+  const timeline = (runtime.timeline ?? []).slice(-4).reverse().map((event) => ({
+    time: formatDate(event.timestamp ?? new Date().toISOString()),
+    title: event.type ? `${event.type}: ${event.message ?? ""}` : event.message ?? "Goal event"
+  }));
+  if (timeline.length) return timeline;
+  return [
+    { time: model.decisionGo ? "now" : "-", title: model.decisionGo ? "Decision GO recorded" : "Waiting for release decision" },
+    { time: "-", title: model.loopDone ? "Source closure promoted" : "Source closure pending" },
+    { time: "-", title: "Loop workflow opened" }
+  ];
+}
+
+function loopRuntimeStatusClass(status) {
+  const normalized = String(status ?? "").toUpperCase();
+  if (["DONE", "COMPLETED", "SUCCEEDED", "GO", "PROMOTED"].includes(normalized)) return "good";
+  if (["BLOCKED", "FAILED", "CANCELLED"].includes(normalized)) return "bad";
+  if (["RUNNING", "WAITING_HUMAN", "PENDING", "PLANNED", "READY", "APPROVED", "IN_PROGRESS"].includes(normalized)) return "warn";
+  return "";
+}
+
+function loopRuntimeStatusLabel(status) {
+  const normalized = String(status ?? "PENDING").toUpperCase();
+  if (["DONE", "COMPLETED", "SUCCEEDED", "PROMOTED"].includes(normalized)) return "Done";
+  if (normalized === "GO") return "GO";
+  if (normalized === "RUNNING") return "Running";
+  if (normalized === "READY") return "Ready";
+  if (normalized === "APPROVED") return "Approved";
+  if (normalized === "IN_PROGRESS") return "Running";
+  if (normalized === "WAITING_HUMAN") return "Waiting";
+  if (["BLOCKED", "FAILED", "CANCELLED"].includes(normalized)) return normalized;
+  return "Pending";
+}
+
+function renderGlobalGoalCockpit() {
+  const goals = [...(state.globalGoals ?? [])].sort((left, right) => Date.parse(right.updatedAt ?? right.createdAt ?? 0) - Date.parse(left.updatedAt ?? left.createdAt ?? 0));
+  const activeGoal = goals.find((goal) => !["COMPLETED", "FAILED"].includes(goal.status)) ?? goals[0];
+  if (!activeGoal) {
+    return `
+      <section class="global-goal-cockpit" aria-label="GlobalGoal Cockpit">
+        <div class="global-goal-head">
+          <div>
+            <span class="eyebrow">GlobalGoal</span>
+            <h2>GlobalGoal Cockpit</h2>
+            <p>目标层会把 RC、GA 或自定义发布目标拆成可验收的 GoalTarget，并把每个目标绑定到 LoopRun、证据和发布判定。</p>
+          </div>
+          <span class="pill ${state.isLoading ? "warn" : ""}">${state.isLoading ? "加载中" : "暂无目标"}</span>
+        </div>
+        ${state.isLoading
+          ? renderLoadingSkeleton("正在读取 GlobalGoal、GoalTarget 和证据矩阵")
+          : renderEmptyState("暂无 GlobalGoal", "通过 CLI 或 API 创建 GlobalGoal 后，这里会显示计划、执行、证据和最终报告。", "CLI: evopilot goal create --project <id> --target <target-id> --objective <text>")}
+      </section>
+    `;
+  }
+
+  const snapshot = activeGoal.dashboardSnapshot ?? {};
+  const progress = snapshot.progress ?? globalGoalProgress(activeGoal);
+  const targets = snapshot.goal?.plan?.targets ?? activeGoal.plan?.targets ?? [];
+  const activeTarget = snapshot.activeTarget ?? targets.find((target) => target.status !== "DONE") ?? targets[0];
+  const blockers = snapshot.blockers ?? targets.filter((target) => target.blocker).map((target) => `${target.id}: ${target.blocker}`);
+  const timeline = activeGoal.timeline ?? snapshot.goal?.timeline ?? [];
+  const finalReport = activeGoal.finalReport ?? snapshot.goal?.finalReport;
+  const nextAction = snapshot.nextAction ?? (activeGoal.plan?.status === "MISSING" ? "plan-goal" : "advance-target");
+  return `
+    <section class="global-goal-cockpit" aria-label="GlobalGoal Cockpit">
+      <div class="global-goal-head">
+        <div>
+          <span class="eyebrow">GlobalGoal</span>
+          <h2>GlobalGoal Cockpit</h2>
+          <p>${escapeHtml(activeGoal.objective ?? "Global goal")}</p>
+        </div>
+        <div class="global-goal-actions">
+          <span class="pill ${globalGoalStatusClass(activeGoal.status)}">${escapeHtml(activeGoal.status ?? "DRAFT")}</span>
+          <span class="pill">next: ${escapeHtml(nextAction)}</span>
+        </div>
+      </div>
+      <div class="global-goal-summary">
+        <div><span>Goal</span><strong>${escapeHtml(activeGoal.id)}</strong><small>${escapeHtml(activeGoal.projectId ?? "-")} / ${escapeHtml(activeGoal.releaseTargetId ?? "-")}</small></div>
+        <div><span>Progress</span><strong>${Number(progress.percent ?? 0)}%</strong><small>${Number(progress.completedTargets ?? 0)} / ${Number(progress.requiredTargets ?? 0)} required targets</small></div>
+        <div><span>Active GoalTarget</span><strong>${escapeHtml(activeTarget?.title ?? "等待计划")}</strong><small>${escapeHtml(activeTarget?.nextAction ?? nextAction)}</small></div>
+        <div><span>Final Report</span><strong>${escapeHtml(finalReport?.status ?? "PENDING")}</strong><small>${escapeHtml(finalReport?.schema ?? "evopilot-goal-completion-report/v1")}</small></div>
+      </div>
+      <div class="goal-cockpit-grid">
+        <div class="goal-cockpit-panel">
+          <div class="section-title compact">
+            <div>
+              <h3>GoalTarget 依赖图</h3>
+              <p>按计划依赖顺序展示每个目标的状态、下一步动作和绑定 LoopRun。</p>
+            </div>
+            <span class="pill">${targets.length}</span>
+          </div>
+          ${renderGoalTargetMap(targets, activeTarget)}
+        </div>
+        <div class="goal-cockpit-panel">
+          <div class="section-title compact">
+            <div>
+              <h3>Goal Timeline</h3>
+              <p>计划、审批、Loop 绑定、推进和最终报告都会写入同一条时间线。</p>
+            </div>
+          </div>
+          ${renderGoalTimeline(timeline)}
+        </div>
+      </div>
+      <div class="goal-cockpit-grid">
+        <div class="goal-cockpit-panel">
+          <div class="section-title compact">
+            <div>
+              <h3>证据矩阵</h3>
+              <p>每个 GoalTarget 必须能说明验收标准、证据和阻塞原因。</p>
+            </div>
+          </div>
+          ${renderGoalEvidenceMatrix(targets)}
+        </div>
+        <div class="goal-cockpit-panel">
+          <div class="section-title compact">
+            <div>
+              <h3>Blockers / Next Action</h3>
+              <p>Dashboard 不隐藏停点；审批、凭据、策略或部署阻塞会直接显示。</p>
+            </div>
+            <span class="pill ${blockers.length ? "warn" : "good"}">${blockers.length}</span>
+          </div>
+          ${blockers.length
+            ? `<div class="goal-blocker-list">${blockers.map((blocker) => `<article>${escapeHtml(blocker)}</article>`).join("")}</div>`
+            : renderStatusNotice("good", "当前无阻塞", `下一步动作：${escapeHtml(nextAction)}。`)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderGoalTargetMap(targets, activeTarget) {
+  if (!targets.length) return renderEmptyState("尚未生成 GoalTarget", "先生成并审批 GlobalGoal plan。", "CLI: evopilot goal plan <goal-id> && evopilot goal approve-plan <goal-id>");
+  return `
+    <div class="goal-target-map">
+      ${targets.map((target, index) => `
+        <article class="goal-target-node ${target.status === "DONE" ? "done" : target.status === "BLOCKED" || target.status === "FAILED" ? "blocked" : ""} ${activeTarget?.id === target.id ? "active" : ""}">
+          <span>${index + 1}</span>
+          <div>
+            <strong>${escapeHtml(target.title ?? target.id)}</strong>
+            <small>${escapeHtml(target.id)}</small>
+          </div>
+          <em>${escapeHtml(target.status ?? "PENDING")}</em>
+          <small>depends: ${escapeHtml((target.dependencyIds ?? []).join(", ") || "none")}</small>
+          <small>loop: ${escapeHtml(target.loopId ?? "not-bound")}</small>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderGoalTimeline(timeline) {
+  if (!timeline.length) return renderEmptyState("暂无时间线", "创建 GlobalGoal 后会写入 CREATED 事件。");
+  return `
+    <div class="goal-timeline">
+      ${timeline.slice(-8).reverse().map((event) => `
+        <article>
+          <span>${escapeHtml(event.type ?? "EVENT")}</span>
+          <strong>${escapeHtml(event.message ?? "")}</strong>
+          <small>${escapeHtml(formatDate(event.timestamp ?? new Date().toISOString()))}</small>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderGoalEvidenceMatrix(targets) {
+  if (!targets.length) return renderEmptyState("暂无证据矩阵", "GoalTarget 生成后会列出验收标准和证据。");
+  return table(["GoalTarget", "状态", "验收标准", "证据", "阻塞"], targets.map((target) => [
+    `<strong>${escapeHtml(target.title ?? target.id)}</strong><small>${escapeHtml(target.id)}</small>`,
+    statusPill(target.status ?? "PENDING"),
+    `<small>${escapeHtml((target.acceptanceCriteria ?? []).join("；") || "等待验收标准")}</small>`,
+    `<small>${escapeHtml((target.evidence ?? []).slice(0, 4).join("；") || "等待证据")}</small>`,
+    `<small>${escapeHtml(target.blocker ?? "-")}</small>`
+  ]));
+}
+
+function globalGoalProgress(goal) {
+  const targets = goal?.plan?.targets ?? [];
+  const required = targets.filter((target) => target.required !== false);
+  const done = required.filter((target) => target.status === "DONE").length;
+  return {
+    totalTargets: targets.length,
+    requiredTargets: required.length,
+    completedTargets: done,
+    blockedTargets: targets.filter((target) => target.status === "BLOCKED").length,
+    failedTargets: targets.filter((target) => target.status === "FAILED").length,
+    percent: required.length ? Math.round((done / required.length) * 100) : 0
+  };
+}
+
+function globalGoalStatusClass(status) {
+  if (status === "COMPLETED") return "good";
+  if (status === "BLOCKED" || status === "FAILED") return "bad";
+  if (status === "RUNNING" || status === "WAITING_HUMAN" || status === "PLANNED") return "warn";
+  return "";
 }
 
 function renderSimplifiedLoopTab(activeTab, data) {
@@ -2074,6 +2504,7 @@ function renderLoopWorkspaceHeader(loops, selectedLoop, view) {
 function renderLoopOverviewWorkspace(loops) {
   const store = state.loopStore;
   return `
+    ${renderGlobalGoalCockpit()}
     ${renderAutopilotCommandCenter()}
     <div class="loop-overview-grid">
       ${renderLoopWorkerQueuePanel()}
@@ -5836,7 +6267,8 @@ async function refreshData() {
     loadSummary(),
     loadHistory(),
     loadReleaseTargets(),
-    loadReleaseDecisions()
+    loadReleaseDecisions(),
+    loadGlobalGoals()
   ]);
   state.isLoading = false;
   render();
@@ -7375,6 +7807,35 @@ async function loadReleaseDecisions() {
     }
   } catch {
     // Summary and source release runs can still render if decision history is unavailable.
+  }
+}
+
+async function loadGlobalGoals() {
+  try {
+    const response = await apiFetch("/api/v1/goals");
+    if (!response.ok) throw new Error(`GlobalGoal 接口状态 ${response.status}`);
+    const { data } = await response.json();
+    if (!Array.isArray(data)) {
+      state.globalGoals = [];
+      return;
+    }
+    state.globalGoals = await Promise.all(data.map(async (goal) => ({
+      ...goal,
+      dashboardSnapshot: await loadGlobalGoalSnapshot(goal.id)
+    })));
+  } catch {
+    state.globalGoals = [];
+  }
+}
+
+async function loadGlobalGoalSnapshot(goalId) {
+  try {
+    const response = await apiFetch(`/api/v1/goals/${encodeURIComponent(goalId)}/snapshot`);
+    if (!response.ok) return undefined;
+    const { data } = await response.json();
+    return data;
+  } catch {
+    return undefined;
   }
 }
 

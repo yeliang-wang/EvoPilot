@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EvoPilotApiError, EvoPilotClient, type EvoPilotResponse } from "@evopilot/client";
+import { apiErrorFromResponse, EvoPilotApiError, EvoPilotClient, type EvoPilotResponse } from "@evopilot/client";
 
 interface CliConfig {
   server?: string;
@@ -85,8 +85,36 @@ async function main(argv: string[]): Promise<number> {
         return await targetList(ctx);
       case "target:create":
         return await targetCreate(ctx);
+      case "target:run":
+        return await targetRun(ctx);
       case "target:decision":
         return await targetDecision(ctx, maybeId);
+      case "goal:create":
+        return await goalCreate(ctx);
+      case "goal:list":
+        return await goalList(ctx);
+      case "goal:inspect":
+        return await goalInspect(ctx, maybeId);
+      case "goal:plan":
+        return await goalPlan(ctx, maybeId);
+      case "goal:approve-plan":
+        return await goalApprovePlan(ctx, maybeId);
+      case "goal:targets":
+        return await goalTargets(ctx, maybeId);
+      case "goal:advance":
+        return await goalAdvance(ctx, maybeId);
+      case "goal:run":
+        return await goalRun(ctx, maybeId);
+      case "goal:snapshot":
+        return await goalSnapshot(ctx, maybeId);
+      case "goal:graph":
+        return await goalGraph(ctx, maybeId);
+      case "goal:timeline":
+        return await goalTimeline(ctx, maybeId);
+      case "goal:evidence-matrix":
+        return await goalEvidenceMatrix(ctx, maybeId);
+      case "goal:final-report":
+        return await goalFinalReport(ctx, maybeId);
       case "loop:create":
         return await loopCreate(ctx);
       case "loop:list":
@@ -95,6 +123,8 @@ async function main(argv: string[]): Promise<number> {
         return await loopAction(ctx, "start", maybeId);
       case "loop:approve":
         return await loopAction(ctx, "approve", maybeId);
+      case "loop:run":
+        return await loopRun(ctx, maybeId);
       case "source-closure:preflight":
         return await sourceClosurePreflight(ctx, maybeId);
       case "source-closure:execute":
@@ -349,6 +379,32 @@ async function targetCreate(ctx: RuntimeContext): Promise<number> {
   return 0;
 }
 
+async function targetRun(ctx: RuntimeContext): Promise<number> {
+  const projectId = requiredOption(ctx.args, "project");
+  const templateId = stringOption(ctx.args, "template");
+  let targetId = stringOption(ctx.args, "target");
+  const steps: Array<Record<string, unknown>> = [];
+  if (!targetId) {
+    if (!templateId) throw usage("target run requires --target or --template.");
+    targetId = `${projectId}-${templateId}`;
+    const existing = await readReleaseTarget(ctx, targetId);
+    if (existing) {
+      steps.push({ type: "target.resolved", targetId, status: field(existing, "scope") ?? "project" });
+    } else {
+      const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
+      steps.push({ type: "target.created", targetId: field(created, "id"), templateId });
+    }
+  }
+  const objective = stringOption(ctx.args, "objective") ?? `Promote ${projectId} to ${templateId ?? targetId} through source closure, deployment evidence, release decision, and blocker review.`;
+  return await runGoalWrapper(ctx, {
+    command: "target run",
+    projectId,
+    targetId,
+    objective,
+    initialSteps: steps
+  });
+}
+
 async function targetDecision(ctx: RuntimeContext, targetId?: string): Promise<number> {
   const target = targetId ?? requiredOption(ctx.args, "target");
   const response = await ctx.client.expectOk(ctx.client.get("/api/v1/release/decisions", {
@@ -358,6 +414,130 @@ async function targetDecision(ctx: RuntimeContext, targetId?: string): Promise<n
     }
   }));
   printOutput(ctx, response.data, listSummary(response.data, "id"));
+  return 0;
+}
+
+async function goalCreate(ctx: RuntimeContext): Promise<number> {
+  const body = {
+    id: stringOption(ctx.args, "id"),
+    projectId: requiredOption(ctx.args, "project"),
+    releaseTargetId: requiredOption(ctx.args, "target"),
+    objective: requiredOption(ctx.args, "objective"),
+    tenantId: stringOption(ctx.args, "tenant") ?? stringOption(ctx.args, "tenant-id"),
+    workspaceId: stringOption(ctx.args, "workspace") ?? stringOption(ctx.args, "workspace-id")
+  };
+  const response = await ctx.client.expectOk(ctx.client.post("/api/v1/goals", body, requestOptions(ctx)));
+  printOutput(ctx, response.data, `goal=${field(response.data, "id")} status=${field(response.data, "status")} next=plan-goal`);
+  return 0;
+}
+
+async function goalList(ctx: RuntimeContext): Promise<number> {
+  const response = await ctx.client.expectOk(ctx.client.get("/api/v1/goals"));
+  const projectId = stringOption(ctx.args, "project");
+  const targetId = stringOption(ctx.args, "target");
+  const status = stringOption(ctx.args, "status");
+  const data = Array.isArray(response.data)
+    ? response.data.filter((item: unknown) =>
+      (!projectId || field(item, "projectId") === projectId) &&
+      (!targetId || field(item, "releaseTargetId") === targetId) &&
+      (!status || field(item, "status") === status)
+    )
+    : response.data;
+  printOutput(ctx, data, listSummary(data, "id"));
+  return 0;
+}
+
+async function goalInspect(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}`));
+  printOutput(ctx, response.data, `goal=${field(response.data, "id")} status=${field(response.data, "status")} plan=${nestedField(response.data, ["plan", "status"])}`);
+  return 0;
+}
+
+async function goalPlan(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/plan`, {
+    force: hasFlag(ctx.args, "force")
+  }, requestOptions(ctx)));
+  printOutput(ctx, response.data, `goal=${field(response.data, "id")} plan=${nestedField(response.data, ["plan", "status"])} targets=${nestedField(response.data, ["plan", "targetCount"])}`);
+  return 0;
+}
+
+async function goalApprovePlan(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/approve-plan`, {}, requestOptions(ctx)));
+  printOutput(ctx, response.data, `goal=${field(response.data, "id")} plan=${nestedField(response.data, ["plan", "status"])} status=${field(response.data, "status")}`);
+  return 0;
+}
+
+async function goalTargets(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/targets`));
+  printOutput(ctx, response.data, listSummary(response.data, "id"));
+  return 0;
+}
+
+async function goalAdvance(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/advance`, {
+    autoStart: hasFlag(ctx.args, "no-auto-start") ? false : undefined,
+    approveHumanGate: hasFlag(ctx.args, "approve-human-gate"),
+    forceDecision: stringOption(ctx.args, "force-decision")
+  }, requestOptions(ctx)));
+  printOutput(ctx, response.data, `goal=${nestedField(response.data, ["goal", "id"])} status=${field(response.data, "status")} next=${field(response.data, "nextAction")}`);
+  return 0;
+}
+
+async function goalRun(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? stringOption(ctx.args, "goal");
+  if (goalId) {
+    return await runGoalWrapper(ctx, {
+      command: "goal run",
+      goalId,
+      initialSteps: [{ type: "goal.resolved", goalId }]
+    });
+  }
+  return await runGoalWrapper(ctx, {
+    command: "goal run",
+    projectId: requiredOption(ctx.args, "project"),
+    targetId: requiredOption(ctx.args, "target"),
+    objective: requiredOption(ctx.args, "objective"),
+    initialSteps: []
+  });
+}
+
+async function goalSnapshot(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/snapshot`));
+  printOutput(ctx, response.data, `goal=${nestedField(response.data, ["goal", "id"])} status=${field(response.data, "status")} progress=${nestedField(response.data, ["progress", "percent"])}%`);
+  return 0;
+}
+
+async function goalGraph(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/graph`));
+  printOutput(ctx, response.data, `goal=${field(response.data, "goalId")} nodes=${arrayLength(field(response.data, "nodes"))} edges=${arrayLength(field(response.data, "edges"))}`);
+  return 0;
+}
+
+async function goalTimeline(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/timeline`));
+  printOutput(ctx, response.data, listSummary(response.data, "type"));
+  return 0;
+}
+
+async function goalEvidenceMatrix(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/evidence-matrix`));
+  printOutput(ctx, response.data, listSummary(response.data, "targetId"));
+  return 0;
+}
+
+async function goalFinalReport(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/final-report`));
+  printOutput(ctx, response.data, `goal=${field(response.data, "goalId")} status=${field(response.data, "status")}`);
   return 0;
 }
 
@@ -397,6 +577,80 @@ async function loopAction(ctx: RuntimeContext, action: "start" | "approve", id?:
   const response = await ctx.client.expectOk(ctx.client.post(`/api/v1/loops/${encodeURIComponent(loopId)}/${action}`, body, requestOptions(ctx)));
   printOutput(ctx, response.data, `loop=${field(response.data, "id")} status=${field(response.data, "status")}`);
   return 0;
+}
+
+async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
+  const startedAt = Date.now();
+  const timeoutMs = wrapperTimeoutMs(ctx.args);
+  let loopId = id ?? stringOption(ctx.args, "loop");
+  const steps: Array<Record<string, unknown>> = [];
+  if (!loopId) {
+    const contextFile = stringOption(ctx.args, "context");
+    const sourceClosureFile = stringOption(ctx.args, "source-closure");
+    const targetId = requiredOption(ctx.args, "target");
+    const createResponse = await ctx.client.post("/api/v1/loops", {
+      id: stringOption(ctx.args, "id"),
+      projectId: requiredOption(ctx.args, "project"),
+      objective: requiredOption(ctx.args, "objective"),
+      source: stringOption(ctx.args, "source") ?? "release-target",
+      executorGraphId: stringOption(ctx.args, "executor-graph"),
+      controlPlaneUrl: stringOption(ctx.args, "control-plane-url"),
+      context: {
+        ...(contextFile ? readJson(contextFile) as Record<string, unknown> : {}),
+        releaseTargetId: targetId
+      },
+      sourceClosure: sourceClosureFile ? readJson(sourceClosureFile) : undefined
+    }, derivedRequestOptions(ctx, "loop-run-create"));
+    if (!createResponse.ok) throw apiErrorFromResponse(createResponse);
+    loopId = String(field(createResponse.data, "id") ?? "");
+    steps.push({ type: "loop.created", loopId, status: field(createResponse.data, "status") });
+  }
+  const maxIterations = numberOption(ctx.args, "max-iterations") ?? numberOption(ctx.args, "max-steps") ?? 10;
+  const quiet = hasFlag(ctx.args, "quiet");
+  let loop: unknown = await readLoop(ctx, loopId);
+  printLoopRunStatus(ctx, "loop run", loop, steps, quiet);
+  let runIterations = 0;
+  for (let index = 0; index < maxIterations && !hasTimedOut(startedAt, timeoutMs) && shouldContinueLoopRun(loop, ctx.args); index += 1) {
+    runIterations += 1;
+    const status = String(field(loop, "status") ?? "");
+    if (status === "WAITING_APPROVAL" && hasFlag(ctx.args, "approve-human-gate")) {
+      const approved = await ctx.client.post(`/api/v1/loops/${encodeURIComponent(loopId)}/approve`, {
+        approvalId: stringOption(ctx.args, "approval-id")
+      }, derivedRequestOptions(ctx, `loop-run-approve-${index + 1}`));
+      if (!approved.ok) throw apiErrorFromResponse(approved);
+      loop = approved.data;
+      steps.push({ type: "loop.approved", loopId, status: field(loop, "status"), iteration: field(loop, "currentIteration") });
+      printLoopRunStatus(ctx, "loop run", loop, steps, quiet);
+    }
+    const nextStatus = String(field(loop, "status") ?? "");
+    if (!["PENDING", "RUNNING", "BLOCKED"].includes(nextStatus)) break;
+    const action = nextStatus === "PENDING" ? "start" : "resume";
+    const response = await ctx.client.post(`/api/v1/loops/${encodeURIComponent(loopId)}/${action}`, {
+      forceDecision: stringOption(ctx.args, "force-decision"),
+      evidence: [`wrapper=loop-run`, `step=${index + 1}`]
+    }, derivedRequestOptions(ctx, `loop-run-${action}-${index + 1}`));
+    if (!response.ok) throw apiErrorFromResponse(response);
+    loop = response.data;
+    steps.push({ type: `loop.${action}`, loopId, status: field(loop, "status"), iteration: field(loop, "currentIteration") });
+    printLoopRunStatus(ctx, "loop run", loop, steps, quiet);
+  }
+  if (runIterations >= maxIterations && shouldContinueLoopRun(loop, ctx.args)) {
+    steps.push({ type: "loop.max-iterations-reached", loopId, maxIterations });
+  }
+  if (hasTimedOut(startedAt, timeoutMs) && shouldContinueLoopRun(loop, ctx.args)) {
+    steps.push({ type: "loop.timeout-reached", loopId, timeoutMs });
+  }
+  const result = {
+    schema: "evopilot-cli-loop-run/v1",
+    command: "loop run",
+    loop,
+    steps,
+    result: loopRunResult(loop),
+    generatedAt: new Date().toISOString()
+  };
+  if (ctx.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  else if (quiet) process.stdout.write(formatLoopRunStatus("loop run", loop, steps));
+  return loopRunExitCode(loop);
 }
 
 async function sourceClosurePreflight(ctx: RuntimeContext, id?: string): Promise<number> {
@@ -659,6 +913,364 @@ async function releaseGate(ctx: RuntimeContext): Promise<number> {
   return 0;
 }
 
+async function runGoalWrapper(ctx: RuntimeContext, input: {
+  command: "goal run" | "target run";
+  goalId?: string;
+  projectId?: string;
+  targetId?: string;
+  objective?: string;
+  initialSteps: Array<Record<string, unknown>>;
+}): Promise<number> {
+  const startedAt = Date.now();
+  const timeoutMs = wrapperTimeoutMs(ctx.args);
+  const steps = [...input.initialSteps];
+  const quiet = hasFlag(ctx.args, "quiet");
+  const maxSteps = numberOption(ctx.args, "max-steps") ?? 20;
+  let goalId = input.goalId;
+  if (!goalId) {
+    if (!input.projectId || !input.targetId || !input.objective) throw usage(`${input.command} requires a goal id or --project, --target, and --objective.`);
+    const existingGoal = hasFlag(ctx.args, "new") ? undefined : await findReusableGoal(ctx, input.projectId, input.targetId, input.objective);
+    if (existingGoal) {
+      goalId = String(field(existingGoal, "id"));
+      steps.push({ type: "goal.resolved", goalId, status: field(existingGoal, "status") });
+    } else {
+      const created = await createGoalForRun(ctx, input.projectId, input.targetId, input.objective);
+      goalId = String(field(created, "id"));
+      steps.push({ type: "goal.created", goalId, status: field(created, "status") });
+    }
+  }
+
+  let status = await readGoalRunStatus(ctx, goalId);
+  printGoalRunStatus(ctx, input.command, status, steps, quiet);
+
+  if (hasTimedOut(startedAt, timeoutMs) && shouldContinueGoalRun(status)) {
+    steps.push({ type: "goal.timeout-reached", goalId, timeoutMs });
+    return finishGoalRun(ctx, input.command, status, steps, quiet, 2);
+  }
+
+  if (field(status, "nextAction") === "plan-goal") {
+    const planned = await ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/plan`, {
+      force: hasFlag(ctx.args, "force-plan")
+    }, derivedRequestOptions(ctx, "goal-run-plan"));
+    if (!planned.ok) throw apiErrorFromResponse(planned);
+    steps.push({ type: "goal.plan-generated", goalId, targetCount: nestedField(planned.data, ["plan", "targetCount"]) });
+    status = await readGoalRunStatus(ctx, goalId);
+    printGoalRunStatus(ctx, input.command, status, steps, quiet);
+  }
+
+  if (hasTimedOut(startedAt, timeoutMs) && shouldContinueGoalRun(status)) {
+    steps.push({ type: "goal.timeout-reached", goalId, timeoutMs });
+    return finishGoalRun(ctx, input.command, status, steps, quiet, 2);
+  }
+
+  if (field(status, "nextAction") === "approve-plan") {
+    if (hasFlag(ctx.args, "no-auto-approve-plan") || hasFlag(ctx.args, "require-plan-approval")) {
+      steps.push({ type: "goal.plan-approval-required", goalId, status: "WAITING_HUMAN" });
+      return finishGoalRun(ctx, input.command, status, steps, quiet, 2);
+    }
+    const approved = await ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/approve-plan`, {}, derivedRequestOptions(ctx, "goal-run-approve-plan"));
+    if (!approved.ok) throw apiErrorFromResponse(approved);
+    steps.push({ type: "goal.plan-approved", goalId, targetCount: nestedField(approved.data, ["plan", "targetCount"]) });
+    status = await readGoalRunStatus(ctx, goalId);
+    printGoalRunStatus(ctx, input.command, status, steps, quiet);
+  }
+
+  let advanceCount = 0;
+  while (advanceCount < maxSteps && !hasTimedOut(startedAt, timeoutMs) && shouldContinueGoalRun(status)) {
+    advanceCount += 1;
+    const response = await ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/advance`, {
+      autoStart: hasFlag(ctx.args, "no-auto-start") ? false : undefined,
+      approveHumanGate: hasFlag(ctx.args, "approve-human-gate"),
+      forceDecision: stringOption(ctx.args, "force-decision")
+    }, derivedRequestOptions(ctx, `goal-run-advance-${advanceCount}`));
+    if (!response.ok && !isRecord(response.data)) throw apiErrorFromResponse(response);
+    steps.push({
+      type: "goal.advanced",
+      goalId,
+      httpStatus: response.status,
+      status: field(response.data, "status"),
+      nextAction: field(response.data, "nextAction"),
+      targetId: nestedField(response.data, ["target", "id"]),
+      loopId: nestedField(response.data, ["loop", "id"])
+    });
+    status = await readGoalRunStatus(ctx, goalId);
+    printGoalRunStatus(ctx, input.command, status, steps, quiet);
+  }
+
+  if (advanceCount >= maxSteps && shouldContinueGoalRun(status)) {
+    steps.push({ type: "goal.max-steps-reached", goalId, maxSteps });
+  }
+  const timedOut = hasTimedOut(startedAt, timeoutMs) && shouldContinueGoalRun(status);
+  if (timedOut) {
+    steps.push({ type: "goal.timeout-reached", goalId, timeoutMs });
+  }
+  return finishGoalRun(ctx, input.command, status, steps, quiet, goalRunExitCode(status, advanceCount >= maxSteps || timedOut));
+}
+
+async function finishGoalRun(ctx: RuntimeContext, command: string, status: unknown, steps: Array<Record<string, unknown>>, quiet: boolean, exitCode: number): Promise<number> {
+  const result = {
+    schema: "evopilot-cli-goal-run/v1",
+    command,
+    status,
+    steps,
+    result: goalRunResult(status, exitCode),
+    generatedAt: new Date().toISOString()
+  };
+  if (ctx.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  else if (quiet) process.stdout.write(formatGoalRunStatus(command, status, steps));
+  return exitCode;
+}
+
+async function readGoalRunStatus(ctx: RuntimeContext, goalId: string): Promise<unknown> {
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/run-status`));
+  return response.data;
+}
+
+async function readLoop(ctx: RuntimeContext, loopId: string): Promise<unknown> {
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/loops/${encodeURIComponent(loopId)}`));
+  return response.data;
+}
+
+async function readReleaseTarget(ctx: RuntimeContext, targetId: string): Promise<unknown | undefined> {
+  const response = await ctx.client.get(`/api/v1/release/targets/${encodeURIComponent(targetId)}`);
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw apiErrorFromResponse(response);
+  return response.data;
+}
+
+async function createProjectReleaseTarget(ctx: RuntimeContext, projectId: string, templateId: string, targetId: string): Promise<unknown> {
+  const templates = await ctx.client.expectOk(ctx.client.get("/api/v1/release/targets"));
+  const template = Array.isArray(templates.data)
+    ? templates.data.find((item: unknown) => isRecord(item) && item.id === templateId)
+    : undefined;
+  if (!isRecord(template)) throw usage(`Release target template not found: ${templateId}`);
+  const response = await ctx.client.post("/api/v1/release/targets", {
+    ...template,
+    id: targetId,
+    name: `${projectId} ${String(field(template, "name") ?? templateId)}`,
+    scope: "project",
+    projectId,
+    templateId
+  }, derivedRequestOptions(ctx, "target-run-create-target"));
+  if (!response.ok) throw apiErrorFromResponse(response);
+  return response.data;
+}
+
+async function createGoalForRun(ctx: RuntimeContext, projectId: string, targetId: string, objective: string): Promise<unknown> {
+  const response = await ctx.client.post("/api/v1/goals", {
+    id: stringOption(ctx.args, "goal-id") ?? stringOption(ctx.args, "id"),
+    projectId,
+    releaseTargetId: targetId,
+    objective
+  }, derivedRequestOptions(ctx, "goal-run-create-goal"));
+  if (!response.ok) throw apiErrorFromResponse(response);
+  return response.data;
+}
+
+async function findReusableGoal(ctx: RuntimeContext, projectId: string, targetId: string, objective: string): Promise<unknown | undefined> {
+  const response = await ctx.client.expectOk(ctx.client.get("/api/v1/goals"));
+  const reusableStatuses = new Set(["DRAFT", "PLANNED", "APPROVED", "RUNNING", "WAITING_HUMAN", "BLOCKED"]);
+  return Array.isArray(response.data)
+    ? response.data.find((item: unknown) =>
+      isRecord(item) &&
+      item.projectId === projectId &&
+      item.releaseTargetId === targetId &&
+      item.objective === objective &&
+      reusableStatuses.has(String(item.status))
+    )
+    : undefined;
+}
+
+function derivedRequestOptions(ctx: RuntimeContext, suffix: string): { idempotencyKey?: string } {
+  const base = stringOption(ctx.args, "idempotency-key");
+  return { idempotencyKey: base ? `${base}:${suffix}` : undefined };
+}
+
+function wrapperTimeoutMs(args: ParsedArgs): number | undefined {
+  const timeout = durationOptionMs(args, "timeout");
+  if (timeout !== undefined) return timeout;
+  const timeoutSeconds = numberOption(args, "timeout-seconds");
+  return timeoutSeconds === undefined ? undefined : Math.max(0, timeoutSeconds * 1000);
+}
+
+function durationOptionMs(args: ParsedArgs, name: string): number | undefined {
+  const value = stringOption(args, name);
+  if (value === undefined) return undefined;
+  return parseDurationMs(value, name);
+}
+
+function parseDurationMs(value: string, optionName: string): number {
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)(ms|s|m|min|h)?$/);
+  if (!match) throw usage(`Option --${optionName} must be a duration such as 30s, 10m, 2h, or a bare number of seconds.`);
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount < 0) throw usage(`Option --${optionName} must be a non-negative duration.`);
+  const unit = match[2] ?? "s";
+  const multiplier = unit === "ms" ? 1
+    : unit === "s" ? 1000
+      : unit === "m" || unit === "min" ? 60_000
+        : 3_600_000;
+  return Math.ceil(amount * multiplier);
+}
+
+function hasTimedOut(startedAt: number, timeoutMs?: number): boolean {
+  return timeoutMs !== undefined && Date.now() - startedAt >= timeoutMs;
+}
+
+function shouldContinueGoalRun(status: unknown): boolean {
+  const goalStatus = String(field(status, "status") ?? "");
+  const nextAction = String(field(status, "nextAction") ?? "");
+  if (["COMPLETED", "BLOCKED", "FAILED", "WAITING_HUMAN"].includes(goalStatus)) return false;
+  return !new Set([
+    "human-approval",
+    "configure-source-credentials",
+    "repair-project",
+    "repair-deploy-target",
+    "policy-review",
+    "release-decision",
+    "view-final-report",
+    "done",
+    "repair"
+  ]).has(nextAction);
+}
+
+function shouldContinueLoopRun(loop: unknown, args: ParsedArgs): boolean {
+  const status = String(field(loop, "status") ?? "");
+  if (status === "WAITING_APPROVAL" && !hasFlag(args, "approve-human-gate")) return false;
+  return status === "PENDING" || status === "RUNNING" || status === "BLOCKED" || (status === "WAITING_APPROVAL" && hasFlag(args, "approve-human-gate"));
+}
+
+function goalRunExitCode(status: unknown, maxStepsReached: boolean): number {
+  if (maxStepsReached) return 2;
+  const goalStatus = String(field(status, "status") ?? "");
+  const releaseDecisionStatus = String(nestedField(status, ["releaseDecision", "status"]) ?? "");
+  if (releaseDecisionStatus === "NO-GO") return 2;
+  return goalStatus === "COMPLETED" ? 0 : 2;
+}
+
+function loopRunExitCode(loop: unknown): number {
+  return String(field(loop, "status") ?? "") === "SUCCEEDED" ? 0 : 2;
+}
+
+function goalRunResult(status: unknown, exitCode: number): Record<string, unknown> {
+  return {
+    exitCode,
+    status: field(status, "status"),
+    nextAction: field(status, "nextAction"),
+    goalId: nestedField(status, ["goal", "id"]),
+    activeTargetId: nestedField(status, ["activeTarget", "id"]),
+    latestLoopId: nestedField(status, ["latestLoop", "id"]),
+    releaseDecision: nestedField(status, ["releaseDecision", "status"]) ?? "PENDING"
+  };
+}
+
+function loopRunResult(loop: unknown): Record<string, unknown> {
+  return {
+    exitCode: loopRunExitCode(loop),
+    loopId: field(loop, "id"),
+    status: field(loop, "status"),
+    iteration: field(loop, "currentIteration"),
+    sourceClosure: nestedField(loop, ["sourceClosure", "closureState"])
+  };
+}
+
+function printGoalRunStatus(ctx: RuntimeContext, command: string, status: unknown, steps: Array<Record<string, unknown>>, quiet: boolean): void {
+  if (ctx.json || quiet) return;
+  process.stdout.write(formatGoalRunStatus(command, status, steps));
+}
+
+function printLoopRunStatus(ctx: RuntimeContext, command: string, loop: unknown, steps: Array<Record<string, unknown>>, quiet: boolean): void {
+  if (ctx.json || quiet) return;
+  process.stdout.write(formatLoopRunStatus(command, loop, steps));
+}
+
+function formatGoalRunStatus(command: string, status: unknown, steps: Array<Record<string, unknown>>): string {
+  const lines = [
+    "EvoPilot Goal Run",
+    `Command    ${command}`,
+    `Scope      ${nestedField(status, ["scope", "tenantId"]) ?? "-"} / ${nestedField(status, ["scope", "workspaceId"]) ?? "-"}`,
+    `Project    ${nestedField(status, ["goal", "projectId"]) ?? "-"}`,
+    `Target     ${nestedField(status, ["goal", "releaseTargetId"]) ?? "-"}`,
+    `Goal       ${nestedField(status, ["goal", "id"]) ?? "-"}`,
+    `Status     ${field(status, "status") ?? "-"}`,
+    `Progress   ${nestedField(status, ["snapshot", "progress", "completedTargets"]) ?? 0}/${nestedField(status, ["snapshot", "progress", "requiredTargets"]) ?? 0} required (${nestedField(status, ["snapshot", "progress", "percent"]) ?? 0}%)`,
+    "",
+    "Workflow",
+    ...formatChain(field(status, "chain")),
+    "",
+    "Next Action",
+    `${field(status, "nextAction") ?? "unknown"}${field(status, "blockers") ? ` / blockers=${arrayLength(field(status, "blockers"))}` : ""}`,
+    "",
+    "Evidence",
+    `- snapshot: /api/v1/goals/${nestedField(status, ["goal", "id"]) ?? "<goal-id>"}/snapshot`,
+    `- graph: /api/v1/goals/${nestedField(status, ["goal", "id"]) ?? "<goal-id>"}/graph`,
+    `- evidence matrix: /api/v1/goals/${nestedField(status, ["goal", "id"]) ?? "<goal-id>"}/evidence-matrix`,
+    `- release decision: ${nestedField(status, ["releaseDecision", "id"]) ?? "pending"}`,
+    "",
+    "Steps",
+    ...formatSteps(steps),
+    "",
+    "Result",
+    String(field(status, "status") ?? "UNKNOWN"),
+    ""
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function formatLoopRunStatus(command: string, loop: unknown, steps: Array<Record<string, unknown>>): string {
+  const lines = [
+    "EvoPilot Loop Run",
+    `Command    ${command}`,
+    `Project    ${field(loop, "projectId") ?? "-"}`,
+    `Target     ${nestedField(loop, ["context", "releaseTargetId"]) ?? "-"}`,
+    `Loop       ${field(loop, "id") ?? "-"}`,
+    `Status     ${field(loop, "status") ?? "-"}`,
+    `Iteration  ${field(loop, "currentIteration") ?? 0}`,
+    "",
+    "Workflow",
+    `[${field(loop, "projectId") ? "OK" : "PENDING"}] Project -> [${nestedField(loop, ["context", "releaseTargetId"]) ? "OK" : "PENDING"}] Target -> [${field(loop, "status") ?? "PENDING"}] LoopRun -> [${nestedField(loop, ["sourceClosure", "closureState"]) ?? "PENDING"}] Source Closure`,
+    "",
+    "Next Action",
+    loopNextAction(loop),
+    "",
+    "Evidence",
+    `- loop: /api/v1/loops/${field(loop, "id") ?? "<loop-id>"}`,
+    `- trace: /api/v1/loops/${field(loop, "id") ?? "<loop-id>"}/trace-tree`,
+    `- events: /api/v1/loops/${field(loop, "id") ?? "<loop-id>"}/events`,
+    "",
+    "Steps",
+    ...formatSteps(steps),
+    "",
+    "Result",
+    String(field(loop, "status") ?? "UNKNOWN"),
+    ""
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function formatChain(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) return ["[PENDING] No chain projection available."];
+  return value.map((item: unknown) => {
+    const status = String(field(item, "status") ?? "PENDING");
+    return `[${status}] ${field(item, "label") ?? field(item, "id") ?? "node"} - ${field(item, "detail") ?? ""}`;
+  });
+}
+
+function formatSteps(steps: Array<Record<string, unknown>>): string[] {
+  if (steps.length === 0) return ["- none"];
+  return steps.slice(-8).map((step) => `- ${step.type ?? "step"} ${step.status ? `status=${step.status}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}`);
+}
+
+function loopNextAction(loop: unknown): string {
+  const status = String(field(loop, "status") ?? "");
+  if (status === "PENDING") return "start-loop";
+  if (status === "WAITING_APPROVAL") return "human-approval";
+  if (status === "RUNNING" || status === "BLOCKED") return "resume-loop";
+  if (status === "SUCCEEDED" && nestedField(loop, ["sourceClosure", "closureState"]) !== "PROMOTED") return "source-closure";
+  if (status === "SUCCEEDED") return "done";
+  return "repair";
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const positionals: string[] = [];
   const options: Record<string, string | boolean | string[]> = {};
@@ -878,7 +1490,22 @@ Usage:
   evopilot evidence push --project <id> --file <events.json>
   evopilot target templates
   evopilot target create --project <id> --template <experimental|alpha|beta|rc|ga>
+  evopilot target run --project <id> --template <experimental|alpha|beta|rc|ga> --objective <text> [--max-steps <n>] [--timeout <duration>]
+  evopilot goal create --project <id> --target <target-id> --objective <text>
+  evopilot goal run [<goal-id>] [--project <id> --target <target-id> --objective <text>] [--max-steps <n>] [--timeout <duration>]
+  evopilot goal list [--project <id>] [--target <target-id>] [--status <status>]
+  evopilot goal inspect <goal-id>
+  evopilot goal plan <goal-id>
+  evopilot goal approve-plan <goal-id>
+  evopilot goal targets <goal-id>
+  evopilot goal advance <goal-id> [--no-auto-start] [--approve-human-gate]
+  evopilot goal snapshot <goal-id>
+  evopilot goal graph <goal-id>
+  evopilot goal timeline <goal-id>
+  evopilot goal evidence-matrix <goal-id>
+  evopilot goal final-report <goal-id>
   evopilot loop create --project <id> --target <target-id> --objective <text>
+  evopilot loop run [<loop-id>] [--project <id> --target <target-id> --objective <text>] [--max-iterations <n>] [--timeout <duration>]
   evopilot loop start <loop-id>
   evopilot loop approve <loop-id>
   evopilot source-closure preflight <loop-id>
@@ -916,6 +1543,7 @@ Global options:
   --workspace <id>            Workspace scope header
   --actor <id>                Actor scope header
   --idempotency-key <key>     Idempotency key for mutating commands
+  --timeout <duration>        Wrapper stop boundary, for example 30s, 10m, or 2h
   --json                      Print JSON response data
   --config <file>             Config path, defaults to ~/.evopilot/config.json
 `);

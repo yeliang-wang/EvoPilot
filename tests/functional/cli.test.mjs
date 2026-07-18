@@ -14,6 +14,10 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   const help = await runCliText(["--help"]);
   assert.match(help, /evopilot --version/);
   assert.match(help, /evopilot config show/);
+  assert.match(help, /evopilot goal create/);
+  assert.match(help, /evopilot target run/);
+  assert.match(help, /evopilot goal run/);
+  assert.match(help, /evopilot loop run/);
 
   const version = await runCliText(["--version"]);
   assert.equal(version.trim(), "0.1.0");
@@ -115,6 +119,132 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(target.scope, "project");
     assert.equal(target.projectId, "cli-agent");
     assert.equal(target.templateId, "beta");
+
+    const goal = await runCli([
+      "goal", "create",
+      "--id", "cli-agent-beta-global-goal",
+      "--project", "cli-agent",
+      "--target", "cli-agent-beta",
+      "--objective", "CLI Agent reaches beta through visible GoalTargets",
+      "--idempotency-key", "goal-cli-agent-beta",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(goal.schema, "evopilot-global-goal/v1");
+    assert.equal(goal.id, "cli-agent-beta-global-goal");
+    assert.equal(goal.status, "DRAFT");
+    assert.equal(goal.plan.status, "MISSING");
+
+    const goals = await runCli(["goal", "list", "--project", "cli-agent", "--target", "cli-agent-beta", "--config", configPath, "--json"]);
+    assert.ok(goals.some((item) => item.id === goal.id));
+
+    const inspectedGoal = await runCli(["goal", "inspect", goal.id, "--config", configPath, "--json"]);
+    assert.equal(inspectedGoal.id, goal.id);
+    assert.equal(inspectedGoal.objective, "CLI Agent reaches beta through visible GoalTargets");
+
+    const goalSnapshotBeforePlan = await runCli(["goal", "snapshot", goal.id, "--config", configPath, "--json"]);
+    assert.equal(goalSnapshotBeforePlan.status, "DRAFT");
+    assert.equal(goalSnapshotBeforePlan.nextAction, "plan-goal");
+
+    const goalPlan = await runCli(["goal", "plan", goal.id, "--config", configPath, "--json"]);
+    assert.equal(goalPlan.id, goal.id);
+    assert.equal(goalPlan.status, "PLANNED");
+    assert.equal(goalPlan.plan.status, "PENDING_APPROVAL");
+    assert.ok(goalPlan.plan.targets.length >= 4);
+
+    const approvedGoal = await runCli(["goal", "approve-plan", goal.id, "--config", configPath, "--json"]);
+    assert.equal(approvedGoal.status, "APPROVED");
+    assert.equal(approvedGoal.plan.status, "APPROVED");
+
+    const goalTargets = await runCli(["goal", "targets", goal.id, "--config", configPath, "--json"]);
+    assert.ok(goalTargets.some((item) => item.id.endsWith("source-readiness")));
+    assert.equal(goalTargets[0].status, "READY");
+
+    const goalGraph = await runCli(["goal", "graph", goal.id, "--config", configPath, "--json"]);
+    assert.equal(goalGraph.schema, "evopilot-goal-graph/v1");
+    assert.equal(goalGraph.goalId, goal.id);
+    assert.ok(goalGraph.nodes.length >= 4);
+    assert.ok(goalGraph.edges.length >= 1);
+
+    const goalTimeline = await runCli(["goal", "timeline", goal.id, "--config", configPath, "--json"]);
+    assert.ok(goalTimeline.some((item) => item.type === "CREATED"));
+    assert.ok(goalTimeline.some((item) => item.type === "PLAN_APPROVED"));
+
+    const goalMatrix = await runCli(["goal", "evidence-matrix", goal.id, "--config", configPath, "--json"]);
+    assert.equal(goalMatrix.length, goalTargets.length);
+    assert.ok(goalMatrix.every((row) => Array.isArray(row.acceptanceCriteria)));
+
+    const goalAdvance = await runCli(["goal", "advance", goal.id, "--no-auto-start", "--config", configPath, "--json"]);
+    assert.equal(goalAdvance.schema, "evopilot-goal-advance/v1");
+    assert.equal(goalAdvance.goal.id, goal.id);
+    assert.equal(goalAdvance.loop.status, "PENDING");
+    assert.equal(goalAdvance.loop.context.globalGoalId, goal.id);
+
+    const goalRunStatusResponse = await fetch(`${baseUrl}/api/v1/goals/${encodeURIComponent(goal.id)}/run-status`, {
+      headers: { authorization: `Bearer ${login.token}` }
+    });
+    assert.equal(goalRunStatusResponse.status, 200);
+    const goalRunStatus = await goalRunStatusResponse.json();
+    assert.equal(goalRunStatus.data.schema, "evopilot-goal-run-status/v1");
+    assert.equal(goalRunStatus.data.goal.id, goal.id);
+    assert.ok(goalRunStatus.data.chain.some((node) => node.id === "loop-run"));
+
+    const goalRunJson = await runCli(["goal", "run", goal.id, "--max-steps", "0", "--config", configPath, "--json"], { status: 2 });
+    assert.equal(goalRunJson.schema, "evopilot-cli-goal-run/v1");
+    assert.equal(goalRunJson.status.schema, "evopilot-goal-run-status/v1");
+    assert.equal(goalRunJson.status.goal.id, goal.id);
+    assert.ok(goalRunJson.status.chain.some((node) => node.id === "goal-target"));
+
+    const goalTimeoutJson = await runCli(["goal", "run", goal.id, "--timeout", "0s", "--config", configPath, "--json"], { status: 2 });
+    assert.equal(goalTimeoutJson.schema, "evopilot-cli-goal-run/v1");
+    assert.ok(goalTimeoutJson.steps.some((step) => step.type === "goal.timeout-reached"));
+
+    const goalRunText = await runCliText(["goal", "run", goal.id, "--max-steps", "0", "--config", configPath], { status: 2 });
+    assert.match(goalRunText, /EvoPilot Goal Run/);
+    assert.match(goalRunText, /Workflow/);
+    assert.match(goalRunText, /Next Action/);
+    assert.match(goalRunText, /Evidence/);
+
+    const targetRunJson = await runCli([
+      "target", "run",
+      "--project", "cli-agent",
+      "--template", "alpha",
+      "--objective", "CLI wrapper target run reaches alpha visibility",
+      "--max-steps", "0",
+      "--config", configPath,
+      "--json"
+    ], { status: 2 });
+    assert.equal(targetRunJson.schema, "evopilot-cli-goal-run/v1");
+    assert.equal(targetRunJson.command, "target run");
+    assert.equal(targetRunJson.status.goal.projectId, "cli-agent");
+    assert.equal(targetRunJson.status.goal.releaseTargetId, "cli-agent-alpha");
+
+    const loopTimeoutJson = await runCli([
+      "loop", "run",
+      "--project", "cli-agent",
+      "--target", "cli-agent-beta",
+      "--objective", "CLI wrapper loop run exposes timeout stop boundary",
+      "--timeout", "0s",
+      "--config", configPath,
+      "--json"
+    ], { status: 2 });
+    assert.equal(loopTimeoutJson.schema, "evopilot-cli-loop-run/v1");
+    assert.ok(loopTimeoutJson.steps.some((step) => step.type === "loop.timeout-reached"));
+
+    const loopRunJson = await runCli([
+      "loop", "run",
+      "--project", "cli-agent",
+      "--target", "cli-agent-beta",
+      "--objective", "CLI wrapper loop run succeeds visibly",
+      "--force-decision", "SUCCEED",
+      "--max-iterations", "1",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(loopRunJson.schema, "evopilot-cli-loop-run/v1");
+    assert.equal(loopRunJson.command, "loop run");
+    assert.equal(loopRunJson.loop.projectId, "cli-agent");
+    assert.equal(loopRunJson.loop.status, "SUCCEEDED");
 
     const sourceClosureFile = path.join(dataRoot, "source-closure.json");
     fs.writeFileSync(sourceClosureFile, JSON.stringify({

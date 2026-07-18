@@ -605,6 +605,61 @@ GET /api/v1/release/decisions?targetId=github-owner-repo-beta&projectId=github-o
 
 默认 `ga` 目标要求 `requireActiveSoak=true`。仅健康检查持续存活不计入 GA 稳定性证明；soak 报告必须证明 `runCount`、`codeUpgradeCount` 和 `pipelineCount` 相比基线产生真实活动增量。
 
+## GlobalGoal
+
+```http
+GET /api/v1/goals
+POST /api/v1/goals
+GET /api/v1/goals/{goalId}
+POST /api/v1/goals/{goalId}/plan
+POST /api/v1/goals/{goalId}/approve-plan
+GET /api/v1/goals/{goalId}/targets
+POST /api/v1/goals/{goalId}/advance
+GET /api/v1/goals/{goalId}/snapshot
+GET /api/v1/goals/{goalId}/run-status
+GET /api/v1/goals/{goalId}/graph
+GET /api/v1/goals/{goalId}/timeline
+GET /api/v1/goals/{goalId}/evidence-matrix
+GET /api/v1/goals/{goalId}/final-report
+```
+
+GlobalGoal 是 release target 和 LoopRun 之间的目标规划层。它适合表达“让某个项目达到 RC/GA”这类全局目标：服务端根据项目级 release target 生成多个有依赖关系的 GoalTarget，再把每个 GoalTarget 绑定到受控 LoopRun 推进。GlobalGoal 不替代 `GET /api/v1/release/decisions` 的最终发布判定，也不绕过 Loop Runtime 的 sandbox、approval、source closure、worker 和 audit 边界。
+
+创建目标示例：
+
+```json
+{
+  "id": "my-agent-rc-global-goal",
+  "projectId": "my-agent",
+  "releaseTargetId": "my-agent-rc",
+  "objective": "Move my-agent to RC with source closure, deployment evidence, release decision, and blocker review."
+}
+```
+
+典型推进顺序：
+
+1. `POST /api/v1/goals` 创建目标，初始状态为 `DRAFT`。
+2. `POST /api/v1/goals/{goalId}/plan` 生成 GoalTargets，状态进入 `PLANNED / PENDING_APPROVAL`。
+3. `POST /api/v1/goals/{goalId}/approve-plan` 批准计划。
+4. `GET /api/v1/goals/{goalId}/snapshot`、`graph`、`timeline`、`evidence-matrix` 读取白盒状态。
+5. `POST /api/v1/goals/{goalId}/advance` 推进一个服务端治理步骤。
+6. 目标终态后读取 `GET /api/v1/goals/{goalId}/final-report`。
+
+`advance` 返回 schema `evopilot-goal-advance/v1`，其中 `nextAction` 是自动化和 Dashboard 的主要路由字段。常见值包括 `plan-goal`、`approve-plan`、`start-target`、`resume-loop`、`human-approval`、`configure-source-credentials`、`repair-project`、`repair-deploy-target`、`policy-review`、`release-decision`、`view-final-report`、`done` 和 `repair`。调用方遇到人工、凭据、部署、策略或 repair 类型动作时应停止自动推进并展示阻塞原因。
+
+`run-status` 返回 schema `evopilot-goal-run-status/v1`，是 CLI wrapper commands 和 Dashboard 白盒视图共享的聚合投影。它包含 `scope`、`goal`、`snapshot`、`graph`、`timeline`、`evidenceMatrix`、`activeTarget`、`latestLoop`、`releaseDecision`、`finalReport`、`chain`、`blockers` 和 `nextAction`。CLI 的 `target run` / `goal run` 会用这个接口打印终端版 workflow 链路，而不是在客户端猜测状态。
+
+Dashboard 的 GlobalGoal Cockpit 直接消费这些投影接口，而不是从多个 LoopRun 拼接状态：
+
+| 接口 | Dashboard 用途 |
+|---|---|
+| `snapshot` | 状态、进度、active GoalTarget、下一步动作、blockers 和 release decision 摘要。 |
+| `run-status` | CLI / Dashboard 共用的聚合运行视图，包含链路、最新 Loop、阻塞项和 release decision。 |
+| `graph` | GoalTarget 依赖图和绑定的 LoopRun。 |
+| `timeline` | 目标创建、计划、批准、绑定、推进和完成事件。 |
+| `evidence-matrix` | 每个 GoalTarget 的 acceptance criteria、evidence、blocker 和 loopId。 |
+| `final-report` | 终态目标报告和 release decision 引用。 |
+
 ## Loop Runtime
 
 ```http

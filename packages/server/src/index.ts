@@ -877,6 +877,191 @@ interface TargetLoopRun {
   updatedAt: string;
 }
 
+type GlobalGoalStatus = "DRAFT" | "PLANNED" | "APPROVED" | "RUNNING" | "WAITING_HUMAN" | "BLOCKED" | "COMPLETED" | "FAILED";
+type GoalPlanStatus = "MISSING" | "PENDING_APPROVAL" | "APPROVED";
+type GoalTargetStatus = "PENDING" | "READY" | "RUNNING" | "WAITING_HUMAN" | "BLOCKED" | "DONE" | "FAILED";
+type GoalTargetLayer = "planning" | "sandbox" | "context" | "harness" | "loop" | "release";
+type GoalNextAction =
+  | "plan-goal"
+  | "approve-plan"
+  | "start-target"
+  | "advance-target"
+  | "resume-loop"
+  | "human-approval"
+  | "configure-source-credentials"
+  | "repair-project"
+  | "repair-deploy-target"
+  | "policy-review"
+  | "release-decision"
+  | "view-final-report"
+  | "done"
+  | "repair";
+
+interface GoalTarget {
+  schema: "evopilot-goal-target/v1";
+  id: string;
+  goalId: string;
+  projectId: string;
+  releaseTargetId: string;
+  title: string;
+  description: string;
+  layer: GoalTargetLayer;
+  required: boolean;
+  dependencyIds: string[];
+  acceptanceCriteria: string[];
+  status: GoalTargetStatus;
+  nextAction: GoalNextAction;
+  loopId?: string;
+  targetVersion?: string;
+  evidence: string[];
+  blocker?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GoalPlan {
+  schema: "evopilot-goal-plan/v1";
+  status: GoalPlanStatus;
+  decompositionStrategy: "release-target-template" | "manual" | "none";
+  summary: string;
+  targetCount: number;
+  requiredTargetCount: number;
+  targets: GoalTarget[];
+  generatedAt?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+}
+
+interface GoalTimelineEvent {
+  type: "CREATED" | "PLAN_GENERATED" | "PLAN_APPROVED" | "TARGET_CREATED" | "TARGET_ADVANCED" | "LOOP_BOUND" | "BLOCKED" | "COMPLETED" | "REPORT_GENERATED";
+  message: string;
+  timestamp: string;
+  targetId?: string;
+  loopId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface GoalEvidenceMatrixRow {
+  targetId: string;
+  title: string;
+  required: boolean;
+  status: GoalTargetStatus;
+  acceptanceCriteria: string[];
+  evidence: string[];
+  blocker?: string;
+  loopId?: string;
+}
+
+interface GoalCompletionReport {
+  schema: "evopilot-goal-completion-report/v1";
+  goalId: string;
+  projectId: string;
+  releaseTargetId: string;
+  objective: string;
+  status: "COMPLETED" | "BLOCKED" | "FAILED";
+  generatedAt: string;
+  targetSummary: {
+    total: number;
+    required: number;
+    done: number;
+    blocked: number;
+    failed: number;
+  };
+  evidenceMatrix: GoalEvidenceMatrixRow[];
+  releaseDecision?: ReleaseDecision;
+  conclusion: string;
+}
+
+interface GlobalGoal {
+  schema: "evopilot-global-goal/v1";
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  projectId: string;
+  releaseTargetId: string;
+  objective: string;
+  status: GlobalGoalStatus;
+  plan: GoalPlan;
+  finalReport?: GoalCompletionReport;
+  timeline: GoalTimelineEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GoalSnapshot {
+  schema: "evopilot-goal-snapshot/v1";
+  goal: GlobalGoal;
+  status: GlobalGoalStatus;
+  progress: {
+    totalTargets: number;
+    requiredTargets: number;
+    completedTargets: number;
+    blockedTargets: number;
+    failedTargets: number;
+    percent: number;
+  };
+  activeTarget?: GoalTarget;
+  nextAction: GoalNextAction;
+  blockers: string[];
+  evidence: string[];
+  releaseDecision?: ReleaseDecision;
+  updatedAt: string;
+}
+
+interface GoalGraph {
+  schema: "evopilot-goal-graph/v1";
+  goalId: string;
+  nodes: Array<GoalTarget & { active: boolean }>;
+  edges: Array<{ from: string; to: string; type: "depends-on" }>;
+  nextAction: GoalNextAction;
+}
+
+interface GoalRunStatus {
+  schema: "evopilot-goal-run-status/v1";
+  scope: {
+    tenantId: string;
+    workspaceId: string;
+  };
+  goal: GlobalGoal;
+  status: GlobalGoalStatus;
+  nextAction: GoalNextAction;
+  snapshot: GoalSnapshot;
+  graph: GoalGraph;
+  timeline: GoalTimelineEvent[];
+  evidenceMatrix: GoalEvidenceMatrixRow[];
+  activeTarget?: GoalTarget;
+  latestLoop?: LoopRun;
+  releaseDecision?: ReleaseDecision;
+  finalReport?: GoalCompletionReport;
+  chain: Array<{
+    id: string;
+    label: string;
+    status: string;
+    detail: string;
+  }>;
+  blockers: string[];
+  updatedAt: string;
+}
+
+interface GoalAdvanceResult {
+  schema: "evopilot-goal-advance/v1";
+  status: GlobalGoalStatus;
+  goal: GlobalGoal;
+  snapshot: GoalSnapshot;
+  target?: GoalTarget;
+  loop?: LoopRun;
+  finalReport?: GoalCompletionReport;
+  stages: Array<{
+    id: "plan-check" | "target-select" | "loop-bind" | "loop-iterate" | "human-gate" | "final-report";
+    status: "SUCCEEDED" | "SKIPPED" | "BLOCKED" | "FAILED";
+    detail: string;
+    evidence: string[];
+  }>;
+  nextAction: GoalNextAction;
+  evidence: string[];
+  createdAt: string;
+}
+
 type LoopRunStatus = "PENDING" | "RUNNING" | "WAITING_APPROVAL" | "BLOCKED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
 type LoopTriggerSource = "api" | "im" | "schedule" | "runtime-signal" | "release-target" | "evolution-batch";
 type LoopDecision = "CONTINUE" | "REPAIR" | "BLOCK" | "WAIT_APPROVAL" | "SUCCEED" | "FAIL";
@@ -2095,6 +2280,144 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const target = store.readReleaseTarget(decodeURIComponent(releaseTargetMatch[1]));
         if (!target) return writeJson(response, 404, { error: "RELEASE_TARGET_NOT_FOUND" });
         return writeJson(response, 200, envelope(target));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/goals") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const goals = store.listGoals()
+          .filter((goal) => canAccessScopedResource(auth, goal.tenantId, goal.workspaceId))
+          .slice(-50)
+          .reverse();
+        return writeJson(response, 200, envelope(goals));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/goals") {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const objective = String(body.objective ?? "").trim();
+        if (!objective) return writeJson(response, 400, { error: "GOAL_OBJECTIVE_REQUIRED" });
+        const projectId = body.projectId ? safeFileName(String(body.projectId)) : "evopilot";
+        const project = store.readProject(projectId);
+        const tenantId = safeFileName(optionalTrimmedString(body.tenantId) ?? project?.tenantId ?? auth.tenantId);
+        const workspaceId = safeFileName(optionalTrimmedString(body.workspaceId) ?? project?.workspaceId ?? auth.workspaceId);
+        const workspace = store.readWorkspace(workspaceId);
+        if (!workspace) return writeJson(response, 404, { error: "WORKSPACE_NOT_FOUND" });
+        if (!canAccessWorkspace(auth, workspace, "developer")) return writeJson(response, 403, { error: "WORKSPACE_FORBIDDEN" });
+        const releaseTargetId = safeFileName(String(body.releaseTargetId ?? body.targetId ?? "ga"));
+        const releaseTarget = store.readReleaseTarget(releaseTargetId);
+        if (!releaseTarget) return writeJson(response, 404, { error: "RELEASE_TARGET_NOT_FOUND" });
+        const goal = store.createGoal({
+          id: body.id ? String(body.id) : undefined,
+          projectId,
+          releaseTargetId,
+          objective,
+          tenantId,
+          workspaceId
+        });
+        store.appendAudit(audit(auth, "goal.created", goal.id, { projectId, releaseTargetId, objective }));
+        return writeJson(response, 201, envelope(goal));
+      }
+      const goalPlanMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/plan$/);
+      if (request.method === "POST" && goalPlanMatch) {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const goal = store.readGoal(decodeURIComponent(goalPlanMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const planned = store.generateGoalPlan(goal.id, auth.actor, { force: Boolean(body.force) });
+        if (!planned) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        store.appendAudit(audit(auth, "goal.plan-generated", planned.id, { targetCount: planned.plan.targets.length, releaseTargetId: planned.releaseTargetId }));
+        return writeJson(response, 201, envelope(planned));
+      }
+      const goalApprovePlanMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/approve-plan$/);
+      if (request.method === "POST" && goalApprovePlanMatch) {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const goal = store.readGoal(decodeURIComponent(goalApprovePlanMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const approved = store.approveGoalPlan(goal.id, auth.actor);
+        if (!approved) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        store.appendAudit(audit(auth, "goal.plan-approved", approved.id, { targetCount: approved.plan.targets.length }));
+        return writeJson(response, 200, envelope(approved));
+      }
+      const goalTargetsMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/targets$/);
+      if (request.method === "GET" && goalTargetsMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const snapshot = store.goalSnapshot(decodeURIComponent(goalTargetsMatch[1]));
+        if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(snapshot.goal.plan.targets));
+      }
+      const goalAdvanceMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/advance$/);
+      if (request.method === "POST" && goalAdvanceMatch) {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const goal = store.readGoal(decodeURIComponent(goalAdvanceMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const result = await store.advanceGoal(goal.id, auth.actor, {
+          autoStart: body.autoStart === false ? false : true,
+          approveHumanGate: body.approveHumanGate === true,
+          forceDecision: body.forceDecision ? normalizeLoopDecision(body.forceDecision) : undefined
+        });
+        if (!result) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        store.appendAudit(audit(auth, "goal.advanced", result.goal.id, { status: result.status, nextAction: result.nextAction, targetId: result.target?.id, loopId: result.loop?.id }));
+        return writeJson(response, result.status === "BLOCKED" || result.nextAction === "plan-goal" || result.nextAction === "approve-plan" ? 409 : 200, envelope(result));
+      }
+      const goalSnapshotMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/snapshot$/);
+      if (request.method === "GET" && goalSnapshotMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const snapshot = store.goalSnapshot(decodeURIComponent(goalSnapshotMatch[1]));
+        if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(snapshot));
+      }
+      const goalRunStatusMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/run-status$/);
+      if (request.method === "GET" && goalRunStatusMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const status = store.goalRunStatus(decodeURIComponent(goalRunStatusMatch[1]));
+        if (!status) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, status.goal.tenantId, status.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(status));
+      }
+      const goalGraphMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/graph$/);
+      if (request.method === "GET" && goalGraphMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const goal = store.readGoal(decodeURIComponent(goalGraphMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.goalGraph(goal.id)));
+      }
+      const goalTimelineMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/timeline$/);
+      if (request.method === "GET" && goalTimelineMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const goal = store.readGoal(decodeURIComponent(goalTimelineMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(goal.timeline));
+      }
+      const goalEvidenceMatrixMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/evidence-matrix$/);
+      if (request.method === "GET" && goalEvidenceMatrixMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const goal = store.readGoal(decodeURIComponent(goalEvidenceMatrixMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.goalEvidenceMatrix(goal.id)));
+      }
+      const goalReportMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/final-report$/);
+      if (request.method === "GET" && goalReportMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const goal = store.readGoal(decodeURIComponent(goalReportMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        if (!goal.finalReport) return writeJson(response, 409, { error: "GOAL_FINAL_REPORT_PENDING" });
+        return writeJson(response, 200, envelope(goal.finalReport));
+      }
+      const goalMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)$/);
+      if (request.method === "GET" && goalMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const snapshot = store.goalSnapshot(decodeURIComponent(goalMatch[1]));
+        if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(snapshot.goal));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/release/decisions") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -3843,6 +4166,7 @@ class FileStore {
     fs.mkdirSync(this.releaseEvidenceDir, { recursive: true });
     fs.mkdirSync(this.releaseTargetsDir, { recursive: true });
     fs.mkdirSync(this.releaseDecisionsDir, { recursive: true });
+    fs.mkdirSync(this.goalsDir, { recursive: true });
     fs.mkdirSync(this.sourceReleaseRunsDir, { recursive: true });
     fs.mkdirSync(this.sourceReleaseDeployFinalizersDir, { recursive: true });
     fs.mkdirSync(this.targetLoopsDir, { recursive: true });
@@ -3957,6 +4281,10 @@ class FileStore {
 
   get releaseDecisionsDir(): string {
     return path.join(this.dataRoot, "release-decisions");
+  }
+
+  get goalsDir(): string {
+    return path.join(this.dataRoot, "goals");
   }
 
   get sourceReleaseRunsDir(): string {
@@ -5689,6 +6017,457 @@ class FileStore {
       workspaceId: safeFileName(String(decision.workspaceId ?? DEFAULT_WORKSPACE_ID)),
       projectId: decision.projectId ? safeFileName(String(decision.projectId)) : undefined
     } as ReleaseDecision;
+  }
+
+  listGoals(): GlobalGoal[] {
+    return fs.readdirSync(this.goalsDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => this.hydrateGoal(JSON.parse(fs.readFileSync(path.join(this.goalsDir, file), "utf8"))))
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+  }
+
+  readGoal(id: string): GlobalGoal | undefined {
+    const file = path.join(this.goalsDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return this.hydrateGoal(JSON.parse(fs.readFileSync(file, "utf8")), { project: false });
+  }
+
+  writeGoal(goal: GlobalGoal): GlobalGoal {
+    const normalized = this.hydrateGoal(goal, { project: false });
+    atomicWriteJson(path.join(this.goalsDir, `${safeFileName(normalized.id)}.json`), normalized);
+    return this.hydrateGoal(normalized);
+  }
+
+  createGoal(input: {
+    id?: string;
+    projectId?: string;
+    releaseTargetId?: string;
+    objective: string;
+    tenantId?: string;
+    workspaceId?: string;
+  }): GlobalGoal {
+    const now = new Date().toISOString();
+    const projectId = safeFileName(String(input.projectId ?? "evopilot"));
+    const project = this.readProject(projectId);
+    const releaseTargetId = safeFileName(String(input.releaseTargetId ?? "ga"));
+    const id = safeFileName(input.id ?? `goal-${projectId}-${releaseTargetId}-${Date.now()}`);
+    const tenantId = safeFileName(String(input.tenantId ?? project?.tenantId ?? DEFAULT_TENANT_ID));
+    const workspaceId = safeFileName(String(input.workspaceId ?? project?.workspaceId ?? DEFAULT_WORKSPACE_ID));
+    return this.writeGoal({
+      schema: "evopilot-global-goal/v1",
+      id,
+      tenantId,
+      workspaceId,
+      projectId,
+      releaseTargetId,
+      objective: input.objective,
+      status: "DRAFT",
+      plan: emptyGoalPlan(),
+      timeline: [goalTimelineEvent("CREATED", `Global goal ${id} created.`, { projectId, releaseTargetId, objective: input.objective })],
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  generateGoalPlan(goalId: string, actor: string, options: { force?: boolean } = {}): GlobalGoal | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    if (goal.plan.status === "APPROVED" && !options.force) {
+      throw httpError(409, "GOAL_PLAN_ALREADY_APPROVED", "Approved goal plans cannot be regenerated without force.");
+    }
+    const now = new Date().toISOString();
+    const releaseTarget = this.readReleaseTarget(goal.releaseTargetId) ?? defaultGAReleaseTarget();
+    const targets = goalTargetsFromReleaseTarget(goal, releaseTarget, now);
+    return this.writeGoal({
+      ...goal,
+      status: "PLANNED",
+      plan: {
+        schema: "evopilot-goal-plan/v1",
+        status: "PENDING_APPROVAL",
+        decompositionStrategy: "release-target-template",
+        summary: `${goal.objective} decomposed into ${targets.length} white-box GoalTargets for ${releaseTarget.name}.`,
+        targetCount: targets.length,
+        requiredTargetCount: targets.filter((target) => target.required).length,
+        targets,
+        generatedAt: now
+      },
+      timeline: [
+        ...goal.timeline,
+        goalTimelineEvent("PLAN_GENERATED", `Goal plan generated by ${actor}.`, {
+          targetCount: targets.length,
+          releaseTargetId: goal.releaseTargetId,
+          strategy: "release-target-template"
+        })
+      ],
+      updatedAt: now
+    });
+  }
+
+  approveGoalPlan(goalId: string, actor: string): GlobalGoal | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    if (goal.plan.status === "MISSING" || goal.plan.targets.length === 0) {
+      throw httpError(409, "GOAL_PLAN_REQUIRED", "Generate a goal plan before approval.");
+    }
+    const now = new Date().toISOString();
+    return this.writeGoal({
+      ...goal,
+      status: "APPROVED",
+      plan: {
+        ...goal.plan,
+        status: "APPROVED",
+        approvedAt: now,
+        approvedBy: actor
+      },
+      timeline: [
+        ...goal.timeline,
+        goalTimelineEvent("PLAN_APPROVED", `Goal plan approved by ${actor}.`, {
+          targetCount: goal.plan.targets.length,
+          requiredTargetCount: goal.plan.targets.filter((target) => target.required).length
+        })
+      ],
+      updatedAt: now
+    });
+  }
+
+  async advanceGoal(goalId: string, actor: string, input: { autoStart?: boolean; approveHumanGate?: boolean; forceDecision?: LoopDecision } = {}): Promise<GoalAdvanceResult | undefined> {
+    let goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    const stages: GoalAdvanceResult["stages"] = [];
+    const evidence: string[] = [`goal=${goal.id}`, `project=${goal.projectId}`, `releaseTarget=${goal.releaseTargetId}`];
+    const pushStage = (stage: GoalAdvanceResult["stages"][number]) => {
+      stages.push(stage);
+      evidence.push(`stage.${stage.id}=${stage.status}`, ...stage.evidence);
+    };
+
+    if (goal.plan.status !== "APPROVED") {
+      pushStage({
+        id: "plan-check",
+        status: "BLOCKED",
+        detail: "Goal plan is not approved.",
+        evidence: [`planStatus=${goal.plan.status}`, "nextAction=approve-plan"]
+      });
+      const snapshot = buildGoalSnapshot(this, goal);
+      return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, stages, evidence, nextAction: snapshot.nextAction });
+    }
+    pushStage({
+      id: "plan-check",
+      status: "SUCCEEDED",
+      detail: "Goal plan is approved.",
+      evidence: [`targets=${goal.plan.targets.length}`]
+    });
+
+    let snapshot = buildGoalSnapshot(this, goal);
+    if (snapshot.status === "COMPLETED") {
+      const finalReport = this.ensureGoalCompletionReport(goal.id, actor);
+      goal = this.readGoal(goal.id) ?? goal;
+      snapshot = buildGoalSnapshot(this, goal);
+      pushStage({
+        id: "final-report",
+        status: "SUCCEEDED",
+        detail: "Goal completion report is available.",
+        evidence: [`finalReport=${finalReport?.schema ?? "missing"}`]
+      });
+      return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, finalReport, stages, evidence, nextAction: "view-final-report" });
+    }
+
+    const target = snapshot.activeTarget;
+    if (!target) {
+      pushStage({
+        id: "target-select",
+        status: "SKIPPED",
+        detail: "No active target is available.",
+        evidence: ["activeTarget=none"]
+      });
+      return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, stages, evidence, nextAction: snapshot.nextAction });
+    }
+    pushStage({
+      id: "target-select",
+      status: "SUCCEEDED",
+      detail: `Selected target ${target.id}.`,
+      evidence: [`target=${target.id}`, `targetStatus=${target.status}`, `targetNextAction=${target.nextAction}`]
+    });
+
+    let loop = target.loopId ? this.readLoop(target.loopId) : undefined;
+    if (!loop && (target.status === "READY" || target.status === "PENDING")) {
+      loop = this.createGoalTargetLoop(goal, target, actor);
+      goal = this.bindGoalTargetLoop(goal.id, target.id, loop.id, actor) ?? goal;
+      pushStage({
+        id: "loop-bind",
+        status: "SUCCEEDED",
+        detail: `Created LoopRun ${loop.id} for GoalTarget ${target.id}.`,
+        evidence: [`loop=${loop.id}`, `target=${target.id}`]
+      });
+    } else {
+      pushStage({
+        id: "loop-bind",
+        status: loop ? "SKIPPED" : "BLOCKED",
+        detail: loop ? `Target already bound to LoopRun ${loop.id}.` : "Target is not ready to bind.",
+        evidence: [loop ? `loop=${loop.id}` : `targetStatus=${target.status}`]
+      });
+    }
+
+    if (!loop) {
+      snapshot = this.goalSnapshot(goal.id) ?? snapshot;
+      return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, target, stages, evidence, nextAction: snapshot.nextAction });
+    }
+
+    if (input.autoStart === false) {
+      snapshot = this.goalSnapshot(goal.id) ?? snapshot;
+      pushStage({
+        id: "loop-iterate",
+        status: "SKIPPED",
+        detail: "Loop iteration skipped by request.",
+        evidence: ["autoStart=false"]
+      });
+      return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, target: snapshot.activeTarget ?? target, loop, stages, evidence, nextAction: snapshot.nextAction });
+    }
+
+    if (loop.status === "WAITING_APPROVAL" && input.approveHumanGate !== true) {
+      pushStage({
+        id: "human-gate",
+        status: "BLOCKED",
+        detail: "Loop is waiting for human approval.",
+        evidence: [`loop=${loop.id}`, "approveHumanGate=false"]
+      });
+      snapshot = this.goalSnapshot(goal.id) ?? snapshot;
+      return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, target: snapshot.activeTarget ?? target, loop, stages, evidence, nextAction: "human-approval" });
+    }
+
+    if (loop.status === "WAITING_APPROVAL" && input.approveHumanGate === true) {
+      loop = this.approveLoop(loop.id, actor) ?? loop;
+      pushStage({
+        id: "human-gate",
+        status: "SUCCEEDED",
+        detail: "Human gate approved for goal advance.",
+        evidence: [`loop=${loop.id}`, `approvedBy=${actor}`]
+      });
+    }
+
+    if (loop.status === "PENDING") {
+      loop = await this.startLoop(loop.id, actor, { forceDecision: input.forceDecision, evidence: [`globalGoal=${goal.id}`, `goalTarget=${target.id}`] }) ?? loop;
+    } else if (loop.status === "RUNNING" || loop.status === "BLOCKED") {
+      loop = await this.resumeLoop(loop.id, actor, { forceDecision: input.forceDecision, evidence: [`globalGoal=${goal.id}`, `goalTarget=${target.id}`] }) ?? loop;
+    }
+    pushStage({
+      id: "loop-iterate",
+      status: "SUCCEEDED",
+      detail: `Loop ${loop.id} advanced to ${loop.status}.`,
+      evidence: [`loop=${loop.id}`, `loopStatus=${loop.status}`, `iteration=${loop.currentIteration}`]
+    });
+
+    goal = this.touchGoalTarget(goal.id, target.id, actor) ?? goal;
+    snapshot = this.goalSnapshot(goal.id) ?? buildGoalSnapshot(this, goal);
+    return finalizeGoalAdvance({ status: snapshot.status, goal: snapshot.goal, snapshot, target: snapshot.activeTarget ?? target, loop, stages, evidence, nextAction: snapshot.nextAction });
+  }
+
+  createGoalTargetLoop(goal: GlobalGoal, target: GoalTarget, actor: string): LoopRun {
+    const project = this.readProject(goal.projectId);
+    const graph = this.writeExecutorGraph(selfEvolutionExecutorGraph());
+    return this.createLoop({
+      id: `goal-${goal.id}-${target.id}-${Date.now()}`,
+      source: "api",
+      projectId: goal.projectId,
+      tenantId: goal.tenantId,
+      workspaceId: goal.workspaceId,
+      objective: target.title,
+      executorGraphId: graph.id,
+      sourceClosure: {
+        sourceProjectId: goal.projectId,
+        repositoryProvider: project?.repository?.provider ?? "unknown",
+        sourceBranch: project?.repository?.defaultBranch ?? "main",
+        targetVersion: target.targetVersion ?? `${goal.releaseTargetId}-${target.id}`,
+        deploymentEnvironment: "production",
+        requiredGates: ["code-change", "push", "deploy", "health-ready"]
+      },
+      sandbox: {
+        runtime: "docker",
+        network: "restricted",
+        credentialScope: "loop",
+        allowedPaths: ["packages", "apps", "docs", "tests", "scripts"],
+        deniedPaths: [".env", ".env.*", ".git", "node_modules"]
+      },
+      stopPolicy: {
+        maxIterations: 4,
+        maxDurationSeconds: 24 * 60 * 60,
+        requireApprovalForRelease: true,
+        stopOnRepeatedFailure: 2
+      },
+      retryPolicy: {
+        maxAttemptsPerNode: 2,
+        backoffSeconds: 5,
+        circuitBreakerFailures: 2
+      },
+      context: {
+        globalGoalId: goal.id,
+        goalTargetId: target.id,
+        goalObjective: goal.objective,
+        releaseTargetId: goal.releaseTargetId,
+        acceptanceCriteria: target.acceptanceCriteria,
+        dashboardGoalCockpit: true,
+        createdBy: actor
+      }
+    });
+  }
+
+  bindGoalTargetLoop(goalId: string, targetId: string, loopId: string, actor: string): GlobalGoal | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    const now = new Date().toISOString();
+    return this.writeGoal({
+      ...goal,
+      status: "RUNNING",
+      plan: {
+        ...goal.plan,
+        targets: goal.plan.targets.map((target) => target.id === targetId ? {
+          ...target,
+          loopId,
+          status: "RUNNING",
+          nextAction: "resume-loop",
+          evidence: [...target.evidence, `loop=${loopId}`, `boundBy=${actor}`],
+          updatedAt: now
+        } : target)
+      },
+      timeline: [
+        ...goal.timeline,
+        goalTimelineEvent("LOOP_BOUND", `GoalTarget ${targetId} bound to LoopRun ${loopId}.`, { actor }, targetId, loopId)
+      ],
+      updatedAt: now
+    });
+  }
+
+  touchGoalTarget(goalId: string, targetId: string, actor: string): GlobalGoal | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    const now = new Date().toISOString();
+    return this.writeGoal({
+      ...goal,
+      plan: {
+        ...goal.plan,
+        targets: goal.plan.targets.map((target) => target.id === targetId ? {
+          ...target,
+          evidence: [...target.evidence, `advancedBy=${actor}`],
+          updatedAt: now
+        } : target)
+      },
+      timeline: [
+        ...goal.timeline,
+        goalTimelineEvent("TARGET_ADVANCED", `GoalTarget ${targetId} advanced by ${actor}.`, { actor }, targetId, goal.plan.targets.find((target) => target.id === targetId)?.loopId)
+      ],
+      updatedAt: now
+    });
+  }
+
+  ensureGoalCompletionReport(goalId: string, actor: string): GoalCompletionReport | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    if (goal.finalReport) return goal.finalReport;
+    const snapshot = buildGoalSnapshot(this, goal);
+    if (snapshot.status !== "COMPLETED") return undefined;
+    const report = buildGoalCompletionReport(snapshot, actor);
+    const now = new Date().toISOString();
+    this.writeGoal({
+      ...snapshot.goal,
+      status: "COMPLETED",
+      finalReport: report,
+      timeline: [
+        ...snapshot.goal.timeline,
+        goalTimelineEvent("REPORT_GENERATED", `Goal completion report generated by ${actor}.`, { status: report.status, targetSummary: report.targetSummary })
+      ],
+      updatedAt: now
+    });
+    return report;
+  }
+
+  goalSnapshot(goalId: string): GoalSnapshot | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    return buildGoalSnapshot(this, goal);
+  }
+
+  goalGraph(goalId: string): GoalGraph | undefined {
+    const snapshot = this.goalSnapshot(goalId);
+    if (!snapshot) return undefined;
+    const nodes = snapshot.goal.plan.targets.map((target) => ({ ...target, active: snapshot.activeTarget?.id === target.id }));
+    const edges = snapshot.goal.plan.targets.flatMap((target) =>
+      target.dependencyIds.map((dependency) => ({ from: dependency, to: target.id, type: "depends-on" as const }))
+    );
+    return {
+      schema: "evopilot-goal-graph/v1",
+      goalId,
+      nodes,
+      edges,
+      nextAction: snapshot.nextAction
+    };
+  }
+
+  goalRunStatus(goalId: string): GoalRunStatus | undefined {
+    const snapshot = this.goalSnapshot(goalId);
+    if (!snapshot) return undefined;
+    const graph = this.goalGraph(goalId);
+    const evidenceMatrix = this.goalEvidenceMatrix(goalId);
+    if (!graph || !evidenceMatrix) return undefined;
+    const latestLoop = snapshot.activeTarget?.loopId ? this.readLoop(snapshot.activeTarget.loopId) : undefined;
+    return {
+      schema: "evopilot-goal-run-status/v1",
+      scope: {
+        tenantId: snapshot.goal.tenantId,
+        workspaceId: snapshot.goal.workspaceId
+      },
+      goal: snapshot.goal,
+      status: snapshot.status,
+      nextAction: snapshot.nextAction,
+      snapshot,
+      graph,
+      timeline: snapshot.goal.timeline,
+      evidenceMatrix,
+      activeTarget: snapshot.activeTarget,
+      latestLoop,
+      releaseDecision: snapshot.releaseDecision,
+      finalReport: snapshot.goal.finalReport,
+      chain: buildGoalRunStatusChain(this, snapshot, latestLoop),
+      blockers: snapshot.blockers,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  goalEvidenceMatrix(goalId: string): GoalEvidenceMatrixRow[] | undefined {
+    const snapshot = this.goalSnapshot(goalId);
+    if (!snapshot) return undefined;
+    return buildGoalEvidenceMatrix(snapshot.goal);
+  }
+
+  private hydrateGoal(goal: any, options: { project?: boolean } = {}): GlobalGoal {
+    const projectId = safeFileName(String(goal.projectId ?? "evopilot"));
+    const project = this.readProject(projectId);
+    const releaseTargetId = safeFileName(String(goal.releaseTargetId ?? "ga"));
+    const tenantId = safeFileName(String(goal.tenantId ?? project?.tenantId ?? DEFAULT_TENANT_ID));
+    const workspaceId = safeFileName(String(goal.workspaceId ?? project?.workspaceId ?? DEFAULT_WORKSPACE_ID));
+    const plan = hydrateGoalPlan(goal.plan, safeFileName(String(goal.id ?? `goal-${projectId}-${releaseTargetId}`)), projectId, releaseTargetId);
+    const hydrated: GlobalGoal = {
+      ...goal,
+      schema: "evopilot-global-goal/v1",
+      id: safeFileName(String(goal.id ?? `goal-${projectId}-${releaseTargetId}-${Date.now()}`)),
+      tenantId,
+      workspaceId,
+      projectId,
+      releaseTargetId,
+      objective: String(goal.objective ?? `${projectId} reaches ${releaseTargetId.toUpperCase()}.`),
+      status: normalizeGlobalGoalStatus(goal.status),
+      plan,
+      finalReport: isRecord(goal.finalReport) ? goal.finalReport as GoalCompletionReport : undefined,
+      timeline: Array.isArray(goal.timeline) ? goal.timeline.map((event: any) => hydrateGoalTimelineEvent(event)) : [],
+      createdAt: String(goal.createdAt ?? new Date().toISOString()),
+      updatedAt: String(goal.updatedAt ?? goal.createdAt ?? new Date().toISOString())
+    };
+    if (options.project === false) return hydrated;
+    const snapshot = buildGoalSnapshot(this, hydrated);
+    return {
+      ...hydrated,
+      status: snapshot.status,
+      plan: snapshot.goal.plan
+    };
   }
 
   listSourceReleaseClosureRuns(loopId?: string): SourceReleaseClosureRun[] {
@@ -8034,6 +8813,588 @@ function targetEvidence(target: Pick<LoopOrchestrationTarget, "id" | "layer" | "
     loop?.trace ? `executorSteps=${loop.trace.executorStepCount}` : "executorSteps=0",
     externalBlocker ? `externalBlocker=${externalBlocker.id}` : "externalBlocker=none"
   ];
+}
+
+function emptyGoalPlan(): GoalPlan {
+  return {
+    schema: "evopilot-goal-plan/v1",
+    status: "MISSING",
+    decompositionStrategy: "none",
+    summary: "Goal plan has not been generated.",
+    targetCount: 0,
+    requiredTargetCount: 0,
+    targets: []
+  };
+}
+
+function hydrateGoalPlan(value: unknown, goalId: string, projectId: string, releaseTargetId: string): GoalPlan {
+  if (!isRecord(value)) return emptyGoalPlan();
+  const targets = Array.isArray(value.targets)
+    ? value.targets.map((target) => hydrateGoalTarget(target, goalId, projectId, releaseTargetId))
+    : [];
+  return {
+    schema: "evopilot-goal-plan/v1",
+    status: normalizeGoalPlanStatus(value.status),
+    decompositionStrategy: normalizeGoalPlanStrategy(value.decompositionStrategy),
+    summary: String(value.summary ?? (targets.length > 0 ? `Goal plan has ${targets.length} targets.` : "Goal plan has not been generated.")),
+    targetCount: targets.length,
+    requiredTargetCount: targets.filter((target) => target.required).length,
+    targets,
+    generatedAt: optionalTrimmedString(value.generatedAt),
+    approvedAt: optionalTrimmedString(value.approvedAt),
+    approvedBy: optionalTrimmedString(value.approvedBy)
+  };
+}
+
+function hydrateGoalTarget(value: unknown, goalId: string, projectId: string, releaseTargetId: string): GoalTarget {
+  const record = isRecord(value) ? value : {};
+  const now = new Date().toISOString();
+  const id = safeFileName(String(record.id ?? `${goalId}-target-${Date.now()}`));
+  return {
+    schema: "evopilot-goal-target/v1",
+    id,
+    goalId,
+    projectId: safeFileName(String(record.projectId ?? projectId)),
+    releaseTargetId: safeFileName(String(record.releaseTargetId ?? releaseTargetId)),
+    title: String(record.title ?? id),
+    description: String(record.description ?? ""),
+    layer: normalizeGoalTargetLayer(record.layer),
+    required: record.required !== false,
+    dependencyIds: Array.isArray(record.dependencyIds) ? record.dependencyIds.map((item) => safeFileName(String(item))) : [],
+    acceptanceCriteria: Array.isArray(record.acceptanceCriteria) ? record.acceptanceCriteria.map(String) : [],
+    status: normalizeGoalTargetStatus(record.status),
+    nextAction: normalizeGoalNextAction(record.nextAction),
+    loopId: optionalTrimmedString(record.loopId),
+    targetVersion: optionalTrimmedString(record.targetVersion),
+    evidence: normalizeStoredGoalTargetEvidence(record.evidence),
+    blocker: optionalTrimmedString(record.blocker),
+    createdAt: String(record.createdAt ?? now),
+    updatedAt: String(record.updatedAt ?? record.createdAt ?? now)
+  };
+}
+
+function normalizeStoredGoalTargetEvidence(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const derivedPrefixes = [
+    "goal=",
+    "target=",
+    "dependencies=",
+    "criteria=",
+    "loopStatus=",
+    "iteration=",
+    "sourceClosure=",
+    "sandboxEnforcement=",
+    "executorSteps=",
+    "externalBlocker="
+  ];
+  return value
+    .map((item) => String(item).trim())
+    .filter((item) => item.length > 0)
+    .filter((item) => !derivedPrefixes.some((prefix) => item.startsWith(prefix)))
+    .filter((item) => {
+      if (seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
+function hydrateGoalTimelineEvent(value: unknown): GoalTimelineEvent {
+  const record = isRecord(value) ? value : {};
+  return {
+    type: normalizeGoalTimelineEventType(record.type),
+    message: String(record.message ?? ""),
+    timestamp: String(record.timestamp ?? new Date().toISOString()),
+    targetId: optionalTrimmedString(record.targetId),
+    loopId: optionalTrimmedString(record.loopId),
+    metadata: isRecord(record.metadata) ? record.metadata : undefined
+  };
+}
+
+function goalTimelineEvent(type: GoalTimelineEvent["type"], message: string, metadata?: Record<string, unknown>, targetId?: string, loopId?: string): GoalTimelineEvent {
+  return {
+    type,
+    message,
+    timestamp: new Date().toISOString(),
+    targetId,
+    loopId,
+    metadata
+  };
+}
+
+function buildGoalSnapshot(store: FileStore, goal: GlobalGoal): GoalSnapshot {
+  const releaseDecision = currentReleaseDecision(store.listReleaseDecisions()
+    .filter((decision) => decision.projectId === goal.projectId)
+    .filter((decision) => decision.targetId === goal.releaseTargetId));
+  const done = new Set<string>();
+  const derivedTargets: GoalTarget[] = [];
+  for (const target of goal.plan.targets) {
+    const dependenciesDone = target.dependencyIds.every((dependencyId) => done.has(dependencyId));
+    const derived = deriveGoalTarget(store, goal, target, dependenciesDone);
+    derivedTargets.push(derived);
+    if (derived.status === "DONE") done.add(derived.id);
+  }
+  const derivedPlan: GoalPlan = {
+    ...goal.plan,
+    targetCount: derivedTargets.length,
+    requiredTargetCount: derivedTargets.filter((target) => target.required).length,
+    targets: derivedTargets
+  };
+  const derivedGoal: GlobalGoal = {
+    ...goal,
+    plan: derivedPlan
+  };
+  const requiredTargets = derivedTargets.filter((target) => target.required);
+  const completedTargets = requiredTargets.filter((target) => target.status === "DONE").length;
+  const blockedTargets = derivedTargets.filter((target) => target.status === "BLOCKED").length;
+  const failedTargets = derivedTargets.filter((target) => target.status === "FAILED").length;
+  const status = deriveGlobalGoalStatus(derivedGoal, derivedTargets);
+  const activeTarget = chooseActiveGoalTarget(derivedTargets);
+  const nextAction = goalNextAction(status, activeTarget);
+  const evidence = [
+    `goal=${goal.id}`,
+    `project=${goal.projectId}`,
+    `releaseTarget=${goal.releaseTargetId}`,
+    `plan=${goal.plan.status}`,
+    `targets=${derivedTargets.length}`,
+    `completedTargets=${completedTargets}/${requiredTargets.length}`,
+    releaseDecision ? `releaseDecision=${releaseDecision.status}` : "releaseDecision=not-generated"
+  ];
+  return {
+    schema: "evopilot-goal-snapshot/v1",
+    goal: {
+      ...derivedGoal,
+      status
+    },
+    status,
+    progress: {
+      totalTargets: derivedTargets.length,
+      requiredTargets: requiredTargets.length,
+      completedTargets,
+      blockedTargets,
+      failedTargets,
+      percent: requiredTargets.length === 0 ? 0 : Math.round((completedTargets / requiredTargets.length) * 100)
+    },
+    activeTarget,
+    nextAction,
+    blockers: derivedTargets.flatMap((target) => target.blocker ? [`${target.id}: ${target.blocker}`] : []),
+    evidence,
+    releaseDecision,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function deriveGoalTarget(store: FileStore, goal: GlobalGoal, target: GoalTarget, dependenciesDone: boolean): GoalTarget {
+  const now = new Date().toISOString();
+  const loop = target.loopId ? store.readLoop(target.loopId) : undefined;
+  if (!loop) {
+    const status: GoalTargetStatus = target.status === "DONE" || target.status === "BLOCKED" || target.status === "FAILED"
+      ? target.status
+      : goal.plan.status === "APPROVED" && dependenciesDone ? "READY" : "PENDING";
+    return {
+      ...target,
+      status,
+      nextAction: status === "READY" ? "start-target" : target.nextAction === "done" ? "done" : "advance-target",
+      evidence: [
+        `goal=${goal.id}`,
+        `target=${target.id}`,
+        `dependencies=${target.dependencyIds.join(",") || "none"}`,
+        dependenciesDone ? "dependencies=done" : "dependencies=pending",
+        `criteria=${target.acceptanceCriteria.length}`,
+        ...target.evidence
+      ],
+      updatedAt: now
+    };
+  }
+  const externalBlocker = inferLoopExternalBlocker({ id: target.id }, loop);
+  const status = goalTargetStatusFromLoop(loop, externalBlocker);
+  return {
+    ...target,
+    status,
+    loopId: loop.id,
+    targetVersion: target.targetVersion ?? loop.sourceClosure.targetVersion,
+    nextAction: goalNextActionFromLoop(loop, externalBlocker),
+    blocker: externalBlocker?.blockers.join("; ") ?? target.blocker,
+    evidence: [
+      `goal=${goal.id}`,
+      `target=${target.id}`,
+      `loop=${loop.id}`,
+      `loopStatus=${loop.status}`,
+      `iteration=${loop.currentIteration}/${loop.stopPolicy.maxIterations}`,
+      `sourceClosure=${loop.sourceClosure.closureState}`,
+      `sandboxEnforcement=${loop.sandboxEnforcement.status}`,
+      `executorSteps=${loop.trace.executorStepCount}`,
+      externalBlocker ? `externalBlocker=${externalBlocker.type}` : "externalBlocker=none",
+      ...target.evidence
+    ],
+    updatedAt: now
+  };
+}
+
+function goalTargetStatusFromLoop(loop: LoopRun, externalBlocker?: LoopExternalBlocker): GoalTargetStatus {
+  if (externalBlocker) return "BLOCKED";
+  if (loop.status === "WAITING_APPROVAL") return "WAITING_HUMAN";
+  if (loop.status === "FAILED" || loop.status === "CANCELLED") return "FAILED";
+  if (loop.status === "BLOCKED") return "BLOCKED";
+  if (loop.status === "SUCCEEDED" && loop.sourceClosure.closureState === "PROMOTED") return "DONE";
+  if (loop.status === "SUCCEEDED") return "DONE";
+  return "RUNNING";
+}
+
+function goalNextActionFromLoop(loop: LoopRun, externalBlocker?: LoopExternalBlocker): GoalNextAction {
+  if (externalBlocker) return externalBlocker.nextAction;
+  if (loop.status === "PENDING") return "start-target";
+  if (loop.status === "WAITING_APPROVAL") return "human-approval";
+  if (loop.status === "RUNNING" || loop.status === "BLOCKED") return "resume-loop";
+  if (loop.status === "SUCCEEDED" && loop.sourceClosure.closureState !== "PROMOTED") return "release-decision";
+  if (loop.status === "SUCCEEDED") return "done";
+  return "repair";
+}
+
+function deriveGlobalGoalStatus(goal: GlobalGoal, targets: GoalTarget[]): GlobalGoalStatus {
+  if (goal.plan.status === "MISSING") return "DRAFT";
+  if (goal.plan.status === "PENDING_APPROVAL") return "PLANNED";
+  if (targets.length === 0) return "APPROVED";
+  if (targets.some((target) => target.status === "WAITING_HUMAN")) return "WAITING_HUMAN";
+  if (targets.some((target) => target.status === "BLOCKED")) return "BLOCKED";
+  if (targets.some((target) => target.status === "FAILED")) return "FAILED";
+  const required = targets.filter((target) => target.required);
+  if (required.length > 0 && required.every((target) => target.status === "DONE")) return "COMPLETED";
+  if (targets.some((target) => target.status === "RUNNING")) return "RUNNING";
+  return "APPROVED";
+}
+
+function chooseActiveGoalTarget(targets: GoalTarget[]): GoalTarget | undefined {
+  return targets.find((target) => target.status === "WAITING_HUMAN")
+    ?? targets.find((target) => target.status === "BLOCKED")
+    ?? targets.find((target) => target.status === "RUNNING")
+    ?? targets.find((target) => target.status === "READY")
+    ?? targets.find((target) => target.status === "PENDING")
+    ?? targets.find((target) => target.status !== "DONE");
+}
+
+function goalNextAction(status: GlobalGoalStatus, activeTarget?: GoalTarget): GoalNextAction {
+  if (status === "DRAFT") return "plan-goal";
+  if (status === "PLANNED") return "approve-plan";
+  if (status === "COMPLETED") return "view-final-report";
+  if (activeTarget) return activeTarget.nextAction;
+  return status === "FAILED" || status === "BLOCKED" ? "repair" : "done";
+}
+
+function buildGoalEvidenceMatrix(goal: GlobalGoal): GoalEvidenceMatrixRow[] {
+  return goal.plan.targets.map((target) => ({
+    targetId: target.id,
+    title: target.title,
+    required: target.required,
+    status: target.status,
+    acceptanceCriteria: target.acceptanceCriteria,
+    evidence: target.evidence,
+    blocker: target.blocker,
+    loopId: target.loopId
+  }));
+}
+
+function buildGoalRunStatusChain(store: FileStore, snapshot: GoalSnapshot, latestLoop?: LoopRun): GoalRunStatus["chain"] {
+  const project = store.readProject(snapshot.goal.projectId);
+  const releaseTarget = store.readReleaseTarget(snapshot.goal.releaseTargetId);
+  const activeTarget = snapshot.activeTarget;
+  const latestReleaseRun = latestLoop ? store.listSourceReleaseClosureRuns(latestLoop.id).at(-1) : undefined;
+  const deployFinalizers = latestLoop ? store.listSourceReleaseDeployFinalizers().filter((item) => item.loopId === latestLoop.id) : [];
+  const latestDeploy = deployFinalizers.at(-1);
+  return [
+    {
+      id: "project",
+      label: "Project",
+      status: project ? "OK" : "BLOCKED",
+      detail: project ? snapshot.goal.projectId : "Project is not registered."
+    },
+    {
+      id: "target",
+      label: "Release Target",
+      status: releaseTarget ? "OK" : "BLOCKED",
+      detail: releaseTarget ? `${releaseTarget.id} / ${releaseTarget.name}` : `${snapshot.goal.releaseTargetId} is missing.`
+    },
+    {
+      id: "global-goal",
+      label: "GlobalGoal",
+      status: snapshot.status,
+      detail: `${snapshot.goal.id} / ${snapshot.progress.completedTargets}/${snapshot.progress.requiredTargets} required targets`
+    },
+    {
+      id: "goal-target",
+      label: "GoalTarget",
+      status: activeTarget?.status ?? "DONE",
+      detail: activeTarget ? `${activeTarget.id} / next=${activeTarget.nextAction}` : "No active target."
+    },
+    {
+      id: "loop-run",
+      label: "LoopRun",
+      status: latestLoop?.status ?? (activeTarget?.loopId ? "MISSING" : "PENDING"),
+      detail: latestLoop ? `${latestLoop.id} / iteration=${latestLoop.currentIteration}` : "No loop is bound to the active target."
+    },
+    {
+      id: "source-closure",
+      label: "Source Closure",
+      status: latestLoop?.sourceClosure.closureState ?? "PENDING",
+      detail: latestReleaseRun ? `${latestReleaseRun.id} / next=${latestReleaseRun.nextAction}` : "No source release run yet."
+    },
+    {
+      id: "deploy",
+      label: "CI/CD + Deploy",
+      status: latestDeploy?.status ?? "PENDING",
+      detail: latestDeploy ? `${latestDeploy.id} / ${latestDeploy.deploymentEnvironment ?? "deployment"}` : "No deploy finalizer yet."
+    },
+    {
+      id: "release-decision",
+      label: "Release Decision",
+      status: snapshot.releaseDecision?.status ?? "PENDING",
+      detail: snapshot.releaseDecision ? `${snapshot.releaseDecision.id} / status=${snapshot.releaseDecision.status}` : "No product-native release decision yet."
+    },
+    {
+      id: "final-report",
+      label: "Final Report",
+      status: snapshot.goal.finalReport?.status ?? (snapshot.status === "COMPLETED" ? "PENDING" : "NOT_READY"),
+      detail: snapshot.goal.finalReport ? snapshot.goal.finalReport.conclusion : "Generated after GlobalGoal reaches terminal completion."
+    }
+  ];
+}
+
+function goalTargetsFromReleaseTarget(goal: GlobalGoal, releaseTarget: ReleaseTargetProfile, now: string): GoalTarget[] {
+  const targetLevel = goal.releaseTargetId.toLowerCase();
+  const requiredScenarios = releaseTarget.requiredScenarioIds.length > 0
+    ? releaseTarget.requiredScenarioIds
+    : ["source-to-release", "runtime-validation", "release-decision"];
+  const base: Array<Omit<GoalTarget, "schema" | "goalId" | "projectId" | "releaseTargetId" | "createdAt" | "updatedAt">> = [
+    {
+      id: `${goal.id}-source-readiness`,
+      title: "Source and credential readiness",
+      description: "Confirm the project, source repository, branch, writeback credential, and workspace scope before any loop writes source.",
+      layer: "planning",
+      required: true,
+      dependencyIds: [],
+      acceptanceCriteria: [
+        "Project is registered in the current tenant and workspace.",
+        "Source repository and default branch are readable.",
+        "Writeback credential or tokenRef preflight has a clear READY/BLOCKED result."
+      ],
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-source-readiness`,
+      evidence: ["planner=release-target-template"]
+    },
+    {
+      id: `${goal.id}-core-e2e-evidence`,
+      title: "Core E2E and release evidence",
+      description: "Collect the product evidence required for the selected release target.",
+      layer: "harness",
+      required: true,
+      dependencyIds: [`${goal.id}-source-readiness`],
+      acceptanceCriteria: [
+        `Required scenarios are represented: ${requiredScenarios.join(", ")}.`,
+        `Successful runs satisfy release target threshold: ${releaseTarget.minSuccessfulRuns}.`,
+        "Evidence is production-boundary evidence, not mock, fixture-only, or chat-only proof."
+      ],
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-core-e2e`,
+      evidence: ["planner=release-target-template"]
+    },
+    {
+      id: `${goal.id}-sandbox-secret-boundary`,
+      title: "Sandbox and secret boundary",
+      description: "Prove execution, network, credential, and protected-path boundaries for the target loop.",
+      layer: "sandbox",
+      required: targetLevel !== "experimental",
+      dependencyIds: [`${goal.id}-core-e2e-evidence`],
+      acceptanceCriteria: [
+        "Loop sandbox policy is recorded with runtime, network, credential scope, allowed paths, and denied paths.",
+        "Sandbox proof or policy proof is attached to the LoopRun.",
+        "Secrets are referenced by tokenRef or scoped configuration and are not exposed in API responses or logs."
+      ],
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-sandbox-boundary`,
+      evidence: ["planner=release-target-template"]
+    },
+    {
+      id: `${goal.id}-source-closure-deploy`,
+      title: "Source closure and deploy gates",
+      description: "Close source writeback, deploy connector, and health-ready gates for the release target.",
+      layer: "loop",
+      required: ["beta", "rc", "ga"].includes(targetLevel),
+      dependencyIds: [`${goal.id}-sandbox-secret-boundary`],
+      acceptanceCriteria: [
+        "Source closure preflight passes before writeback.",
+        "Source closure records branch, commit, PR/MR or local review artifact, and required gate evidence.",
+        "Deploy and health-ready gates produce auditable evidence or a clear rollback/blocker."
+      ],
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-source-closure`,
+      evidence: ["planner=release-target-template"]
+    },
+    {
+      id: `${goal.id}-release-decision`,
+      title: `${releaseTarget.name} release decision`,
+      description: "Produce the final product-native release decision and completion report.",
+      layer: "release",
+      required: true,
+      dependencyIds: ["beta", "rc", "ga"].includes(targetLevel)
+        ? [`${goal.id}-source-closure-deploy`]
+        : [`${goal.id}-sandbox-secret-boundary`],
+      acceptanceCriteria: [
+        `Release decision target is ${releaseTarget.id}.`,
+        "Decision status is GO, CONDITIONAL-GO, or NO-GO with explicit criteria.",
+        "GoalCompletionReport links every required target to evidence and blockers."
+      ],
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-decision`,
+      evidence: ["planner=release-target-template"]
+    },
+    {
+      id: `${goal.id}-ga-soak-and-risk`,
+      title: "GA soak and risk closure",
+      description: "For GA, prove active soak, risk closure, and promoted release evidence before the final decision.",
+      layer: "release",
+      required: targetLevel === "ga",
+      dependencyIds: [`${goal.id}-release-decision`],
+      acceptanceCriteria: [
+        `No high open risks is ${releaseTarget.requireNoHighOpenRisks ? "required" : "tracked"}.`,
+        `Active soak requirement is ${releaseTarget.requireActiveSoak ? "required" : "tracked"}.`,
+        "GA evidence can be replayed through release decisions, source release runs, artifacts, and audit."
+      ],
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-soak-risk`,
+      evidence: ["planner=release-target-template"]
+    }
+  ];
+  const filtered = base.filter((target) => target.required || ["rc", "ga"].includes(targetLevel));
+  const availableIds = new Set(filtered.map((target) => target.id));
+  return filtered.map((target) => ({
+    schema: "evopilot-goal-target/v1",
+    goalId: goal.id,
+    projectId: goal.projectId,
+    releaseTargetId: goal.releaseTargetId,
+    ...target,
+    dependencyIds: target.dependencyIds.filter((dependency) => availableIds.has(dependency)),
+    createdAt: now,
+    updatedAt: now
+  }));
+}
+
+function buildGoalCompletionReport(snapshot: GoalSnapshot, actor: string): GoalCompletionReport {
+  const matrix = buildGoalEvidenceMatrix(snapshot.goal);
+  const required = matrix.filter((row) => row.required);
+  const done = required.filter((row) => row.status === "DONE");
+  const blocked = matrix.filter((row) => row.status === "BLOCKED");
+  const failed = matrix.filter((row) => row.status === "FAILED");
+  const status: GoalCompletionReport["status"] = failed.length > 0 ? "FAILED" : blocked.length > 0 ? "BLOCKED" : "COMPLETED";
+  return {
+    schema: "evopilot-goal-completion-report/v1",
+    goalId: snapshot.goal.id,
+    projectId: snapshot.goal.projectId,
+    releaseTargetId: snapshot.goal.releaseTargetId,
+    objective: snapshot.goal.objective,
+    status,
+    generatedAt: new Date().toISOString(),
+    targetSummary: {
+      total: matrix.length,
+      required: required.length,
+      done: done.length,
+      blocked: blocked.length,
+      failed: failed.length
+    },
+    evidenceMatrix: matrix,
+    releaseDecision: snapshot.releaseDecision,
+    conclusion: status === "COMPLETED"
+      ? `GlobalGoal ${snapshot.goal.id} completed by ${actor}; all required GoalTargets are done.`
+      : `GlobalGoal ${snapshot.goal.id} is ${status}; inspect blockers before release promotion.`
+  };
+}
+
+function finalizeGoalAdvance(input: {
+  status: GlobalGoalStatus;
+  goal: GlobalGoal;
+  snapshot: GoalSnapshot;
+  target?: GoalTarget;
+  loop?: LoopRun;
+  finalReport?: GoalCompletionReport;
+  stages: GoalAdvanceResult["stages"];
+  nextAction: GoalNextAction;
+  evidence: string[];
+}): GoalAdvanceResult {
+  return {
+    schema: "evopilot-goal-advance/v1",
+    status: input.status,
+    goal: input.goal,
+    snapshot: input.snapshot,
+    target: input.target,
+    loop: input.loop,
+    finalReport: input.finalReport,
+    stages: input.stages,
+    nextAction: input.nextAction,
+    evidence: input.evidence,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function normalizeGlobalGoalStatus(value: unknown): GlobalGoalStatus {
+  const status = String(value ?? "DRAFT");
+  if (["DRAFT", "PLANNED", "APPROVED", "RUNNING", "WAITING_HUMAN", "BLOCKED", "COMPLETED", "FAILED"].includes(status)) return status as GlobalGoalStatus;
+  return "DRAFT";
+}
+
+function normalizeGoalPlanStatus(value: unknown): GoalPlanStatus {
+  const status = String(value ?? "MISSING");
+  if (["MISSING", "PENDING_APPROVAL", "APPROVED"].includes(status)) return status as GoalPlanStatus;
+  return "MISSING";
+}
+
+function normalizeGoalPlanStrategy(value: unknown): GoalPlan["decompositionStrategy"] {
+  const strategy = String(value ?? "none");
+  if (strategy === "release-target-template" || strategy === "manual" || strategy === "none") return strategy;
+  return "none";
+}
+
+function normalizeGoalTargetStatus(value: unknown): GoalTargetStatus {
+  const status = String(value ?? "PENDING");
+  if (["PENDING", "READY", "RUNNING", "WAITING_HUMAN", "BLOCKED", "DONE", "FAILED"].includes(status)) return status as GoalTargetStatus;
+  return "PENDING";
+}
+
+function normalizeGoalTargetLayer(value: unknown): GoalTargetLayer {
+  const layer = String(value ?? "planning");
+  if (["planning", "sandbox", "context", "harness", "loop", "release"].includes(layer)) return layer as GoalTargetLayer;
+  return "planning";
+}
+
+function normalizeGoalNextAction(value: unknown): GoalNextAction {
+  const action = String(value ?? "advance-target");
+  if ([
+    "plan-goal",
+    "approve-plan",
+    "start-target",
+    "advance-target",
+    "resume-loop",
+    "human-approval",
+    "configure-source-credentials",
+    "repair-project",
+    "repair-deploy-target",
+    "policy-review",
+    "release-decision",
+    "view-final-report",
+    "done",
+    "repair"
+  ].includes(action)) return action as GoalNextAction;
+  return "advance-target";
+}
+
+function normalizeGoalTimelineEventType(value: unknown): GoalTimelineEvent["type"] {
+  const type = String(value ?? "CREATED");
+  if (["CREATED", "PLAN_GENERATED", "PLAN_APPROVED", "TARGET_CREATED", "TARGET_ADVANCED", "LOOP_BOUND", "BLOCKED", "COMPLETED", "REPORT_GENERATED"].includes(type)) return type as GoalTimelineEvent["type"];
+  return "CREATED";
 }
 
 function normalizeLoopStopPolicy(input?: Partial<LoopStopPolicy>): LoopStopPolicy {

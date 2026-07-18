@@ -41,6 +41,11 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
     assert.match(app, /renderSimplifiedHome/);
     assert.match(app, /renderSourceToGaWizard/);
     assert.match(app, /renderSimplifiedLoopExecution/);
+    assert.match(app, /renderGlobalGoalCockpit/);
+    assert.match(app, /renderGoalTargetMap/);
+    assert.match(app, /globalGoals: \[\]/);
+    assert.match(app, /function loadGlobalGoals\(\)/);
+    assert.match(app, /apiFetch\("\/api\/v1\/goals"\)/);
     assert.match(app, /renderSimplifiedRelease/);
     assert.match(app, /command-action/);
     assert.match(app, /navSections/);
@@ -88,6 +93,12 @@ test("dashboard ships responsive workbench contracts for dense operator pages", 
     assert.match(app, /renderLoadingSkeleton/);
     assert.match(app, /data-label="\$\{escapeHtml\(headers\[index\] \?\? ""\)\}"/);
     assert.match(css, /\.command-center/);
+    assert.match(css, /\.global-goal-cockpit/);
+    assert.match(css, /\.global-goal-summary/);
+    assert.match(css, /\.goal-cockpit-grid/);
+    assert.match(css, /\.goal-target-map/);
+    assert.match(css, /\.goal-target-node/);
+    assert.match(css, /\.goal-timeline/);
     assert.match(css, /\.tenant-scope-bar/);
     assert.match(css, /\.production-readiness-hero/);
     assert.match(css, /\.production-kpi-grid/);

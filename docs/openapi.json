@@ -896,6 +896,336 @@
         }
       }
     },
+    "/api/v1/goals": {
+      "get": {
+        "summary": "列出 GlobalGoal",
+        "description": "返回当前作用域内的 GlobalGoal。GlobalGoal 位于 release target 和 LoopRun 之间，用于把 RC/GA 等全局目标拆成可观察的 GoalTargets。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 列表"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      },
+      "post": {
+        "summary": "创建 GlobalGoal",
+        "description": "创建一个全局目标壳，后续通过 plan/approve-plan/advance 推进。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "GlobalGoal 已创建"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}": {
+      "get": {
+        "summary": "获取单个 GlobalGoal",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 详情"
+          },
+          "404": {
+            "description": "GlobalGoal 不存在"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/plan": {
+      "post": {
+        "summary": "生成 GlobalGoal 计划",
+        "description": "根据项目 release target 生成有依赖关系的 GoalTargets。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "计划已生成"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/approve-plan": {
+      "post": {
+        "summary": "批准 GlobalGoal 计划",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "计划已批准"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/targets": {
+      "get": {
+        "summary": "列出 GlobalGoal 的 GoalTargets",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GoalTarget 列表"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/advance": {
+      "post": {
+        "summary": "推进 GlobalGoal 一个原子步骤",
+        "description": "服务端选择当前 GoalTarget，绑定或推进 LoopRun，并返回 nextAction、stages、snapshot 和证据。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 已推进"
+          },
+          "409": {
+            "description": "需要计划、批准或人工处理"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/snapshot": {
+      "get": {
+        "summary": "读取 GlobalGoal 快照",
+        "description": "返回状态、进度、active GoalTarget、nextAction、blockers 和 release decision 摘要。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 快照"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/run-status": {
+      "get": {
+        "summary": "读取 GlobalGoal 运行聚合状态",
+        "description": "返回 CLI wrapper commands 和 Dashboard 共用的白盒运行投影，包含 scope、goal、snapshot、graph、timeline、evidenceMatrix、activeTarget、latestLoop、releaseDecision、finalReport、chain、blockers 和 nextAction。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 运行聚合状态"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/graph": {
+      "get": {
+        "summary": "读取 GlobalGoal 依赖图",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GoalTarget 图"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/timeline": {
+      "get": {
+        "summary": "读取 GlobalGoal 时间线",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 时间线"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/evidence-matrix": {
+      "get": {
+        "summary": "读取 GlobalGoal 证据矩阵",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GoalTarget 证据矩阵"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/final-report": {
+      "get": {
+        "summary": "读取 GlobalGoal 最终报告",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal 终态报告"
+          },
+          "409": {
+            "description": "目标尚未进入终态"
+          }
+        }
+      }
+    },
     "/api/v1/executor-graphs": {
       "get": {
         "summary": "列出 Loop Runtime 执行图",

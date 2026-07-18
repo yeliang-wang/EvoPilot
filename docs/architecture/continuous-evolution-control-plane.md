@@ -49,6 +49,48 @@ flowchart LR
   Sandbox --> Context --> Harness --> Loop
 ```
 
+## GlobalGoal Layer
+
+GlobalGoal adds one product layer above LoopRun for objectives that should not be treated as a single execution run, such as "reach RC" or "promote this project to GA".
+
+```mermaid
+flowchart TD
+  ReleaseTarget["ReleaseTarget\nAlpha / Beta / RC / GA criteria"] --> GlobalGoal["GlobalGoal\nobjective / plan / timeline / report"]
+  GlobalGoal --> GoalTargetA["GoalTarget\nsource readiness"]
+  GlobalGoal --> GoalTargetB["GoalTarget\nE2E and release evidence"]
+  GlobalGoal --> GoalTargetC["GoalTarget\nsource closure and deploy"]
+  GlobalGoal --> GoalTargetD["GoalTarget\nrelease decision"]
+  GoalTargetA --> GoalTargetB --> GoalTargetC --> GoalTargetD
+  GoalTargetA --> LoopRunA["LoopRun"]
+  GoalTargetB --> LoopRunB["LoopRun"]
+  GoalTargetC --> LoopRunC["LoopRun"]
+  GoalTargetD --> LoopRunD["LoopRun"]
+  LoopRunD --> Decision["Release Decision"]
+```
+
+From a DDD perspective:
+
+| Concept | Bounded-context responsibility |
+|---|---|
+| `GlobalGoal` aggregate | Owns the user's global objective, generated plan, ordered GoalTargets, timeline, progress, blockers, evidence matrix, and final report. It answers "where are we in this RC/GA goal?" |
+| `GoalTarget` entity | Represents one observable sub-target with dependencies, acceptance criteria, status, next action, evidence, blocker, and optional `loopId`. |
+| `LoopRun` aggregate | Remains the execution substrate. It owns executor graph progress, iterations, sandbox proof, worker lease, approvals, source closure, artifacts, trace, and loop evidence. |
+| `ReleaseTarget` profile | Defines governance criteria for Alpha/Beta/RC/GA. It is not itself a running goal and is not a release verdict. |
+| `ReleaseDecision` aggregate | Remains the authoritative `GO` / `CONDITIONAL-GO` / `NO-GO` verdict, exposed through `/api/v1/release/decisions`. |
+
+The key design tradeoff is an extra control-plane layer instead of overloading LoopRun. This makes the dashboard and CLI white-box for multi-step goals without turning CLI commands into semantic orchestration. The CLI remains an adapter over atomic use cases such as create goal, plan goal, approve plan, advance one step, read snapshot, read graph, read evidence matrix, and read final report.
+
+GlobalGoal exposes dashboard projections rather than forcing clients to reconstruct state from raw loops:
+
+| Projection | Purpose |
+|---|---|
+| Snapshot | Current status, progress, active GoalTarget, next action, blockers, and release decision summary. |
+| Run status | CLI wrapper and Dashboard shared projection with scope, chain, active target, latest LoopRun, blockers, evidence links, release decision, and final report state. |
+| Graph | GoalTarget dependency map with bound LoopRun ids. |
+| Timeline | Goal-level events such as creation, plan generation, approval, target binding, advancement, and completion. |
+| Evidence matrix | Acceptance criteria, evidence, blockers, and loop links per GoalTarget. |
+| Final report | Terminal goal summary, target completion counts, evidence matrix, and release decision reference. |
+
 ## Runtime Mapping
 
 The product loop maps to current EvoPilot runtime surfaces:
@@ -57,6 +99,7 @@ The product loop maps to current EvoPilot runtime surfaces:
 |---|---|
 | Evidence collection | `POST /api/v1/evidence/events`, OTLP trace/log endpoints, SkyWalking, evaluations, feedback |
 | Opportunity and risk decisions | evidence clustering, dynamic baselines, scorecards, governance policy evaluations, release readiness |
+| Global goal planning | `GlobalGoal` plan generation, GoalTarget dependency graph, snapshot, timeline, evidence matrix, and final report |
 | Plan review | Markdown opportunity drafts and user-edited evolution plans |
 | Long-running execution | `LoopRun`, executor graphs, loop worker, heartbeat leases, watchdog recovery |
 | Code and delivery actions | code-upgrader runtime, branch/commit evidence, Jenkins/GitLab connector boundaries |
@@ -85,9 +128,9 @@ EvoPilot should:
 
 ## Relationship To Loop Runtime
 
-Loop Runtime implements the continuity and execution substrate of this model. It keeps long-running work alive, coordinates executors, records iterations, and produces independent evidence sets.
+Loop Runtime implements the continuity and execution substrate of this model. It keeps long-running work alive, coordinates executors, records iterations, and produces independent evidence sets. GlobalGoal does not replace Loop Runtime; it decides which GoalTarget is active, binds that target to a LoopRun, and exposes the goal-level view that operators need for RC/GA progress.
 
-The broader product control plane also includes project registration, evidence ingestion, opportunity discovery, review, release governance, and product-native decisions. That distinction matters because EvoPilot is not only a loop scheduler. Its value is deciding whether a real AI Agent product should evolve, continue, stop, route to a human, or release.
+The broader product control plane also includes project registration, evidence ingestion, opportunity discovery, GlobalGoal planning, review, release governance, and product-native decisions. That distinction matters because EvoPilot is not only a loop scheduler. Its value is deciding whether a real AI Agent product should evolve, continue, stop, route to a human, split into GoalTargets, or release.
 
 ## Self-Hosted Improvement Boundary
 

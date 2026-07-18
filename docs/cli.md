@@ -8,6 +8,8 @@ The CLI is an adapter over EvoPilot server APIs. It does not bypass RBAC, tenant
 
 MCP-style semantic orchestration is out of scope for this CLI. Agents can still orchestrate workflows by composing CLI commands, but each command remains a server-governed operation.
 
+For scenario-first usage, wrapper commands, and terminal workflow output, start with [docs/cli-guide.md](cli-guide.md). This file is the command reference.
+
 ## Fast Path For AI Agents
 
 Use this path when an AI agent needs to connect to an ECS production EvoPilot instance and operate through the CLI.
@@ -87,10 +89,50 @@ Automation must use `--json` and parse response fields instead of screen text.
 ```bash
 evopilot worker queue --json
 evopilot release current --json
+evopilot goal list --json
 evopilot audit list --limit 20 --json
 ```
 
 Treat a non-zero exit code as a stop condition. Do not continue with source closure, merge, deploy, or release gates after a failed command unless a human explicitly decides the recovery path.
+
+## Wrapper Commands
+
+Wrapper commands provide the one-command Goal / Loop Target experience while preserving the atomic server-governed model. They compose existing CLI/API operations and print a Dashboard-like terminal chain by default. Use `--json` for AI agents and CI.
+
+Run a project toward GA:
+
+```bash
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --until terminal \
+  --max-steps 20
+```
+
+Run or resume a GlobalGoal:
+
+```bash
+evopilot goal run \
+  --project my-agent \
+  --target my-agent-ga \
+  --objective "Promote my-agent to GA stable" \
+  --until terminal \
+  --max-steps 20
+```
+
+Run or resume one LoopRun:
+
+```bash
+evopilot loop run \
+  --project my-agent \
+  --target my-agent-rc \
+  --objective "Fix RC release blockers and collect validation evidence" \
+  --until blocked-or-complete \
+  --max-iterations 10
+```
+
+Wrapper commands stop at `human-approval`, `policy-review`, source credential blockers, deploy blockers, `repair`, `NO-GO`, `BLOCKED`, `FAILED`, max-step limits, or `--timeout`. They do not approve human gates by default, do not merge source by default, and do not synthesize `GO` / `NO-GO` in the client.
 
 ## Agent Operating Contract
 
@@ -99,6 +141,8 @@ AI agents that read this document should follow these rules:
 - Use CLI commands as atomic operations. Do not assume a multi-step workflow succeeded unless each command returns success and the server response confirms the state.
 - Use `--json` for all machine-read commands.
 - Use `--idempotency-key` for mutating commands in CI or agent loops.
+- For RC/GA style objectives, create a `GlobalGoal`, generate and approve its server plan, inspect `snapshot` / `graph` / `timeline` / `evidence-matrix`, then call `goal advance` one step at a time.
+- Treat `goal advance` as an atomic command. The server chooses the next GoalTarget, binds or advances the related LoopRun, and returns `nextAction`; the CLI does not embed semantic orchestration.
 - Run preflight before source closure.
 - Do not call `merge` or `auto-merge` unless review approval and release policy are satisfied by server state.
 - Do not synthesize a `GO` or `GA stable` conclusion from local tests alone. Read release decisions from `/api/v1/release/decisions` through `release current`, `release decisions`, or `target decision`.
@@ -112,8 +156,8 @@ The role required depends on the command:
 
 | Role | Typical CLI Use |
 |---|---|
-| viewer | `status`, `project list`, `target list`, `release current`, `release-run list`, `worker queue`, `trace`, `audit list` |
-| operator | `loop start`, `loop approve`, `worker claim`, `worker heartbeat`, `sandbox verify`, `replay run`, `release gate` |
+| viewer | `status`, `project list`, `target list`, `goal list`, `goal snapshot`, `goal graph`, `release current`, `release-run list`, `worker queue`, `trace`, `audit list` |
+| operator | `goal create`, `goal plan`, `goal approve-plan`, `goal advance`, `loop start`, `loop approve`, `worker claim`, `worker heartbeat`, `sandbox verify`, `replay run`, `release gate` |
 | admin | `project register`, `project credentials set`, `target create`, `source-closure execute`, `source-closure merge`, `connector deploy create` |
 
 Production source, merge, deployment, and release operations remain server-governed. The CLI only submits the request.
@@ -152,6 +196,7 @@ Do not assume the production checkout is clean. Production hosts may contain loc
 evopilot status --json
 evopilot project list --json
 evopilot target list --json
+evopilot goal list --json
 evopilot release current --json
 evopilot worker queue --json
 evopilot release-run repair-candidates --json
@@ -239,6 +284,61 @@ evopilot target create \
 ```
 
 Release targets are project governance objects. The built-in `experimental`, `alpha`, `beta`, `rc`, and `ga` templates are not verdicts.
+
+### Create And Advance A GlobalGoal
+
+Use a GlobalGoal when the user objective is broader than one LoopRun, for example "take this project to RC" or "reach GA with evidence". The release target defines the governance profile; the GlobalGoal decomposes that objective into ordered GoalTargets; each GoalTarget may bind to a LoopRun.
+
+Create the goal:
+
+```bash
+evopilot goal create \
+  --project my-agent \
+  --target my-agent-rc \
+  --objective "Move my-agent to RC through source closure, deploy evidence, release decision, and blocker review" \
+  --idempotency-key goal-my-agent-rc \
+  --json
+```
+
+Generate and approve the server plan:
+
+```bash
+evopilot goal plan <goal-id> --json
+evopilot goal approve-plan <goal-id> --json
+```
+
+Inspect the white-box state before advancing:
+
+```bash
+evopilot goal inspect <goal-id> --json
+evopilot goal targets <goal-id> --json
+evopilot goal snapshot <goal-id> --json
+evopilot goal graph <goal-id> --json
+evopilot goal timeline <goal-id> --json
+evopilot goal evidence-matrix <goal-id> --json
+```
+
+Advance one atomic server-governed step:
+
+```bash
+evopilot goal advance <goal-id> --json
+```
+
+Useful variants:
+
+```bash
+evopilot goal advance <goal-id> --no-auto-start --json
+evopilot goal advance <goal-id> --approve-human-gate --json
+evopilot goal advance <goal-id> --force-decision <decision> --json
+```
+
+Agents should parse `status`, `nextAction`, `target`, `loop`, `snapshot`, and `stages` from the JSON response. Common `nextAction` values include `plan-goal`, `approve-plan`, `start-target`, `resume-loop`, `human-approval`, `configure-source-credentials`, `repair-project`, `repair-deploy-target`, `policy-review`, `release-decision`, `view-final-report`, `done`, and `repair`. Stop at `human-approval`, `repair`, `policy-review`, or credential/deploy/project repair actions unless a human has explicitly authorized the recovery path.
+
+Read the completion report only after the goal reaches a terminal state:
+
+```bash
+evopilot goal final-report <goal-id> --json
+```
 
 ### Push Evidence
 
@@ -486,11 +586,26 @@ evidence push
 target templates
 target list
 target create
+target run
 target decision
+goal create
+goal list
+goal inspect
+goal plan
+goal approve-plan
+goal targets
+goal advance
+goal run
+goal snapshot
+goal graph
+goal timeline
+goal evidence-matrix
+goal final-report
 loop create
 loop list
 loop start
 loop approve
+loop run
 source-closure preflight
 source-closure execute
 source-closure approve-release
@@ -528,6 +643,9 @@ release decisions
 | `status` shows health but no `summary` | The server is reachable, but the session is unauthenticated or unauthorized. | Check `EVOPILOT_API_TOKEN`, login config, tenant/workspace, and role. |
 | `project preflight` returns `READ_ONLY` | EvoPilot can read but cannot write source. | Configure token or tokenRef with `project credentials set`. |
 | `project preflight` returns `BLOCKED` | Source credentials or project binding are not ready. | Read blockers in JSON, then repair credentials or project registration. |
+| `goal advance` returns `plan-goal` | The GlobalGoal does not have an approved plan. | Run `goal plan`, review the generated GoalTargets, then run `goal approve-plan`. |
+| `goal advance` returns `human-approval` | The active GoalTarget is waiting at a governed human gate. | Stop automation or rerun with `--approve-human-gate` only after explicit approval. |
+| `goal final-report` returns pending | The GlobalGoal is not terminal yet. | Inspect `goal snapshot`, `goal graph`, and `goal evidence-matrix` to find the active target or blocker. |
 | `source-closure preflight` fails | Server-side source/deploy/health gates are not ready. | Do not execute closure; repair the blocker first. |
 | `release-run repair-candidates` is empty | No currently repairable failed release run exists. | Inspect latest release run and release decisions. |
 | `worker queue` shows `claimable=true` | A loop is ready for a worker to advance. | Claim it with a worker id or ensure production worker is running. |
@@ -541,6 +659,7 @@ The CLI implementation is covered by the functional test suite:
 
 ```bash
 npm run build -w @evopilot/cli
+node --test tests/functional/global-goal.test.mjs
 node --test tests/functional/cli.test.mjs
 npm run test:functional
 npm run check

@@ -43,6 +43,7 @@ Detailed release evidence and deployment checklists live in [docs/saas-productio
 | Capability | What EvoPilot provides |
 |---|---|
 | Loop Engineering | Durable loop state, executor graphs, checkpoints, replay, watchdog recovery, worker leases, sandbox proof, and timeline audit. |
+| GlobalGoal planning | A white-box goal layer above LoopRun that decomposes RC/GA objectives into ordered GoalTargets, binds each target to governed loops, and exposes progress, blockers, timeline, graph, evidence matrix, and final report. |
 | Evidence ingestion | Runtime events, traces, logs, evaluations, release signals, APM-derived data, and user feedback. |
 | Human approval | Reviewable proposals before high-risk evolution, source writeback, merge, or release actions. |
 | Code upgrades | Bounded code-upgrader execution with allowed paths, validation commands, branch/commit evidence, and source closure. |
@@ -76,7 +77,7 @@ Debug mode is for local development and UI validation. Production mode is the de
 
 ## Dashboard
 
-The dashboard is the primary product surface for operators and tenant users.
+The dashboard is the primary product surface for operators and tenant users. The Loops workspace includes a GlobalGoal Cockpit so a user can see a full RC/GA objective as a white-box process: current GoalTarget, target dependency map, blockers, next action, evidence matrix, timeline, and final report status.
 
 | Role | Main workflows |
 |---|---|
@@ -88,10 +89,13 @@ The full role-based and scenario-based operating guide is in [docs/user-guide.md
 
 ## Architecture
 
-EvoPilot applies Loop Engineering to product evolution:
+EvoPilot applies Loop Engineering to product evolution. For larger RC/GA objectives, the GlobalGoal layer sits above LoopRun and turns one global objective into multiple GoalTargets before each target is executed through the governed loop runtime:
 
 ```text
-Sandbox -> Context -> Harness -> Loop -> Release Decision
+GlobalGoal -> GoalTarget -> LoopRun -> Release Decision
+                  |
+                  v
+Sandbox -> Context -> Harness -> Loop
 ```
 
 | Layer | EvoPilot responsibility |
@@ -145,6 +149,7 @@ Primary API surfaces include:
 | Health and readiness | `GET /health`, `GET /ready` |
 | Auth and users | `POST /api/v1/auth/login`, `GET /api/v1/users`, `POST /api/v1/users` |
 | Projects and evidence | `GET /api/v1/projects`, `POST /api/v1/evidence/events` |
+| Global goals | `GET /api/v1/goals`, `POST /api/v1/goals`, `POST /api/v1/goals/{goalId}/plan`, `POST /api/v1/goals/{goalId}/advance`, `GET /api/v1/goals/{goalId}/snapshot` |
 | Loops | `POST /api/v1/loops`, `POST /api/v1/loops/{loopId}/start`, `GET /api/v1/loops/{loopId}/timeline` |
 | Source closure | `POST /api/v1/loops/{loopId}/source-closure/execute`, `POST /api/v1/loops/{loopId}/source-closure/review-decision` |
 | Release | `POST /api/v1/release/evidence`, `GET /api/v1/release/decisions` |
@@ -157,6 +162,7 @@ See [docs/api.md](docs/api.md) and [docs/openapi.json](docs/openapi.json) for th
 | Topic | Document |
 |---|---|
 | User and dashboard guide | [docs/user-guide.md](docs/user-guide.md) |
+| CLI guide | [docs/cli-guide.md](docs/cli-guide.md) |
 | CLI reference | [docs/cli.md](docs/cli.md) |
 | API reference | [docs/api.md](docs/api.md) |
 | OpenAPI schema | [docs/openapi.json](docs/openapi.json) |
