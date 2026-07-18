@@ -32,7 +32,6 @@ assertProductionRuntimesConfigured();
 const server = createServer({
   dataRoot,
   runtimeMode: "prod",
-  dashboardRoot: "apps/dashboard",
   requireLlm: true,
   tokens: [
     { name: "admin", token: "production-e2e-admin-token", role: "admin" },

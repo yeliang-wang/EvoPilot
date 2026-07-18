@@ -11,7 +11,6 @@ const dataRoot = process.env.EVOPILOT_REAL_LLM_E2E_DATA_ROOT ?? "data/evopilot-r
 const server = createServer({
   dataRoot,
   runtimeMode: "debug",
-  dashboardRoot: "apps/dashboard",
   requireLlm: true,
   tokens: [
     { name: "operator", token: "real-llm-operator-token", role: "operator" },

@@ -6,11 +6,7 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { createServer } from "../../packages/server/dist/index.js";
 
-test("dashboard assets exist and server health is UP", async () => {
-  for (const file of ["apps/dashboard/index.html", "apps/dashboard/assets/app.js", "apps/dashboard/assets/styles.css"]) {
-    assert.ok(fs.existsSync(file), `${file} should exist`);
-  }
-
+test("server health is UP and dashboard is external by default", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-smoke-"));
   const server = createServer({ dataRoot, runtimeMode: "debug" });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -336,9 +332,13 @@ test("bootstrap admin, password change, and tenant user management are enforced"
   }
 });
 
-test("server serves dashboard static files", async () => {
+test("server can explicitly serve a standalone dashboard build directory for compatibility", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-dashboard-"));
-  const dashboardRoot = path.resolve("apps/dashboard");
+  const dashboardRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-dashboard-root-"));
+  fs.mkdirSync(path.join(dashboardRoot, "assets"), { recursive: true });
+  fs.writeFileSync(path.join(dashboardRoot, "index.html"), "<main>EvoPilot standalone dashboard fixture</main>");
+  fs.writeFileSync(path.join(dashboardRoot, "assets", "app.js"), "console.log(\"standalone dashboard fixture\");");
+
   const server = createServer({ dataRoot, dashboardRoot, runtimeMode: "debug" });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -346,118 +346,11 @@ test("server serves dashboard static files", async () => {
   try {
     const response = await fetch(`${baseUrl}/`);
     assert.equal(response.status, 200);
-    const html = await response.text();
-    assert.match(html, /EvoPilot 控制台/);
-    const app = await (await fetch(`${baseUrl}/assets/app.js`)).text();
-    assert.match(app, /首页/);
-    assert.match(app, /接入项目/);
-    assert.match(app, /进化观测图/);
-    assert.match(app, /项目拓扑/);
-    assert.match(app, /已接入/);
-    assert.match(app, /OpenTelemetry/);
-    assert.match(app, /SkyWalking/);
-    assert.match(app, /用户反馈/);
-    assert.match(app, /证据策略/);
-    assert.match(app, /评测集/);
-    assert.match(app, /机会点/);
-    assert.match(app, /流水线/);
-    assert.match(app, /历史记录/);
-    assert.match(app, /CI\/CD 阶段视图/);
-    assert.match(app, /触发来源/);
-    assert.match(app, /触发时间/);
-    assert.match(app, /证据摘要/);
-    assert.match(app, /置信度/);
-    assert.match(app, /归因/);
-    assert.match(app, /治理等级/);
-    assert.match(app, /自学习沉淀/);
-    assert.match(app, /智能机会洞察/);
-    assert.match(app, /智能沉淀/);
-    assert.match(app, /学习方式/);
-    assert.match(app, /成熟度/);
-    assert.match(app, /平均服务分/);
-    assert.match(app, /service-scorecards/);
-    assert.match(app, /SLO健康/);
-    assert.match(app, /错误预算/);
-    assert.match(app, /失败策略/);
-    assert.match(app, /供应链风险/);
-    assert.match(app, /运行时就绪/);
-    assert.match(app, /成本健康/);
-    assert.match(app, /冻结项目/);
-    assert.match(app, /成本优化待执行/);
-    assert.match(app, /成本优化/);
-    assert.match(app, /发布就绪/);
-    assert.match(app, /发布阻断/);
-    assert.match(app, /发布证据包/);
-    assert.match(app, /GA目标/);
-    assert.match(app, /发布结论/);
-    assert.match(app, /灰度就绪/);
-    assert.match(app, /灰度阻断/);
-    assert.match(app, /supplyChainRiskCount/);
-    assert.match(app, /runtimeReadyCount/);
-    assert.match(app, /costHealth/);
-    assert.match(app, /frozenProjectCount/);
-    assert.match(app, /costOptimizationReadyCount/);
-    assert.match(app, /releaseReadinessScore/);
-    assert.match(app, /releaseEvidenceCount/);
-    assert.match(app, /releaseTargetCount/);
-    assert.match(app, /latestReleaseDecisionStatus/);
-    assert.match(app, /canaryReadyCount/);
-    assert.match(app, /rolloutBlockedCount/);
-    assert.match(app, /查看方案/);
-    assert.match(app, /关联评测集/);
-    assert.match(app, /形成机会点/);
-    assert.match(app, /编辑进化方案/);
-    assert.match(app, /Markdown 方案正文/);
-    assert.match(app, /提交方案修改/);
-    assert.match(app, /代码升级过程/);
-    assert.match(app, /根据方案进行代码升级/);
-    assert.match(app, /白盒执行/);
-    assert.match(app, /查看原始执行事件/);
-    assert.match(app, /execution-transcript/);
-    assert.match(app, /\/api\/v1\/code-upgrade-runs/);
-    assert.match(app, /\/code-upgrade/);
-    assert.match(app, /Codex target loop/);
-    assert.match(app, /\/api\/v1\/loop-orchestration\/advance/);
-    assert.match(app, /一键自动驾驶/);
-    assert.match(app, /\/api\/v1\/loop-orchestration\/autopilot/);
-    assert.match(app, /Worker Queue Workbench/);
-    assert.match(app, /\/api\/v1\/loop-workers\/claim/);
-    assert.match(app, /Context Time Travel Workbench/);
-    assert.match(app, /\/time-travel\/replay/);
-    assert.match(app, /Sandbox Boundary Workbench/);
-    assert.match(app, /\/sandbox-proof\/verify/);
-    assert.match(app, /Streaming Trace Workbench/);
-    assert.match(app, /\/trace-tree/);
-    assert.match(app, /Release Closure Runtime/);
-    assert.match(app, /\/source-closure\/plan/);
-    assert.match(app, /\/source-closure\/review-decision/);
-    assert.match(app, /\/api\/v1\/source-release-runs/);
-    assert.match(app, /Release Run Auto Repair Workbench/);
-    assert.match(app, /\/api\/v1\/source-release-runs\/repair-candidates/);
-    assert.match(app, /一键修复队列/);
-    assert.match(app, /Deploy Finalizer Workbench/);
-    assert.match(app, /\/api\/v1\/source-release-deploy-finalizers/);
-    assert.match(app, /批准 Release/);
-    assert.match(app, /合并 Release/);
-    assert.match(app, /安全自动合并/);
-    assert.match(app, /修复 Release Run/);
-    assert.match(app, /\/source-release-runs\/\$\{encodeURIComponent\(runId\)\}\/repair/);
-    assert.match(app, /Post Merge Deploy/);
-    assert.doesNotMatch(app, /OpenHands 白盒执行/);
-    assert.doesNotMatch(app, /Jenkins Stage View/);
-    assert.doesNotMatch(app, /进化方案 Review/);
-    assert.match(app, /确认进化/);
-    assert.match(app, /验证并注册/);
-    assert.match(app, /Git URL/);
-    assert.match(app, /用户名/);
-    assert.match(app, /密码/);
-    assert.match(app, /Token 环境变量/);
-    assert.match(app, /\/api\/v1\/projects/);
-    assert.match(app, /\/api\/v1\/evaluation-datasets/);
-    assert.match(app, /\/api\/v1\/opportunity-drafts/);
-    assert.doesNotMatch(app, /PDF 下载/);
-    assert.doesNotMatch(app, /方案详情/);
-    assert.doesNotMatch(app, /const navItems = \["总览"/);
+    assert.match(await response.text(), /standalone dashboard fixture/);
+
+    const app = await fetch(`${baseUrl}/assets/app.js`);
+    assert.equal(app.status, 200);
+    assert.match(await app.text(), /standalone dashboard fixture/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

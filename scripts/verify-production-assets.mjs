@@ -111,9 +111,11 @@ assert.match(loopRuntimeDoc, /worker heartbeat leases/);
 assert.match(loopRuntimeDoc, /loop-workspaces/);
 assert.match(loopRuntimeDoc, /npm run loop-runtime:check/);
 
-const dashboardApp = fs.readFileSync("apps/dashboard/assets/app.js", "utf8");
-assert.match(dashboardApp, /Loop Runtime/);
-assert.match(dashboardApp, /\/api\/v1\/loops/);
+const dashboardIntegration = fs.readFileSync("docs/dashboard-integration.md", "utf8");
+assert.match(dashboardIntegration, /Dashboard is a UI client/);
+assert.match(dashboardIntegration, /must not call the EvoPilot CLI/);
+assert.match(dashboardIntegration, /GET \/api\/v1\/release\/decisions/);
+assert.match(dashboardIntegration, /evopilot-dashboard/);
 
 const lock = JSON.parse(fs.readFileSync("runtimes/runtime-lock.json", "utf8"));
 assert.equal(lock.schemaVersion, 1);

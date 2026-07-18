@@ -5,14 +5,13 @@ import path from "node:path";
 import test from "node:test";
 import { createServer } from "../../packages/server/dist/index.js";
 
-test("dashboard product flow covers connected projects, rules, opportunities, confirmation, pipeline, schedule, and history", async () => {
+test("API product flow covers connected projects, rules, opportunities, confirmation, pipeline, schedule, and history", async () => {
   const openhands = await startFakeOpenHands();
   const jenkins = await startFakeJenkins();
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-product-e2e-"));
   const server = createServer({
     dataRoot,
     runtimeMode: "debug",
-    dashboardRoot: path.resolve("apps/dashboard"),
     tokens: [
       { name: "viewer", token: "viewer-token", role: "viewer" },
       { name: "operator", token: "operator-token", role: "operator" },
@@ -24,8 +23,6 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    await assertDashboardContract(baseUrl);
-
     const connector = await postWithToken(`${baseUrl}/api/v1/connectors/jenkins`, {
       id: "default",
       name: "产品 E2E Jenkins",
@@ -258,90 +255,6 @@ test("dashboard product flow covers connected projects, rules, opportunities, co
     await jenkins.close();
   }
 });
-
-async function assertDashboardContract(baseUrl) {
-  const html = await (await fetch(`${baseUrl}/`)).text();
-  const app = await (await fetch(`${baseUrl}/assets/app.js`)).text();
-  assert.match(html, /EvoPilot 控制台/);
-  assert.match(html, /top-help-button/);
-  assert.doesNotMatch(html, /新建评审/);
-  assert.match(app, /const navSections = \[/);
-  for (const navLabel of ["SaaS 控制面", "租户总览", "工作区", "用户与权限", "项目", "凭据", "Loops", "发布证据", "审计"]) {
-    assert.match(app, new RegExp(navLabel));
-  }
-  assert.match(app, /const routedPages = \[\.\.\.navItems, "帮助手册"\];/);
-  assert.match(app, /function openHelpManual/);
-  assert.match(app, /window\.open\(helpManualUrl\(\), "_blank", "noopener"\)/);
-  assert.match(app, /function renderLoginPage/);
-  assert.match(app, /login-page-mode/);
-  assert.match(app, /login-screen/);
-  assert.match(app, /login-brand/);
-  assert.match(app, /进化领航/);
-  assert.match(app, /function bindLoginForm/);
-  assert.match(app, /function userWorkspaceOptionsForTenant\(tenantId\)/);
-  assert.match(app, /workspace\.tenantId === tenantId/);
-  assert.match(app, /function renderUserWorkspaceOptions\(tenantId\)/);
-  assert.match(app, /data-action="user-tenant-select"/);
-  assert.match(app, /data-action="user-workspace-select"/);
-  assert.match(app, /userTenantSelect\?\.addEventListener\("change"/);
-  assert.match(app, /userWorkspaceSelect\.innerHTML = renderUserWorkspaceOptions\(tenantId\);/);
-  assert.match(app, /创建用户失败：请先为所选租户创建工作区。/);
-  for (const label of ["SaaS service control plane", "登录 EvoPilot 控制台", "当前登录身份", "用户名", "密码", "退出登录", "/api/v1/auth/login", "账号由平台高级管理员或租户管理员创建", "不提供公网自助注册入口", "用户与权限", "Access control", "创建用户", "权限矩阵", "/api/v1/users", "toggle-user-status", "reset-user-password", "租户开通", "tenant-provision-form", "先跑通第一条 Source-to-GA Loop", "首次启动清单", "Loop 模板中心", "下一步", "接入项目", "配置凭据", "启动 Loop", "发布证据", "GitHub 项目到 GA Release", "已有 CI 项目接入", "失败发布修复", "EvoPilot 自演进", "Next best action", "Tenant / Workspace 模型", "GitHub App 接入", "Secret Vault 边界", "Postgres Worker Queue", "租户配额", "Workspace boundary", "成员与角色", "Workspace SaaS Targets", "Credential boundary", "GitHub App 与 Secret Vault 是 SaaS 化优先入口", "Vault readiness", "Audit redaction", "tenant-workspace-model", "worker-queue-and-postgres-store", "第一次 Source-to-GA", "查看发布决策", "当前、待处理、历史分开看", "选择模板", "没有待处理阻塞", "Autopilot cockpit", "一键自动驾驶从项目到生产发布", "启动一键自动驾驶", "人工待办中心", "待补凭据", "待批准", "待修复", "待发布", "项目接入向导", "Field Evidence Kit", "GitHub Demo Project 到 GA Release 样例资产", "预填接入表单", "Product Kit / Evidence Output 分离", "Sample Evidence 导入", "导入 sample evidence", "Project workspace", "项目发布目标", "Project release governance", "Experimental", "Alpha", "Beta", "Release Candidate", "复制为项目目标", "生成判定", "projectReleaseScenarioMatrix", "/api/v1/release/targets", "/api/v1/release/evidence", "Overview", "Targets", "Runs", "Credentials", "Deployments", "连接器市场与设置", "GitHub", "GitLab", "Local Git", "Jenkins", "ECS / K8s / Webhook", "LLM Route", "Loop 执行工作区", "总览", "Loop 详情", "创建 Loop", "Source-to-GA 本体链路图", "Node inspector", "GA Release", "Release Decision", "CI/CD", "Executor Graph", "Workflow Canvas Editor", "Graph template", "条件路由", "从画布创建 Loop", "Interactive run console", "实时 Agent 运行控制台", "读取 Streaming Events", "当前 executor", "Graph validation", "/executor-graph", "Release cockpit", "源码到生产发布检查清单", "安全自动合并", "进化观测图", "项目拓扑", "运行证据", "已接入", "OpenTelemetry", "SkyWalking", "用户反馈", "触发来源", "触发时间", "IP", "证据摘要", "评测集", "Eval Dataset", "Regression Suite", "形成机会点", "关联评测集", "查看方案", "编辑进化方案", "Markdown 方案正文", "提交方案修改", "确认进化", "Target Runtime", "Discovery Runtime", "运行 Discovery", "创建每日 Target Schedule", "/api/v1/loop-target-runtime/discovery/run", "/api/v1/loop-target-runtime/schedules", "/api/v1/loop-target-runtime/summary", "Loop Runtime", "闭环编排", "创建闭环 Loop", "Target Loop Backlog", "Codex target loop", "推进下一 Target", "一键自动驾驶", "/api/v1/loop-orchestration/advance", "/api/v1/loop-orchestration/autopilot", "Worker Queue Workbench", "Claim 下一 Loop", "评估与发布门禁", "运行独立评估", "评估预算门禁", "/api/v1/loop-target-runtime/adversarial-evaluations", "/api/v1/loop-target-runtime/guardrails", "Release Run Auto Repair Workbench", "/api/v1/source-release-runs/repair-candidates", "一键修复队列", "Deploy Finalizer Workbench", "/api/v1/source-release-deploy-finalizers", "/api/v1/loop-workers/claim", "Context Time Travel Workbench", "Replay 并生成 Diff", "/time-travel/replay", "Sandbox Boundary Workbench", "验证 Sandbox Proof", "/sandbox-proof/verify", "Streaming Trace Workbench", "刷新 Trace Tree", "/trace-tree", "/events", "Source Closure Workbench", "Release Closure Runtime", "刷新 Release Run", "批准 Release", "合并 Release", "安全自动合并", "修复 Release Run", "repair-source-release-run", "Policy", "Post Merge Deploy", "/source-closure/plan", "/source-closure/review-decision", "/api/v1/source-release-runs", "source-release-closure-runtime", "Worker", "/api/v1/loops", "代码升级过程", "根据方案进行代码升级", "白盒执行", "查看原始执行事件", "execution-transcript", "CI/CD 阶段视图", "代码升级失败", "历史详情", "帮助手册", "Tenant / Workspace 到首个 Source-to-GA Loop", "SaaS 主线", "连接多租户生产控制面", "确认 Tenant 和 Workspace 边界", "配置 GitHub App 与 Vault 边界", "已有项目从运行信号到代码升级", "Target Backlog 到 Autopilot 自动驾驶", "失败 Release Run 修复闭环", "AI 辅助日志诊断与故障定位", "可观测性", "evopilot-log/v1", "结构化日志查询", "AI 日志分析", "业务对象回跳", "故障处理复盘", "correlation", "latencyBucket", "diagnosis", "/api/v1/saas/observability", "Worker / Replay / Sandbox / Trace 恢复", "EvoPilot 接入 EvoPilot 的受控自演进", "发布后证据复盘", "操作场景", "前提条件", "结果验证", "常见阻塞", "注册项目", "验证并注册", "Git URL", "Token 环境变量", "使用系统默认 Jenkins", "使用项目独立 Jenkins", "Jenkins Job", "/api/v1/evaluation-datasets", "/api/v1/opportunity-drafts", "/api/v1/code-upgrade-runs", "/code-upgrade"]) {
-    assert.match(app, new RegExp(label));
-  }
-  for (const globalGoalLabel of ["GlobalGoal Cockpit", "GoalTarget 依赖图", "Goal Timeline", "证据矩阵", "Blockers / Next Action", "GoalTarget", "evopilot goal create --project", "/api/v1/goals"]) {
-    assert.ok(app.includes(globalGoalLabel), `missing GlobalGoal dashboard label ${globalGoalLabel}`);
-  }
-  for (const loopRuntimeLabel of ["renderLoopWorkflowRuntimeDashboard", "loop-runtime-shell", "loop-runtime-canvas", "Loop Workflow Runtime Canvas", "loop-runtime-canvas-kpis", "Loop Workflow Graph", "Loop workflow graph state", "data-tooltip", "Latest event ·", "Task ${node.taskId", "Evidence ${node.done", "all nodes passed · no active blockers · final report sealed"]) {
-    assert.ok(app.includes(loopRuntimeLabel), `missing Loop Workflow Runtime label ${loopRuntimeLabel}`);
-  }
-  for (const obsoleteRuntimeLabel of ["loop-runtime-tasks", "loop-runtime-side", "GoalLoopTarget task", "GA Stable Release"]) {
-    assert.ok(!app.includes(obsoleteRuntimeLabel), `obsolete Loop Workflow side-panel label remained ${obsoleteRuntimeLabel}`);
-  }
-  assert.match(app, /activeTab === "current"\s*\? renderLoopWorkflowRuntimeDashboard/);
-  for (const roleHelpLabel of ["角色化手册", "角色与权限", "未登录用户", "平台高级管理员", "租户管理员", "Workspace 开发者", "发布负责人", "Loop 运维", "审计 Viewer", "场景权限矩阵", "打开登录页", "修改默认密码", "创建租户", "创建租户用户", "重置用户密码", "管理本租户权限", "AI 日志诊断", "平台高级管理员创建租户与工作区", "租户管理员管理用户与权限", "POST /api/v1/auth/login", "POST /api/v1/auth/change-password", "POST /api/v1/tenants", "POST /api/v1/workspaces", "POST /api/v1/users", "PATCH /api/v1/users/{userId}", "POST /api/v1/users/{userId}/reset-password", "platformAdmin=true"]) {
-    assert.ok(app.includes(roleHelpLabel), `missing role help label ${roleHelpLabel}`);
-  }
-  for (const gaHardeningLabel of ["打开 Loop 详情", "WAITING_APPROVAL 是正常 Human Gate", "Human Gate：等待人工批准，属于正常治理停点", "查看发布证据", "查看发布判定", "Loop detail evidence", "LLM tokens", "只停留在总览导致多个场景截图相同"]) {
-    assert.ok(app.includes(gaHardeningLabel), `missing GA hardening label ${gaHardeningLabel}`);
-  }
-  for (const cloudDocLabel of ["文档目录", "用户指南", "开始使用", "快速入门", "API 参考", "推荐阅读", "操作指南", "操作场景", "前提条件", "操作步骤", "结果验证", "后续操作", "相关 API", "控制台位置"]) {
-    assert.ok(app.includes(cloudDocLabel), `missing cloud doc label ${cloudDocLabel}`);
-  }
-  assert.doesNotMatch(app, /OpenHands 白盒执行/);
-  assert.doesNotMatch(app, /Jenkins Stage View/);
-  assert.doesNotMatch(app, /进化方案 Review/);
-  assert.doesNotMatch(app, /方案详情/);
-  assert.doesNotMatch(app, /PDF 下载/);
-  assert.match(app, /postJson\("\/api\/v1\/projects"/);
-  assert.match(app, /projectRegistrationPayload/);
-  assert.match(app, /const activeLoop = primarySourceToGaLoop\(state\.loops\);/);
-  assert.match(app, /function primarySourceToGaLoop/);
-  assert.match(app, /function currentSourceToGaLoops/);
-  assert.match(app, /releaseDecisions: \[\]/);
-  assert.match(app, /globalGoals: \[\]/);
-  assert.match(app, /function renderGlobalGoalCockpit\(\)/);
-  assert.match(app, /function loadGlobalGoals\(\)/);
-  assert.match(app, /function loadReleaseDecisions\(\)/);
-  assert.match(app, /apiFetch\("\/api\/v1\/release\/decisions"\)/);
-  assert.match(app, /apiFetch\("\/api\/v1\/goals"\)/);
-  assert.match(app, /function latestReleaseDecision\(\)/);
-  assert.match(app, /loadReleaseDecisions\(\),\s*loadGlobalGoals\(\)\s*\]\);\s*state\.isLoading = false;\s*render\(\);/s);
-  assert.match(app, /function sortedSourceReleaseRuns/);
-  assert.match(app, /const releaseRun = activeLoop \? latestSourceReleaseRun\(activeLoop\.id\) : latestReleaseRun;/);
-  assert.match(app, /const currentDecision = latestReleaseDecision\(\);/);
-  assert.match(app, /const decisionStatus = releaseDecisionLabel\(releaseRun, \{ allowGlobalDecision: true \}\);/);
-  assert.match(app, /await Promise\.allSettled\(\[/);
-  assert.match(app, /function settledResponses\(urls\)/);
-  assert.match(app, /function loadWorkspaceUsage\(workspaceId\)/);
-  assert.match(app, /await loadWorkspaceUsage\(activeWorkspace\.id\);/);
-  assert.match(app, /const \[tenantsResponse, workspacesResponse, usersResponse, secretsResponse, githubAppsResponse, storeReadinessResponse, observabilityResponse\] = await settledResponses\(\[/);
-  assert.doesNotMatch(app, /latestSourceReleaseRun\(activeLoop\.id\) \?\? latestReleaseRun/);
-  assert.doesNotMatch(app, /当前进行中 \$\{currentLoops\.length \|\|/);
-  for (const removed of ["演进计划", "新建评审"]) {
-    assert.doesNotMatch(app, new RegExp(removed));
-  }
-}
 
 async function postWithToken(url, body, token, idempotencyKey) {
   const headers = authHeaders(token);

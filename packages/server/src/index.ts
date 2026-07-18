@@ -10118,18 +10118,19 @@ function normalizeStringList(value: unknown, fallback: string[]): string[] {
 function discoveryAffectedFilesForTarget(targetId: string, project: StoredProject): string[] {
   const repositoryHint = project.repository?.provider === "local-git" ? project.repository.root : project.repository?.gitUrl ?? sourceUrlFromRepository(project.repository);
   const base = repositoryHint ? [`repository:${repositoryHint}`] : [];
+  const dashboardRepository = "external-repository:yeliang-wang/evopilot-dashboard";
   if (targetId === "tenant-workspace-model") return [...base, "packages/server/src/index.ts", "packages/core/src/index.ts", "docs/architecture/loop-runtime.md", "docs/api-reference.md"];
   if (targetId === "workspace-rbac-and-invitation") return [...base, "packages/server/src/index.ts", "docs/api-reference.md", "docs/user-guide.md"];
-  if (targetId === "github-app-onboarding" || targetId === "secret-vault-and-credential-boundary") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js", "docs/api-reference.md"];
-  if (targetId === "project-workspace-ownership" || targetId === "tenant-aware-release-evidence") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js", "docs/architecture/loop-runtime.md"];
+  if (targetId === "github-app-onboarding" || targetId === "secret-vault-and-credential-boundary") return [...base, "packages/server/src/index.ts", dashboardRepository, "docs/api-reference.md"];
+  if (targetId === "project-workspace-ownership" || targetId === "tenant-aware-release-evidence") return [...base, "packages/server/src/index.ts", dashboardRepository, "docs/architecture/loop-runtime.md"];
   if (targetId === "quota-rate-limit-billing-foundation" || targetId === "worker-queue-and-postgres-store") return [...base, "packages/core/src/index.ts", "packages/server/src/index.ts", "docs/architecture/loop-runtime.md"];
   if (targetId === "multi-tenant-security-regression-suite") return [...base, "tests/functional/loop-runtime.test.mjs", "tests/smoke/server-and-dashboard.test.mjs", "docs/api-reference.md"];
   if (targetId === "saas-production-observability") return [...base, "packages/server/src/index.ts", "docs/deployment.md", "docs/architecture/loop-runtime.md"];
-  if (targetId === "saas-onboarding-dashboard") return [...base, "apps/dashboard/assets/app.js", "apps/dashboard/assets/styles.css", "docs/user-guide.md"];
+  if (targetId === "saas-onboarding-dashboard") return [...base, dashboardRepository, "docs/dashboard-integration.md", "docs/user-guide.md"];
   if (targetId === "saas-field-e2e-source-to-ga") return [...base, "tests/e2e/dashboard-product-flow.test.mjs", "evidence/production-soak", "docs/user-guide.md"];
   if (targetId === "saas-release-matrix" || targetId === "saas-ga-soak-active") return [...base, "scripts/release-matrix-project-loop.mjs", "scripts/loop-soak.mjs", "evidence/production-soak"];
   if (targetId === "saas-ga-release-decision" || targetId === "announce-saas-multi-tenant-ga-stable") return [...base, "packages/server/src/index.ts", "README.md", "templates/release-readiness-review.md"];
-  if (targetId === "discovery-skill-runtime" || targetId === "loop-memory-inbox") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js"];
+  if (targetId === "discovery-skill-runtime" || targetId === "loop-memory-inbox") return [...base, "packages/server/src/index.ts", dashboardRepository];
   if (targetId === "per-finding-worktree-handoff" || targetId === "adversarial-evaluator-agent") return [...base, "packages/server/src/index.ts", "tests/functional/loop-runtime.test.mjs"];
   return [...base, "docs/architecture/loop-runtime.md", "docs/user-guide.md"];
 }

@@ -190,7 +190,6 @@ See [docs/api-reference.md](docs/api-reference.md) and [docs/openapi.json](docs/
 ## Repository Layout
 
 ```text
-apps/dashboard/                         Deprecated compatibility dashboard assets during repository split
 packages/core/                          lifecycle, evidence, planning, review, delivery, release models
 packages/server/                        control-plane API and optional compatibility static host
 packages/llm/                           LLM gateway, routing, compression, metrics
@@ -204,6 +203,8 @@ scripts/                                E2E, LLM, Postgres store, release, and v
 runtimes/                               managed runtime images, locks, and supply-chain material
 tests/                                  unit, smoke, functional, and E2E tests
 ```
+
+The product Dashboard is maintained separately in `yeliang-wang/evopilot-dashboard`.
 
 ## Open Source Governance
 

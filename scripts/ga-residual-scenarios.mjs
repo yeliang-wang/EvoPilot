@@ -80,7 +80,6 @@ async function verifyLlmFailureContainment() {
   const server = createServer({
     dataRoot,
     runtimeMode: "prod",
-    dashboardRoot: "apps/dashboard",
     requireLlm: true,
     tokens: [{ name: "admin", token: "llm-failure-token", role: "admin" }]
   });
