@@ -1,8 +1,8 @@
-# EvoPilot CLI Guide
+# EvoPilot CLI Manual
 
 > Operator and AI-agent guide for running EvoPilot Goal and Loop targets from the command line.
 
-Use this guide when WorkBuddy, Codex, Claude Code, CI jobs, release scripts, or an operator needs a fast path into an EvoPilot production control plane. The command reference remains in [docs/cli.md](cli.md).
+Use this manual when WorkBuddy, Codex, Claude Code, CI jobs, release scripts, or an operator needs a fast path into an EvoPilot production control plane. The command reference remains in [CLI Reference](cli-reference.md).
 
 ## Fastest Path
 

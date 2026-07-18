@@ -11,11 +11,21 @@ EVOPILOT_TOKENS=admin:change-me-admin-token:admin,operator:change-me-operator-to
 npm run server
 ```
 
-打开：
+验证 API：
 
 ```text
-http://127.0.0.1:19876/
+http://127.0.0.1:19876/health
+http://127.0.0.1:19876/ready
 ```
+
+Dashboard 已拆分到独立仓库 `yeliang-wang/evopilot-dashboard`。生产部署建议用反向代理暴露：
+
+```text
+/       -> evopilot-dashboard
+/api/*  -> evopilot-server:19876
+```
+
+短期兼容模式下，可以显式设置 `EVOPILOT_DASHBOARD_ROOT=/path/to/dashboard/dist` 让 EvoPilot server 托管静态 Dashboard；默认生产镜像不再包含 Dashboard 资源。
 
 ## Docker
 
@@ -35,9 +45,9 @@ docker run --rm \
 docker compose up --build
 ```
 
-Compose 会同时启动 `evopilot-server`、`evopilot-code-upgrader` 和 `evopilot-loop-worker`。生产连续 loop 依赖 worker 常驻进程和可访问的代码升级执行器：
+Compose 会启动 `evopilot-server`、`evopilot-code-upgrader`、`evopilot-loop-worker` 和 `evopilot-postgres`。Dashboard 作为独立服务部署，不再由 `evopilot-server` 默认托管。生产连续 loop 依赖 worker 常驻进程和可访问的代码升级执行器：
 
-- `evopilot-server` 只负责 API、Dashboard、持久化状态和控制面。
+- `evopilot-server` 只负责 API、持久化状态和控制面。
 - `evopilot-code-upgrader` 通过 `npm run code-upgrader` 暴露 `/health` 和 `/api/v1/conversations`，在生产模式下会读取 `EVOPILOT_DATA_ROOT/llm.env` 并要求真实 LLM。
 - `evopilot-loop-worker` 通过 `/api/v1/loop-workers/claim` 领取可执行 loop，写入 heartbeat lease，再调用 `start` 或 `resume` 推进下一轮。若配置了 `EVOPILOT_LOOP_WORKER_LOOP_ID`，worker 会优先推进该 loop；当该 loop 已完成、不可领取或不存在时，默认回退领取队列中的下一条可执行 loop，避免生产队列被旧 preferred loop 饿死。
 - 如果只运行 server，Loop 会停在 `RUNNING / claimable=true / nextAction=claim`，这表示状态可恢复、可领取，但不是后台正在执行。

@@ -13,7 +13,6 @@ services:
       EVOPILOT_PORT: "19876"
       EVOPILOT_RUN_MODE: "prod"
       EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
-      EVOPILOT_DASHBOARD_ROOT: "/app/apps/dashboard"
       EVOPILOT_CODE_UPGRADER_BASE_URL: "http://evopilot-code-upgrader:3000"
       EVOPILOT_LOG_LEVEL: "info"
       EVOPILOT_LOG_STACK: "true"

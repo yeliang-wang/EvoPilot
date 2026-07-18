@@ -27,8 +27,6 @@ spec:
               value: prod
             - name: EVOPILOT_DATA_ROOT
               value: /var/lib/evopilot
-            - name: EVOPILOT_DASHBOARD_ROOT
-              value: /app/apps/dashboard
             - name: EVOPILOT_CODE_UPGRADER_BASE_URL
               value: http://evopilot-code-upgrader:3000
             - name: EVOPILOT_TOKENS

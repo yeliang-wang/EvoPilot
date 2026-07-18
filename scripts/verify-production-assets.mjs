@@ -95,7 +95,7 @@ const runtime = fs.readFileSync("docs/runtime-management.md", "utf8");
 assert.match(runtime, /运行时锁定/);
 assert.match(runtime, /verify:runtime-lock:strict/);
 
-const apiDoc = fs.readFileSync("docs/api.md", "utf8");
+const apiDoc = fs.readFileSync("docs/api-reference.md", "utf8");
 assert.match(apiDoc, /Loop Runtime/);
 assert.match(apiDoc, /ExecutorGraph/);
 assert.match(apiDoc, /loop-workers\/heartbeat/);

@@ -10118,12 +10118,12 @@ function normalizeStringList(value: unknown, fallback: string[]): string[] {
 function discoveryAffectedFilesForTarget(targetId: string, project: StoredProject): string[] {
   const repositoryHint = project.repository?.provider === "local-git" ? project.repository.root : project.repository?.gitUrl ?? sourceUrlFromRepository(project.repository);
   const base = repositoryHint ? [`repository:${repositoryHint}`] : [];
-  if (targetId === "tenant-workspace-model") return [...base, "packages/server/src/index.ts", "packages/core/src/index.ts", "docs/architecture/loop-runtime.md", "docs/api.md"];
-  if (targetId === "workspace-rbac-and-invitation") return [...base, "packages/server/src/index.ts", "docs/api.md", "docs/user-guide.md"];
-  if (targetId === "github-app-onboarding" || targetId === "secret-vault-and-credential-boundary") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js", "docs/api.md"];
+  if (targetId === "tenant-workspace-model") return [...base, "packages/server/src/index.ts", "packages/core/src/index.ts", "docs/architecture/loop-runtime.md", "docs/api-reference.md"];
+  if (targetId === "workspace-rbac-and-invitation") return [...base, "packages/server/src/index.ts", "docs/api-reference.md", "docs/user-guide.md"];
+  if (targetId === "github-app-onboarding" || targetId === "secret-vault-and-credential-boundary") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js", "docs/api-reference.md"];
   if (targetId === "project-workspace-ownership" || targetId === "tenant-aware-release-evidence") return [...base, "packages/server/src/index.ts", "apps/dashboard/assets/app.js", "docs/architecture/loop-runtime.md"];
   if (targetId === "quota-rate-limit-billing-foundation" || targetId === "worker-queue-and-postgres-store") return [...base, "packages/core/src/index.ts", "packages/server/src/index.ts", "docs/architecture/loop-runtime.md"];
-  if (targetId === "multi-tenant-security-regression-suite") return [...base, "tests/functional/loop-runtime.test.mjs", "tests/smoke/server-and-dashboard.test.mjs", "docs/api.md"];
+  if (targetId === "multi-tenant-security-regression-suite") return [...base, "tests/functional/loop-runtime.test.mjs", "tests/smoke/server-and-dashboard.test.mjs", "docs/api-reference.md"];
   if (targetId === "saas-production-observability") return [...base, "packages/server/src/index.ts", "docs/deployment.md", "docs/architecture/loop-runtime.md"];
   if (targetId === "saas-onboarding-dashboard") return [...base, "apps/dashboard/assets/app.js", "apps/dashboard/assets/styles.css", "docs/user-guide.md"];
   if (targetId === "saas-field-e2e-source-to-ga") return [...base, "tests/e2e/dashboard-product-flow.test.mjs", "evidence/production-soak", "docs/user-guide.md"];
@@ -17162,7 +17162,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   loadEnvFile(process.env.EVOPILOT_LLM_ENV_FILE ?? path.join(dataRoot, "llm.env"));
   const port = Number(process.env.EVOPILOT_PORT ?? "19876");
   const host = process.env.EVOPILOT_HOST ?? "127.0.0.1";
-  const dashboardRoot = process.env.EVOPILOT_DASHBOARD_ROOT ?? path.resolve("apps/dashboard");
+  const dashboardRoot = process.env.EVOPILOT_DASHBOARD_ROOT ? path.resolve(process.env.EVOPILOT_DASHBOARD_ROOT) : undefined;
   const tokens = parseEnvTokens(process.env.EVOPILOT_TOKENS);
   const users = parseEnvUsers(process.env.EVOPILOT_USERS);
   const apiToken = process.env.EVOPILOT_API_TOKEN;

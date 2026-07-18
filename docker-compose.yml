@@ -13,7 +13,6 @@ services:
       EVOPILOT_HOST: "0.0.0.0"
       EVOPILOT_RUN_MODE: "prod"
       EVOPILOT_DATA_ROOT: "/var/lib/evopilot"
-      EVOPILOT_DASHBOARD_ROOT: "/app/apps/dashboard"
       EVOPILOT_CODE_UPGRADER_BASE_URL: "http://evopilot-code-upgrader:3000"
       EVOPILOT_LOOP_STORE_BACKEND: "postgres"
       EVOPILOT_LOOP_STORE_DSN: "postgres://evopilot:evopilot-postgres-password@evopilot-postgres:5432/evopilot"

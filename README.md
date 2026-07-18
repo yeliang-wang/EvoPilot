@@ -77,7 +77,7 @@ Debug mode is for local development and UI validation. Production mode is the de
 
 ## Dashboard
 
-The dashboard is the primary product surface for operators and tenant users. The Loops workspace includes a GlobalGoal Cockpit so a user can see a full RC/GA objective as a white-box process: current GoalTarget, target dependency map, blockers, next action, evidence matrix, timeline, and final report status.
+The dashboard is the primary product surface for operators and tenant users, but it now lives in the standalone `yeliang-wang/evopilot-dashboard` repository. EvoPilot itself focuses on the API server, CLI, domain state, release governance, and execution control plane. The standalone Dashboard consumes EvoPilot APIs and includes the GlobalGoal Cockpit for RC/GA workflow visibility.
 
 | Role | Main workflows |
 |---|---|
@@ -155,18 +155,22 @@ Primary API surfaces include:
 | Release | `POST /api/v1/release/evidence`, `GET /api/v1/release/decisions` |
 | SaaS | `GET /api/v1/tenants`, `GET /api/v1/workspaces`, `GET /api/v1/saas/observability` |
 
-See [docs/api.md](docs/api.md) and [docs/openapi.json](docs/openapi.json) for the full API reference.
+See [docs/api-reference.md](docs/api-reference.md) and [docs/openapi.json](docs/openapi.json) for the full API reference.
 
 ## Documentation
 
 | Topic | Document |
 |---|---|
-| User and dashboard guide | [docs/user-guide.md](docs/user-guide.md) |
-| CLI guide | [docs/cli-guide.md](docs/cli-guide.md) |
-| CLI reference | [docs/cli.md](docs/cli.md) |
-| API reference | [docs/api.md](docs/api.md) |
+| Quick start | [docs/getting-started.md](docs/getting-started.md) |
+| API reference | [docs/api-reference.md](docs/api-reference.md) |
 | OpenAPI schema | [docs/openapi.json](docs/openapi.json) |
+| CLI manual | [docs/cli-manual.md](docs/cli-manual.md) |
+| CLI reference | [docs/cli-reference.md](docs/cli-reference.md) |
+| Dashboard integration | [docs/dashboard-integration.md](docs/dashboard-integration.md) |
+| Architecture | [docs/architecture.md](docs/architecture.md) |
 | Deployment | [docs/deployment.md](docs/deployment.md) |
+| Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) |
+| User and dashboard guide | [docs/user-guide.md](docs/user-guide.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
 | Evidence ingestion | [docs/evidence-ingestion.md](docs/evidence-ingestion.md) |
 | Runtime management | [docs/runtime-management.md](docs/runtime-management.md) |
@@ -178,7 +182,7 @@ See [docs/api.md](docs/api.md) and [docs/openapi.json](docs/openapi.json) for th
 ## Repository Layout
 
 ```text
-apps/dashboard/                         EvoPilot Chinese SaaS dashboard
+apps/dashboard/                         Deprecated compatibility dashboard assets during repository split
 packages/core/                          lifecycle, evidence, planning, review, delivery, release models
 packages/server/                        control-plane API and dashboard static server
 packages/llm/                           LLM gateway, routing, compression, metrics

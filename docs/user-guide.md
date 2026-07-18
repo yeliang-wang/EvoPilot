@@ -249,7 +249,7 @@ GlobalGoal Cockpit 的验收口径是：
 - 用户能区分正常 Human Gate、凭据缺失、部署阻塞、release policy 阻塞和最终发布判定。
 - 用户能在最终报告中复盘所有 required GoalTargets 是否完成，以及未完成项的原因。
 
-CLI 也可以操作同一套服务端对象，适合 WorkBuddy、Codex、Claude Code 等外部 AI Agent 接入。傻瓜式 wrapper command 和生产接入手册见 [CLI Guide](cli-guide.md)；需要逐步控制时可以使用原子命令：
+CLI 也可以操作同一套服务端对象，适合 WorkBuddy、Codex、Claude Code 等外部 AI Agent 接入。傻瓜式 wrapper command 和生产接入手册见 [CLI Manual](cli-manual.md)；需要逐步控制时可以使用原子命令：
 
 ```bash
 evopilot goal create \

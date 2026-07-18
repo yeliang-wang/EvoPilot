@@ -24,6 +24,8 @@ test("dashboard assets exist and server health is UP", async () => {
     assert.equal(body.service, "evopilot");
     const ready = await (await fetch(`${baseUrl}/ready`)).json();
     assert.equal(ready.status, "READY");
+    const dashboard = await fetch(`${baseUrl}/`);
+    assert.equal(dashboard.status, 404);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
