@@ -9,6 +9,8 @@ export interface GitLabAdapterCapability {
   listFiles: boolean;
   createMergeRequest: boolean;
   readPipelines: boolean;
+  triggerPipeline: boolean;
+  readPipelineJobs: boolean;
   createBranch: boolean;
   commitFiles: boolean;
   createTag: boolean;
@@ -19,6 +21,8 @@ export const gitLabAdapterCapability: GitLabAdapterCapability = {
   listFiles: true,
   createMergeRequest: true,
   readPipelines: true,
+  triggerPipeline: true,
+  readPipelineJobs: true,
   createBranch: true,
   commitFiles: true,
   createTag: true,
@@ -29,6 +33,14 @@ export interface GitLabPipeline {
   id: number;
   status: string;
   ref: string;
+  webUrl?: string;
+}
+
+export interface GitLabPipelineJob {
+  id: number;
+  name: string;
+  stage: string;
+  status: string;
   webUrl?: string;
 }
 
@@ -72,6 +84,30 @@ export class GitLabHttpAdapter {
       status: String(pipeline.status ?? ""),
       ref: String(pipeline.ref ?? ""),
       webUrl: pipeline.web_url ? String(pipeline.web_url) : undefined
+    }));
+  }
+
+  async triggerPipeline(ref: string, variables: Record<string, string> = {}): Promise<GitLabPipeline> {
+    const response = await this.postJson<any>("/pipeline", {
+      ref,
+      variables: Object.entries(variables).map(([key, value]) => ({ key, value }))
+    });
+    return {
+      id: Number(response.id),
+      status: String(response.status ?? ""),
+      ref: String(response.ref ?? ref),
+      webUrl: response.web_url ? String(response.web_url) : undefined
+    };
+  }
+
+  async listPipelineJobs(pipelineId: number): Promise<GitLabPipelineJob[]> {
+    const jobs = await this.getJson<any[]>(`/pipelines/${encodeURIComponent(String(pipelineId))}/jobs?per_page=100`);
+    return jobs.map((job) => ({
+      id: Number(job.id),
+      name: String(job.name ?? ""),
+      stage: String(job.stage ?? ""),
+      status: String(job.status ?? ""),
+      webUrl: job.web_url ? String(job.web_url) : undefined
     }));
   }
 
@@ -161,6 +197,7 @@ export class GitLabHttpAdapter {
       body: body === undefined ? undefined : JSON.stringify(body)
     });
     if (!response.ok) throw new Error(`GitLab request failed: ${response.status} ${response.statusText}`);
-    return response.json() as Promise<T>;
+    const text = await response.text();
+    return (text ? JSON.parse(text) : {}) as T;
   }
 }

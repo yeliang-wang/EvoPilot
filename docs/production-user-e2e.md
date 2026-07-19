@@ -28,7 +28,7 @@
 6. EvoPilot 使用真实 GLM 生成 Markdown 进化方案。
 7. 用户查看并编辑方案，确认进化。
 8. EvoPilot 调用真实代码升级执行器，根据方案修改代码。
-9. 代码升级成功后，EvoPilot 通过外部 Jenkins 连接器触发真实 CI/CD。
+9. 代码升级成功后，EvoPilot 通过项目 DevOps 触发 GitHub Actions 或 GitLab CI。
 10. CI/CD 成功后，EvoPilot 写入历史记录和审计证据。
 
 ## 真实生产链路验收命令
@@ -37,7 +37,7 @@
 npm run test:e2e:production
 ```
 
-该命令不启动模拟执行链路。生产产品级 E2E 要求代码升级执行器作为 EvoPilot 托管运行时提前启动并通过健康检查；如果使用 Jenkins 执行交付，必须配置真实可达的外部 Jenkins 连接器。必需组件不可达时会直接失败。
+该命令不启动模拟执行链路。生产产品级 E2E 要求代码升级执行器作为 EvoPilot 托管运行时提前启动并通过健康检查；项目必须配置真实可达的 GitHub Actions 或 GitLab CI DevOps。必需组件不可达时会直接失败。
 
 该命令按 `EVOPILOT_RUN_MODE=prod` 创建服务；生产默认不开放样例兜底、匿名 admin 或模拟集成链路。
 
@@ -61,14 +61,21 @@ EvoPilot 托管代码升级运行时默认服务发现配置：
 EVOPILOT_CODE_UPGRADER_BASE_URL=http://127.0.0.1:3000
 ```
 
-外部 Jenkins 连接器配置：
+项目 DevOps 配置：
 
 ```text
-EVOPILOT_PRODUCT_JENKINS_BASE_URL=http://127.0.0.1:8080
-EVOPILOT_PRODUCT_JENKINS_JOB=evopilot-evolution-delivery
+EVOPILOT_REAL_PROJECT_DEVOPS_PROVIDER=github-actions|gitlab-ci
+EVOPILOT_REAL_PROJECT_CI_WORKFLOW=ci.yml
+EVOPILOT_REAL_PROJECT_CI_REQUIRED_CHECKS=build,test
+EVOPILOT_REAL_PROJECT_CI_REQUIRED_STAGES=test
+EVOPILOT_REAL_PROJECT_CI_REQUIRED_JOBS=build
+EVOPILOT_REAL_PROJECT_CD_WORKFLOW=deploy-prod.yml
+EVOPILOT_REAL_PROJECT_DEPLOY_ENVIRONMENT=production
+EVOPILOT_REAL_PROJECT_HEALTH_URL=https://my-agent.example.com/health
+EVOPILOT_REAL_PROJECT_READY_URL=https://my-agent.example.com/ready
 ```
 
-这些不是普通用户接入参数。代码升级运行时由系统管理员按 EvoPilot 产品套件服务发现地址覆盖；Jenkins 由系统管理员配置为系统默认连接器，或由项目管理员在项目注册阶段配置为项目独立 Jenkins。不能把 fake、mock、stub、simulator 或内部模拟进程作为产品生产级 E2E 的替代。
+这些不是普通用户接入参数。代码升级运行时由系统管理员按 EvoPilot 产品套件服务发现地址覆盖；GitHub/GitLab token 由 EvoPilot 服务端 `tokenRef` 或 secret manager 解析。不能把 fake、mock、stub、simulator 或内部模拟进程作为产品生产级 E2E 的替代。
 
 项目注册配置与 Dashboard 一致：
 
@@ -99,12 +106,10 @@ EVOPILOT_REAL_PROJECT_TOKEN_REF=
 EVOPILOT_CODE_UPGRADER_API_KEY=
 EVOPILOT_CODE_UPGRADER_WORKSPACE_MODE=docker
 EVOPILOT_CODE_UPGRADER_MODEL=glm-5.1
-EVOPILOT_PRODUCT_JENKINS_USERNAME=
-EVOPILOT_PRODUCT_JENKINS_API_TOKEN=
 EVOPILOT_REAL_VALIDATION_COMMANDS=npm run check
 ```
 
-项目级 Jenkins 覆盖配置建议通过 Dashboard 注册项目时填写；生产 E2E 也可以通过项目注册请求携带 `cicd.provider=jenkins`、`cicd.jenkins.mode=project-override`、`cicd.jenkins.baseUrl` 和 `cicd.jenkins.job`。
+项目级 DevOps 配置建议通过 Dashboard 或 CLI `project devops set` 填写；生产 E2E 也可以通过项目注册请求携带 `devops.provider=github-actions|gitlab-ci`、`devops.ci` 和 `devops.cd`。
 
 ## 代码升级与 CI/CD 验收点
 
@@ -117,7 +122,7 @@ EVOPILOT_REAL_VALIDATION_COMMANDS=npm run check
 - 如果本地验证失败，代码升级执行器必须基于失败日志和当前生成文件发起真实 LLM 最小修复回合，修复后重新验证；仍失败才终止，不能依赖人工或 Codex 临时修复。
 - 代码升级执行器必须拒绝修改受保护路径。
 - 生成进化方案前必须读取项目当前 Git 基线代码，方案必须包含代码事实和目标可行性判断。
-- 外部 Jenkins CI/CD 必须收到 `SOURCE_BRANCH`、`UPGRADE_BRANCH`、`COMMIT_SHA`、`MERGE_REQUEST_URL`。
+- GitHub Actions/GitLab CI 必须收到 `SOURCE_BRANCH`、`UPGRADE_BRANCH`、`COMMIT_SHA`、`MERGE_REQUEST_URL` 等 DevOps 参数。
 - 只有代码升级成功后才能触发 CI/CD；代码升级失败时流程停止。
 - CI/CD 完成后才生成发布报告、历史记录和审计证据。
 
@@ -125,5 +130,5 @@ EVOPILOT_REAL_VALIDATION_COMMANDS=npm run check
 
 - 真实 Git 项目和真实 LLM 需要由生产环境配置提供。
 - 代码升级执行器必须由 EvoPilot 产品套件部署为真实进程。
-- Jenkins 必须是真实可达的外部 CI/CD 系统，或通过项目级配置绑定到具体项目。
+- 项目 DevOps 必须绑定真实 GitHub Actions 或 GitLab CI；Jenkins 只作为旧部署兼容连接器，不是新项目必需项。
 - 当前环境如果没有 Docker、无法拉取镜像、无法生成 SBOM 或无法完成漏洞扫描，应返回 `BLOCKED` 或失败，不允许自动降级。

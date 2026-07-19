@@ -47,7 +47,7 @@ Detailed release evidence and deployment checklists live in [docs/saas-productio
 | Evidence ingestion | Runtime events, traces, logs, evaluations, release signals, APM-derived data, and user feedback. |
 | Human approval | Reviewable proposals before high-risk evolution, source writeback, merge, or release actions. |
 | Code upgrades | Bounded code-upgrader execution with allowed paths, validation commands, branch/commit evidence, and source closure. |
-| CI/CD delivery | Jenkins/GitLab/GitHub/local-git integration boundaries with delivery and release artifacts. |
+| CI/CD delivery | GitHub Actions and GitLab CI native project DevOps, deploy connectors, health gates, pipeline evidence, and legacy Jenkins compatibility. |
 | Release governance | Per-project release targets, evidence bundles, scenario matrices, risk registers, and `GO` / `CONDITIONAL-GO` / `NO-GO` decisions. |
 | SaaS multi-tenancy | Platform admin, tenant admin, tenant user flows, workspace RBAC, tenant-aware evidence, quota foundations, and scoped secrets. |
 | Dashboard | Chinese SaaS console for onboarding, projects, loops, approvals, release decisions, observability, tenants, users, and help manual workflows. |
@@ -157,6 +157,7 @@ Primary API surfaces include:
 | Health and readiness | `GET /health`, `GET /ready` |
 | Auth and users | `POST /api/v1/auth/login`, `GET /api/v1/users`, `POST /api/v1/users` |
 | Projects and evidence | `GET /api/v1/projects`, `POST /api/v1/evidence/events` |
+| Project DevOps | `POST /api/v1/projects/{projectId}/devops`, `POST /api/v1/projects/{projectId}/devops/preflight` |
 | Global goals | `GET /api/v1/goals`, `POST /api/v1/goals`, `POST /api/v1/goals/{goalId}/plan`, `POST /api/v1/goals/{goalId}/advance`, `GET /api/v1/goals/{goalId}/snapshot` |
 | Loops | `POST /api/v1/loops`, `POST /api/v1/loops/{loopId}/start`, `GET /api/v1/loops/{loopId}/timeline` |
 | Source closure | `POST /api/v1/loops/{loopId}/source-closure/execute`, `POST /api/v1/loops/{loopId}/source-closure/review-decision` |
@@ -197,7 +198,7 @@ packages/llm/                           LLM gateway, routing, compression, metri
 packages/adapter-github/                GitHub adapter
 packages/adapter-gitlab/                GitLab adapter
 packages/adapter-local-git/             local Git adapter
-packages/adapter-jenkins/               external CI/CD and Jenkins boundary
+packages/adapter-jenkins/               legacy external Jenkins compatibility boundary
 docs/                                   user, API, deployment, architecture, testing, release docs
 examples/                               onboarding and integration examples
 scripts/                                E2E, LLM, Postgres store, release, and verification scripts

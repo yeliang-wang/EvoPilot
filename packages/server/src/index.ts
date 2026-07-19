@@ -34,6 +34,8 @@ import {
   type ImpactMap,
   type LearningRecord,
   type PipelineRun,
+  type PipelineStage,
+  type PipelineStatus,
   type PriorityScore,
   type ProjectProfile,
   type ReleaseReport,
@@ -134,6 +136,7 @@ interface StoredProject {
   tenantId: string;
   workspaceId: string;
   repository?: ProjectRepositoryRegistration;
+  devops?: ProjectDevopsConfiguration;
   cicd?: ProjectCicdConfiguration;
   runtime?: ProjectRuntimeConfiguration;
   validation: ProjectValidation;
@@ -168,6 +171,34 @@ interface ProjectCicdConfiguration {
   connectorId?: string;
   job?: string;
   parameters?: Record<string, string>;
+}
+
+type ProjectDevopsProvider = "github-actions" | "gitlab-ci";
+
+interface ProjectDevopsConfiguration {
+  provider: ProjectDevopsProvider;
+  mode: "scm-native";
+  tokenRef?: string;
+  ci: {
+    workflow?: string;
+    ref?: string;
+    requiredChecks?: string[];
+    requiredStages?: string[];
+    requiredJobs?: string[];
+    timeoutSeconds: number;
+  };
+  cd?: {
+    workflow?: string;
+    environment?: string;
+    requiredStages?: string[];
+    requiredJobs?: string[];
+    deployInputs?: Record<string, string>;
+    healthUrl?: string;
+    readyUrl?: string;
+    timeoutSeconds: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface ProjectRuntimeConfiguration {
@@ -237,6 +268,23 @@ interface SourceCredentialReadiness {
   blockers: string[];
   capabilities: string[];
   nextAction: "write-source" | "configure-token-ref" | "repair-project" | "use-local-git";
+  checkedAt: string;
+}
+
+interface ProjectDevopsReadiness {
+  schema: "evopilot-project-devops-readiness/v1";
+  projectId: string;
+  provider: ProjectDevopsProvider | "unknown";
+  status: "READY" | "OBSERVABLE" | "BLOCKED";
+  checks: Array<{
+    id: "project" | "source-provider" | "devops-provider" | "token-resolution" | "ci-config" | "ci-state" | "cd-config" | "health-ready";
+    status: "PASS" | "FAIL" | "SKIP";
+    evidence: string[];
+    required: boolean;
+  }>;
+  blockers: string[];
+  capabilities: string[];
+  nextAction: "run-devops" | "configure-devops" | "configure-source-credentials" | "repair-project" | "inspect-ci";
   checkedAt: string;
 }
 
@@ -659,6 +707,7 @@ interface ReleaseEvidenceBundle {
     id: string;
     name: string;
     repository?: Omit<ProjectRepositoryRegistration, "credentials"> & { credentialsConfigured: boolean };
+    devops?: ProjectDevopsConfiguration;
     cicd?: ProjectCicdConfiguration;
     validation: ProjectValidation;
     releaseReadiness?: ReleaseReadinessReport;
@@ -3750,6 +3799,88 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         }
         return writeJson(response, readiness.status === "READY" ? 200 : 409, envelope(readiness));
       }
+      const projectDevopsMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/devops$/);
+      if (request.method === "GET" && projectDevopsMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectDevopsMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        if (!project.devops) return writeJson(response, 404, { error: "PROJECT_DEVOPS_NOT_CONFIGURED", projectId: project.id });
+        return writeJson(response, 200, envelope(project.devops));
+      }
+      if ((request.method === "POST" || request.method === "PUT") && projectDevopsMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectDevopsMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const devops = normalizeProjectDevops(body, project);
+        if (!devops) return writeJson(response, 400, { error: "PROJECT_DEVOPS_PROVIDER_REQUIRED", detail: "provider must be github-actions or gitlab-ci." });
+        const providerCheck = devopsProviderMatchesRepository(project, devops);
+        if (!providerCheck.ok) return writeJson(response, 409, { error: "DEVOPS_PROVIDER_PROJECT_MISMATCH", detail: providerCheck.detail, projectId: project.id });
+        const updated: StoredProject = {
+          ...project,
+          devops,
+          updatedAt: new Date().toISOString()
+        };
+        store.writeProject(updated);
+        const readiness = await checkProjectDevopsReadiness(updated);
+        store.appendAudit(audit(auth, "project.devops.updated", updated.id, {
+          provider: devops.provider,
+          ciWorkflow: devops.ci.workflow,
+          cdWorkflow: devops.cd?.workflow,
+          readiness: readiness.status,
+          blockers: readiness.blockers
+        }));
+        logInfo("project.devops.updated", {
+          actor: auth.actor,
+          target: updated.id,
+          metadata: {
+            projectId: updated.id,
+            provider: devops.provider,
+            readiness: readiness.status,
+            blockers: readiness.blockers
+          }
+        });
+        return writeJson(response, readiness.status === "BLOCKED" ? 409 : 200, envelope({ project: maskProject(updated), devops, readiness }));
+      }
+      if (request.method === "DELETE" && projectDevopsMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectDevopsMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const { devops, ...rest } = project;
+        const updated: StoredProject = { ...rest, updatedAt: new Date().toISOString() };
+        store.writeProject(updated);
+        store.appendAudit(audit(auth, "project.devops.cleared", updated.id, { previousProvider: devops?.provider }));
+        return writeJson(response, 200, envelope({ project: maskProject(updated), cleared: Boolean(devops) }));
+      }
+      const projectDevopsPreflightMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/devops\/preflight$/);
+      if ((request.method === "GET" || request.method === "POST") && projectDevopsPreflightMatch) {
+        if (!hasRole(auth, request.method === "POST" ? "operator" : "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectDevopsPreflightMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const readiness = await checkProjectDevopsReadiness(project);
+        if (request.method === "POST") {
+          store.appendAudit(audit(auth, "project.devops-preflight", project.id, {
+            provider: project.devops?.provider,
+            readiness: readiness.status,
+            blockers: readiness.blockers
+          }));
+          logInfo("project.devops.preflight", {
+            actor: auth.actor,
+            target: project.id,
+            metadata: {
+              projectId: project.id,
+              provider: project.devops?.provider,
+              readiness: readiness.status,
+              blockers: readiness.blockers
+            }
+          });
+        }
+        return writeJson(response, readiness.status === "READY" ? 200 : 409, envelope(readiness));
+      }
       if (request.method === "GET" && url.pathname === "/api/v1/pipelines") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listPipelines().slice(-10).reverse()));
@@ -3776,6 +3907,19 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const validation = await validateProjectRepository(repository);
         const cicd = normalizeProjectCicd(body, projectId);
         const projectRuntime = normalizeProjectRuntime(body);
+        const projectDevops = normalizeProjectDevops(body, {
+          id: projectId,
+          name: String(body.name ?? body.id ?? "").trim(),
+          profileId: String(body.profileId ?? profile.id),
+          tenantId,
+          workspaceId,
+          repository,
+          validation,
+          createdAt: now,
+          updatedAt: now
+        });
+        const devopsProviderCheck = projectDevops ? devopsProviderMatchesRepository({ repository } as StoredProject, projectDevops) : { ok: true };
+        if (!devopsProviderCheck.ok) return writeJson(response, 409, { error: "DEVOPS_PROVIDER_PROJECT_MISMATCH", detail: devopsProviderCheck.detail, projectId });
         const project: StoredProject = {
           id: projectId,
           name: String(body.name ?? body.id ?? "").trim(),
@@ -3783,6 +3927,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           tenantId,
           workspaceId,
           repository,
+          devops: projectDevops,
           cicd: cicd.projectCicd,
           runtime: projectRuntime,
           validation,
@@ -3793,7 +3938,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (project.validation.status !== "VERIFIED") return writeJson(response, 400, { error: "PROJECT_VALIDATION_FAILED", detail: project.validation.message });
         if (cicd.connector) store.writeJenkinsConnector(cicd.connector);
         store.writeProject(project);
-        store.appendAudit(audit(auth, "project.created", project.id, { provider: repository?.provider, validation: validation.status, cicdMode: project.cicd?.mode }));
+        store.appendAudit(audit(auth, "project.created", project.id, { provider: repository?.provider, validation: validation.status, devopsProvider: project.devops?.provider, cicdMode: project.cicd?.mode }));
         return writeJson(response, 201, envelope(maskProject(project)));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/runs") {
@@ -3954,6 +4099,24 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (delivery.approvalRequired && review?.status !== "USER_CONFIRMED") {
           return writeJson(response, 409, { error: "USER_CONFIRMATION_REQUIRED" });
         }
+        const project = store.readProject(delivery.projectId);
+        const nativeExecutor = normalizeProjectDevopsProvider(body.executor ?? project?.devops?.provider);
+        if (nativeExecutor) {
+          const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
+          if (!codeUpgrade) return writeJson(response, 409, { error: "CODE_UPGRADE_REQUIRED" });
+          if (!project?.devops) return writeJson(response, 409, { error: "DEVOPS_NOT_CONFIGURED", detail: "项目未配置 GitHub Actions 或 GitLab CI DevOps。", projectId: delivery.projectId });
+          const readiness = await checkProjectDevopsReadiness(project);
+          if (readiness.status === "BLOCKED") return writeJson(response, 409, { error: "DEVOPS_NOT_READY", detail: readiness.blockers.join("; "), readiness });
+          const pipeline = await triggerNativeDevopsDelivery({ store, auth, run, delivery, plan, body: { ...body, executor: nativeExecutor }, runtime });
+          if (body.batchId) {
+            store.updateEvolutionBatch(String(body.batchId), {
+              status: "CICD_RUNNING",
+              deliveryPlanId: delivery.id,
+              pipelineRunId: pipeline.id
+            });
+          }
+          return writeJson(response, 202, envelope({ pipelineRun: pipeline, readiness }));
+        }
         if (body.executor === "jenkins") {
           const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
           if (!codeUpgrade) return writeJson(response, 409, { error: "CODE_UPGRADE_REQUIRED" });
@@ -3968,7 +4131,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           return writeJson(response, 202, envelope({ pipelineRun: pipeline }));
         }
         if (!runtime.allowMockIntegrations) {
-          return writeJson(response, 400, { error: "DELIVERY_EXECUTOR_REQUIRED", detail: "prod 模式只允许通过真实 CI/CD 连接器执行交付。" });
+          return writeJson(response, 400, { error: "DELIVERY_EXECUTOR_REQUIRED", detail: "prod 模式只允许通过项目 DevOps（GitHub Actions/GitLab CI）或兼容 CI/CD 连接器执行交付。" });
         }
         const execution = options.deliveryExecutor
           ? await options.deliveryExecutor({ run, delivery, plan, requestBody: body })
@@ -7298,6 +7461,7 @@ class FileStore {
         id: project.id,
         name: project.name,
         repository: maskProject(project).repository,
+        devops: project.devops,
         cicd: project.cicd,
         validation: project.validation,
         releaseReadiness: readiness.find((report) => report.projectId === project.id),
@@ -7423,7 +7587,6 @@ class FileStore {
   }
 
   private buildServiceInventory(projects: StoredProject[]): ReleaseEvidenceBundle["serviceInventory"] {
-    const jenkins = this.listJenkinsConnectors().map(maskJenkinsConnector);
     const openhands = this.listOpenHandsConnectors().map(maskOpenHandsConnector);
     return [
       {
@@ -7441,13 +7604,15 @@ class FileStore {
         endpoint: connector.baseUrl,
         evidence: connector.baseUrl ? `代码升级连接器已配置，apiKeyConfigured=${connector.apiKeyConfigured}。` : "代码升级连接器缺少 baseUrl。"
       })),
-      ...jenkins.map((connector) => ({
-        id: connector.id,
+      ...projects.filter((project) => project.devops).map((project) => ({
+        id: `${project.id}-devops`,
         type: "ci" as const,
-        name: connector.name,
-        status: connector.baseUrl ? "READY" as const : "BLOCKED" as const,
-        endpoint: connector.baseUrl,
-        evidence: connector.baseUrl ? `CI/CD 连接器已配置，apiTokenConfigured=${connector.apiTokenConfigured}。` : "CI/CD 连接器缺少 baseUrl。"
+        name: `${project.name} DevOps`,
+        status: project.devops ? "READY" as const : "BLOCKED" as const,
+        endpoint: project.repository?.baseUrl ?? project.repository?.gitUrl,
+        evidence: project.devops
+          ? `原生 DevOps 已配置：provider=${project.devops.provider}，ciWorkflow=${project.devops.ci.workflow ?? "platform-default"}，tokenRef=${project.devops.tokenRef ?? project.repository?.credentials?.tokenRef ?? "source-credentials"}。`
+          : "项目未配置原生 DevOps。"
       })),
       ...projects.map((project) => ({
         id: project.id,
@@ -14762,6 +14927,8 @@ function renderMergeRequestDescription(plan: EvolutionPlan, delivery: DeliveryPl
 async function refreshPipeline(store: FileStore, pipelineId: string): Promise<PipelineRun | undefined> {
   const pipeline = store.readPipeline(pipelineId);
   if (!pipeline) return undefined;
+  if (pipeline.provider === "github-actions") return await refreshGitHubActionsPipeline(store, pipeline);
+  if (pipeline.provider === "gitlab-ci") return await refreshGitLabCiPipeline(store, pipeline);
   if (pipeline.provider !== "jenkins") return pipeline;
   const connector = store.readJenkinsConnector(pipeline.connectorId);
   if (!connector) return pipeline;
@@ -14785,6 +14952,79 @@ async function refreshPipeline(store: FileStore, pipelineId: string): Promise<Pi
   return updated;
 }
 
+async function refreshGitHubActionsPipeline(store: FileStore, pipeline: PipelineRun): Promise<PipelineRun> {
+  if (pipeline.status === "SUCCEEDED" || pipeline.status === "FAILED" || pipeline.status === "CANCELED") return pipeline;
+  const project = store.readProject(pipeline.projectId);
+  if (!project?.devops || project.devops.provider !== "github-actions" || !project.repository || project.repository.provider !== "github") return pipeline;
+  const token = resolveProjectDevopsToken(project);
+  if (!token || !project.repository.owner || !project.repository.repo) return pipeline;
+  const adapter = new GitHubHttpAdapter({ apiBaseUrl: project.repository.baseUrl, owner: project.repository.owner, repo: project.repository.repo, token });
+  const ref = pipeline.parameters.DEVOPS_REF ?? project.devops.ci.ref ?? project.repository.defaultBranch ?? "main";
+  const checks = await readGitHubChecksForPipeline(adapter, ref);
+  const workflowRuns = project.devops.ci.workflow ? await readGitHubWorkflowRunsForPipeline(adapter, project.devops.ci.workflow, ref) : [];
+  const latestRun = workflowRuns[0];
+  const status = latestRun ? githubWorkflowRunToPipelineStatus(latestRun.status, latestRun.conclusion)
+    : checks.length > 0 ? aggregatePipelineStatuses(checks.map((check) => githubCheckToPipelineStatus(check.status, check.conclusion)))
+      : pipeline.status;
+  const updated: PipelineRun = {
+    ...pipeline,
+    status,
+    queueId: latestRun ? String(latestRun.id) : pipeline.queueId,
+    buildUrl: latestRun?.htmlUrl ?? pipeline.buildUrl,
+    stages: checks.length > 0 ? checks.map((check) => ({
+      id: safeFileName(check.name || "check"),
+      name: check.name || "GitHub check",
+      status: pipelineStageStatusFromPipelineStatus(githubCheckToPipelineStatus(check.status, check.conclusion)),
+      logUrl: latestRun?.htmlUrl ?? pipeline.buildUrl
+    })) : pipeline.stages,
+    logRef: {
+      url: latestRun?.htmlUrl ?? pipeline.logRef?.url,
+      preview: renderNativePipelineLogPreview("github-actions", status, [`ref=${ref}`, `workflow=${project.devops.ci.workflow ?? "checks"}`, `checks=${checks.length}`])
+    },
+    updatedAt: new Date().toISOString()
+  };
+  store.writePipeline(updated);
+  finalizePipelineIfNeeded(store, updated);
+  return updated;
+}
+
+async function refreshGitLabCiPipeline(store: FileStore, pipeline: PipelineRun): Promise<PipelineRun> {
+  if (pipeline.status === "SUCCEEDED" || pipeline.status === "FAILED" || pipeline.status === "CANCELED") return pipeline;
+  const project = store.readProject(pipeline.projectId);
+  if (!project?.devops || project.devops.provider !== "gitlab-ci" || !project.repository || project.repository.provider !== "gitlab") return pipeline;
+  const token = resolveProjectDevopsToken(project);
+  if (!token || !project.repository.baseUrl || !project.repository.projectId) return pipeline;
+  const adapter = new GitLabHttpAdapter({ baseUrl: project.repository.baseUrl, projectId: project.repository.projectId, token });
+  const ref = pipeline.parameters.DEVOPS_REF ?? project.devops.ci.ref ?? project.repository.defaultBranch ?? "main";
+  const pipelines = pipeline.queueId ? [] : await adapter.listPipelines(ref);
+  const pipelineId = pipeline.queueId ? Number(pipeline.queueId) : pipelines[0]?.id;
+  if (!Number.isFinite(pipelineId)) return pipeline;
+  const jobs = await readGitLabJobsForPipeline(adapter, pipelineId);
+  const status = jobs.length > 0
+    ? aggregatePipelineStatuses(jobs.map((job) => gitLabPipelineStatus(job.status)))
+    : pipelines[0] ? gitLabPipelineStatus(pipelines[0].status) : pipeline.status;
+  const updated: PipelineRun = {
+    ...pipeline,
+    status,
+    queueId: String(pipelineId),
+    buildUrl: pipelines[0]?.webUrl ?? pipeline.buildUrl,
+    stages: jobs.length > 0 ? jobs.map((job) => ({
+      id: safeFileName(String(job.id)),
+      name: `${job.stage}/${job.name}`,
+      status: pipelineStageStatusFromPipelineStatus(gitLabPipelineStatus(job.status)),
+      logUrl: job.webUrl
+    })) : pipeline.stages,
+    logRef: {
+      url: pipelines[0]?.webUrl ?? pipeline.logRef?.url,
+      preview: renderNativePipelineLogPreview("gitlab-ci", status, [`ref=${ref}`, `pipeline=${pipelineId}`, `jobs=${jobs.length}`])
+    },
+    updatedAt: new Date().toISOString()
+  };
+  store.writePipeline(updated);
+  finalizePipelineIfNeeded(store, updated);
+  return updated;
+}
+
 function finalizePipelineIfNeeded(store: FileStore, pipeline: PipelineRun): void {
   if (pipeline.status !== "SUCCEEDED" && pipeline.status !== "FAILED" && pipeline.status !== "CANCELED") return;
   const run = store.findRunByDeliveryId(pipeline.deliveryPlanId);
@@ -14794,14 +15034,15 @@ function finalizePipelineIfNeeded(store: FileStore, pipeline: PipelineRun): void
   const plan = run.plans.find((item) => item.id === delivery.planId);
   if (!plan) return;
   const releaseStatus = pipelineStatusToReleaseStatus(pipeline.status);
+  const providerLabel = pipelineProviderLabel(pipeline.provider);
   const report = createReleaseReport({
     id: `release-${delivery.id}`,
     projectId: delivery.projectId,
     deliveryPlanId: delivery.id,
     evidenceBundleId: run.evidenceBundle.id,
-    version: pipeline.parameters.VERSION ?? "jenkins",
+    version: pipeline.parameters.VERSION ?? pipeline.parameters.DEVOPS_REF ?? pipeline.provider,
     status: releaseStatus,
-    validationSummary: releaseStatus === "SUCCEEDED" ? "Jenkins 流水线与发布后验证已通过。" : "Jenkins 流水线失败，发布已阻断。",
+    validationSummary: releaseStatus === "SUCCEEDED" ? `${providerLabel} 流水线与发布后验证已通过。` : `${providerLabel} 流水线失败，发布已阻断。`,
     releasedAt: releaseStatus === "SUCCEEDED" ? new Date().toISOString() : undefined
   });
   run.releaseReports.push(report);
@@ -14811,10 +15052,16 @@ function finalizePipelineIfNeeded(store: FileStore, pipeline: PipelineRun): void
     planId: plan.id,
     prediction: plan.expectedEffect,
     outcome: releaseStatus === "SUCCEEDED" ? "validated" : "rejected",
-    ruleChangesSuggested: releaseStatus === "SUCCEEDED" ? [] : ["检查 Jenkins 失败阶段，并收紧发布前验证契约。"],
+    ruleChangesSuggested: releaseStatus === "SUCCEEDED" ? [] : [`检查 ${providerLabel} 失败阶段，并收紧发布前验证契约。`],
     createdAt: new Date().toISOString()
   });
   store.writeRun(run);
+}
+
+function pipelineProviderLabel(provider: PipelineRun["provider"]): string {
+  if (provider === "github-actions") return "GitHub Actions";
+  if (provider === "gitlab-ci") return "GitLab CI";
+  return "Jenkins";
 }
 
 function maskJenkinsConnector(connector: StoredJenkinsConnector): Omit<StoredJenkinsConnector, "apiToken"> & { apiTokenConfigured: boolean } {
@@ -15638,6 +15885,324 @@ function sourceCredentialReadinessResult(projectId: string, provider: ProjectRep
   };
 }
 
+function normalizeProjectDevops(body: any, project: StoredProject): ProjectDevopsConfiguration | undefined {
+  const source = body.devops && typeof body.devops === "object" ? body.devops : body;
+  const provider = normalizeProjectDevopsProvider(source.provider ?? source.ciProvider ?? source.cdProvider);
+  if (!provider) return undefined;
+  const now = new Date().toISOString();
+  const ciSource = source.ci && typeof source.ci === "object" ? source.ci : source;
+  const cdSource = source.cd && typeof source.cd === "object" ? source.cd : source;
+  const existing = project.devops;
+  const ci: ProjectDevopsConfiguration["ci"] = {
+    workflow: optionalTrimmedString(ciSource.workflow) ?? optionalTrimmedString(ciSource.ciWorkflow) ?? existing?.ci.workflow,
+    ref: optionalTrimmedString(ciSource.ref) ?? optionalTrimmedString(ciSource.ciRef) ?? optionalTrimmedString(ciSource.branch) ?? existing?.ci.ref,
+    requiredChecks: normalizeOptionalStringList(ciSource.requiredChecks ?? ciSource.requiredCheck ?? ciSource.ciRequiredChecks ?? ciSource.ciRequiredCheck) ?? existing?.ci.requiredChecks ?? [],
+    requiredStages: normalizeOptionalStringList(ciSource.requiredStages ?? ciSource.requiredStage ?? ciSource.ciRequiredStages ?? ciSource.ciRequiredStage) ?? existing?.ci.requiredStages ?? [],
+    requiredJobs: normalizeOptionalStringList(ciSource.requiredJobs ?? ciSource.requiredJob ?? ciSource.ciRequiredJobs ?? ciSource.ciRequiredJob) ?? existing?.ci.requiredJobs ?? [],
+    timeoutSeconds: positiveSeconds(ciSource.timeoutSeconds ?? ciSource.ciTimeoutSeconds ?? existing?.ci.timeoutSeconds, 1800)
+  };
+  const cdConfigured = Boolean(
+    optionalTrimmedString(cdSource.cdWorkflow ?? cdSource.deployWorkflow) ||
+    optionalTrimmedString(cdSource.deployEnvironment ?? cdSource.environment) ||
+    optionalTrimmedString(cdSource.healthUrl) ||
+    optionalTrimmedString(cdSource.readyUrl) ||
+    cdSource.deployInputs ||
+    cdSource.cdRequiredStage ||
+    cdSource.cdRequiredJob ||
+    existing?.cd
+  );
+  const cd: ProjectDevopsConfiguration["cd"] | undefined = cdConfigured ? {
+    workflow: optionalTrimmedString(cdSource.cdWorkflow ?? cdSource.deployWorkflow) ?? existing?.cd?.workflow,
+    environment: optionalTrimmedString(cdSource.deployEnvironment ?? cdSource.environment) ?? existing?.cd?.environment,
+    requiredStages: normalizeOptionalStringList(cdSource.cdRequiredStages ?? cdSource.cdRequiredStage) ?? existing?.cd?.requiredStages ?? [],
+    requiredJobs: normalizeOptionalStringList(cdSource.cdRequiredJobs ?? cdSource.cdRequiredJob) ?? existing?.cd?.requiredJobs ?? [],
+    deployInputs: cdSource.deployInputs && typeof cdSource.deployInputs === "object" ? normalizeStringMap(cdSource.deployInputs) : existing?.cd?.deployInputs,
+    healthUrl: optionalTrimmedString(cdSource.healthUrl) ?? existing?.cd?.healthUrl,
+    readyUrl: optionalTrimmedString(cdSource.readyUrl) ?? existing?.cd?.readyUrl,
+    timeoutSeconds: positiveSeconds(cdSource.cdTimeoutSeconds ?? cdSource.deployTimeoutSeconds ?? existing?.cd?.timeoutSeconds, 1800)
+  } : undefined;
+  return {
+    provider,
+    mode: "scm-native",
+    tokenRef: optionalTrimmedString(source.tokenRef ?? source.devopsTokenRef) ?? existing?.tokenRef,
+    ci,
+    cd,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+}
+
+function normalizeProjectDevopsProvider(value: unknown): ProjectDevopsProvider | undefined {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "github-actions" || text === "github" || text === "actions") return "github-actions";
+  if (text === "gitlab-ci" || text === "gitlab" || text === "gitlab-pipeline") return "gitlab-ci";
+  return undefined;
+}
+
+function devopsProviderMatchesRepository(project: StoredProject, devops: ProjectDevopsConfiguration): { ok: boolean; detail?: string } {
+  const repositoryProvider = project.repository?.provider;
+  if (devops.provider === "github-actions" && repositoryProvider !== "github") {
+    return { ok: false, detail: `github-actions requires a GitHub project, current provider=${repositoryProvider ?? "missing"}.` };
+  }
+  if (devops.provider === "gitlab-ci" && repositoryProvider !== "gitlab") {
+    return { ok: false, detail: `gitlab-ci requires a GitLab project, current provider=${repositoryProvider ?? "missing"}.` };
+  }
+  return { ok: true };
+}
+
+async function checkProjectDevopsReadiness(project: StoredProject): Promise<ProjectDevopsReadiness> {
+  const checkedAt = new Date().toISOString();
+  const checks: ProjectDevopsReadiness["checks"] = [];
+  const addCheck = (check: ProjectDevopsReadiness["checks"][number]) => checks.push(check);
+  const repository = project.repository;
+  const devops = project.devops;
+  addCheck({
+    id: "project",
+    status: project.validation.status === "VERIFIED" && Boolean(repository) ? "PASS" : "FAIL",
+    required: true,
+    evidence: [`project=${project.id}`, `validation=${project.validation.status}`, repository ? `repository=${repository.provider}` : "repository=missing"]
+  });
+  addCheck({
+    id: "source-provider",
+    status: repository?.provider === "github" || repository?.provider === "gitlab" ? "PASS" : "FAIL",
+    required: true,
+    evidence: [`repositoryProvider=${repository?.provider ?? "missing"}`]
+  });
+  if (!devops) {
+    addCheck({ id: "devops-provider", status: "FAIL", required: true, evidence: ["devops=missing"] });
+    return projectDevopsReadinessResult(project.id, "unknown", checks, checkedAt);
+  }
+  const providerCheck = devopsProviderMatchesRepository(project, devops);
+  addCheck({
+    id: "devops-provider",
+    status: providerCheck.ok ? "PASS" : "FAIL",
+    required: true,
+    evidence: [`devopsProvider=${devops.provider}`, providerCheck.detail ?? "providerMatchesRepository=true"]
+  });
+  const token = resolveProjectDevopsToken(project);
+  addCheck({
+    id: "token-resolution",
+    status: token ? "PASS" : "FAIL",
+    required: true,
+    evidence: [
+      token ? "tokenResolved=true" : "DEVOPS_TOKEN_REQUIRED",
+      devops.tokenRef ? `devopsTokenRef=${devops.tokenRef}` : "devopsTokenRef=source-credentials",
+      repository?.credentials?.tokenRef ? `sourceTokenRef=${repository.credentials.tokenRef}` : "sourceTokenRef=missing"
+    ]
+  });
+  const ciConfigured = devops.provider === "github-actions"
+    ? Boolean(devops.ci.workflow || devops.ci.requiredChecks?.length)
+    : Boolean(devops.ci.requiredStages?.length || devops.ci.requiredJobs?.length);
+  addCheck({
+    id: "ci-config",
+    status: ciConfigured ? "PASS" : "FAIL",
+    required: true,
+    evidence: [
+      `workflow=${devops.ci.workflow ?? "missing"}`,
+      `requiredChecks=${(devops.ci.requiredChecks ?? []).join(",") || "none"}`,
+      `requiredStages=${(devops.ci.requiredStages ?? []).join(",") || "none"}`,
+      `requiredJobs=${(devops.ci.requiredJobs ?? []).join(",") || "none"}`
+    ]
+  });
+  if (repository?.provider === "github" && devops.provider === "github-actions" && token && repository.owner && repository.repo) {
+    await appendGitHubDevopsReadinessChecks({ project, devops, token, checks });
+  } else if (repository?.provider === "gitlab" && devops.provider === "gitlab-ci" && token && repository.baseUrl && repository.projectId) {
+    await appendGitLabDevopsReadinessChecks({ project, devops, token, checks });
+  } else {
+    addCheck({ id: "ci-state", status: "SKIP", required: true, evidence: ["credentials-or-coordinates-missing"] });
+  }
+  await appendProjectDevopsHealthCheck(devops, checks);
+  return projectDevopsReadinessResult(project.id, devops.provider, checks, checkedAt);
+}
+
+async function appendGitHubDevopsReadinessChecks(args: {
+  project: StoredProject;
+  devops: ProjectDevopsConfiguration;
+  token: string;
+  checks: ProjectDevopsReadiness["checks"];
+}): Promise<void> {
+  const repository = args.project.repository!;
+  const ref = args.devops.ci.ref ?? repository.defaultBranch ?? "main";
+  const adapter = new GitHubHttpAdapter({ apiBaseUrl: repository.baseUrl, owner: repository.owner!, repo: repository.repo!, token: args.token });
+  try {
+    const checks = await adapter.listChecks(ref);
+    const workflowRuns = args.devops.ci.workflow ? await readGitHubWorkflowRunsForPipeline(adapter, args.devops.ci.workflow, ref) : [];
+    const latestRun = workflowRuns[0];
+    const workflowStatus = latestRun ? githubWorkflowRunToPipelineStatus(latestRun.status, latestRun.conclusion) : undefined;
+    const requiredChecks = args.devops.ci.requiredChecks ?? [];
+    const missing = requiredChecks.filter((name) => !checks.some((check) => check.name === name));
+    const failed = checks.filter((check) => requiredChecks.includes(check.name) && githubCheckToPipelineStatus(check.status, check.conclusion) === "FAILED");
+    const pending = checks.filter((check) => requiredChecks.includes(check.name) && githubCheckToPipelineStatus(check.status, check.conclusion) === "RUNNING");
+    const workflowEvidenceRequired = requiredChecks.length === 0 && Boolean(args.devops.ci.workflow);
+    const workflowReady = !workflowEvidenceRequired || workflowStatus === "SUCCEEDED";
+    args.checks.push({
+      id: "ci-state",
+      status: missing.length === 0 && failed.length === 0 && pending.length === 0 && workflowReady ? "PASS" : "FAIL",
+      required: true,
+      evidence: [
+        `ref=${ref}`,
+        `workflowRun=${latestRun?.id ?? "missing"}`,
+        `workflowStatus=${workflowStatus ?? "missing"}`,
+        `checkCount=${checks.length}`,
+        `requiredChecks=${requiredChecks.join(",") || "none"}`,
+        `missing=${missing.join(",") || "none"}`,
+        `failed=${failed.map((check) => check.name).join(",") || "none"}`,
+        `pending=${pending.map((check) => check.name).join(",") || "none"}`
+      ]
+    });
+  } catch (error) {
+    args.checks.push({
+      id: "ci-state",
+      status: "FAIL",
+      required: true,
+      evidence: [`ref=${ref}`, error instanceof Error ? error.message : String(error)]
+    });
+  }
+}
+
+async function appendGitLabDevopsReadinessChecks(args: {
+  project: StoredProject;
+  devops: ProjectDevopsConfiguration;
+  token: string;
+  checks: ProjectDevopsReadiness["checks"];
+}): Promise<void> {
+  const repository = args.project.repository!;
+  const ref = args.devops.ci.ref ?? repository.defaultBranch ?? "main";
+  const adapter = new GitLabHttpAdapter({ baseUrl: repository.baseUrl!, projectId: repository.projectId!, token: args.token });
+  try {
+    const pipelines = await adapter.listPipelines(ref);
+    const latest = pipelines[0];
+    const jobs = latest ? await adapter.listPipelineJobs(latest.id) : [];
+    const requiredStages = [...(args.devops.ci.requiredStages ?? []), ...(args.devops.cd?.requiredStages ?? [])];
+    const requiredJobs = [...(args.devops.ci.requiredJobs ?? []), ...(args.devops.cd?.requiredJobs ?? [])];
+    const missingStages = requiredStages.filter((stage) => !jobs.some((job) => job.stage === stage));
+    const missingJobs = requiredJobs.filter((jobName) => !jobs.some((job) => job.name === jobName));
+    const failedJobs = jobs.filter((job) => (requiredStages.includes(job.stage) || requiredJobs.includes(job.name)) && gitLabPipelineStatus(job.status) === "FAILED");
+    const pendingJobs = jobs.filter((job) => (requiredStages.includes(job.stage) || requiredJobs.includes(job.name)) && gitLabPipelineStatus(job.status) === "RUNNING");
+    const pipelineStatus = latest ? gitLabPipelineStatus(latest.status) : undefined;
+    const pipelineEvidenceRequired = requiredStages.length === 0 && requiredJobs.length === 0;
+    const pipelineReady = !pipelineEvidenceRequired || pipelineStatus === "SUCCEEDED";
+    args.checks.push({
+      id: "ci-state",
+      status: latest && pipelineReady && missingStages.length === 0 && missingJobs.length === 0 && failedJobs.length === 0 && pendingJobs.length === 0 ? "PASS" : "FAIL",
+      required: true,
+      evidence: [
+        `ref=${ref}`,
+        `pipeline=${latest?.id ?? "missing"}`,
+        `pipelineStatus=${pipelineStatus ?? "missing"}`,
+        `jobCount=${jobs.length}`,
+        `missingStages=${missingStages.join(",") || "none"}`,
+        `missingJobs=${missingJobs.join(",") || "none"}`,
+        `failedJobs=${failedJobs.map((job) => job.name).join(",") || "none"}`,
+        `pendingJobs=${pendingJobs.map((job) => job.name).join(",") || "none"}`
+      ]
+    });
+  } catch (error) {
+    args.checks.push({
+      id: "ci-state",
+      status: "FAIL",
+      required: true,
+      evidence: [`ref=${ref}`, error instanceof Error ? error.message : String(error)]
+    });
+  }
+}
+
+async function appendProjectDevopsHealthCheck(devops: ProjectDevopsConfiguration, checks: ProjectDevopsReadiness["checks"]): Promise<void> {
+  const healthUrl = devops.cd?.readyUrl ?? devops.cd?.healthUrl;
+  if (!healthUrl) {
+    checks.push({ id: "health-ready", status: "SKIP", required: false, evidence: ["healthUrl=missing"] });
+    checks.push({ id: "cd-config", status: devops.cd ? "PASS" : "SKIP", required: false, evidence: [`environment=${devops.cd?.environment ?? "missing"}`, `workflow=${devops.cd?.workflow ?? "missing"}`] });
+    return;
+  }
+  checks.push({ id: "cd-config", status: "PASS", required: false, evidence: [`environment=${devops.cd?.environment ?? "missing"}`, `healthUrl=${healthUrl}`] });
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(10_000, Math.max(1_000, (devops.cd?.timeoutSeconds ?? 10) * 1000)));
+    const response = await fetch(healthUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    checks.push({
+      id: "health-ready",
+      status: response.ok ? "PASS" : "FAIL",
+      required: false,
+      evidence: [`url=${healthUrl}`, `status=${response.status}`]
+    });
+  } catch (error) {
+    checks.push({
+      id: "health-ready",
+      status: "FAIL",
+      required: false,
+      evidence: [`url=${healthUrl}`, error instanceof Error ? error.message : String(error)]
+    });
+  }
+}
+
+function projectDevopsReadinessResult(projectId: string, provider: ProjectDevopsProvider | "unknown", checks: ProjectDevopsReadiness["checks"], checkedAt: string): ProjectDevopsReadiness {
+  const blockers = checks
+    .filter((check) => check.required && check.status !== "PASS")
+    .map((check) => check.evidence.some((item) => item === "DEVOPS_TOKEN_REQUIRED") ? `${check.id}:DEVOPS_TOKEN_REQUIRED` : `${check.id}:${check.status}`);
+  const status: ProjectDevopsReadiness["status"] = blockers.length === 0 ? "READY"
+    : blockers.every((blocker) => blocker.includes("ci-state")) ? "OBSERVABLE"
+      : "BLOCKED";
+  return {
+    schema: "evopilot-project-devops-readiness/v1",
+    projectId,
+    provider,
+    status,
+    checks,
+    blockers,
+    capabilities: [
+      "github-actions-workflow-dispatch",
+      "github-check-run-readiness",
+      "gitlab-ci-pipeline-trigger",
+      "gitlab-pipeline-job-readiness",
+      "health-ready-probe",
+      "dashboard-cli-readable-chain"
+    ],
+    nextAction: status === "READY" ? "run-devops"
+      : blockers.some((blocker) => blocker.includes("token")) ? "configure-source-credentials"
+        : blockers.some((blocker) => blocker.includes("devops-provider") || blocker.includes("ci-config")) ? "configure-devops"
+          : blockers.some((blocker) => blocker.includes("project") || blocker.includes("source-provider")) ? "repair-project"
+            : "inspect-ci",
+    checkedAt
+  };
+}
+
+function resolveProjectDevopsToken(project: StoredProject): string | undefined {
+  if (project.devops?.tokenRef) return process.env[project.devops.tokenRef];
+  return project.repository ? resolveCredentialToken(project.repository) : undefined;
+}
+
+function normalizeOptionalStringList(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  return normalizeStringList(value, []);
+}
+
+function positiveSeconds(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function githubCheckToPipelineStatus(status: string, conclusion?: string): PipelineStatus {
+  const normalizedStatus = status.toLowerCase();
+  const normalizedConclusion = String(conclusion ?? "").toLowerCase();
+  if (normalizedStatus !== "completed") return normalizedStatus === "queued" ? "QUEUED" : "RUNNING";
+  if (normalizedConclusion === "success" || normalizedConclusion === "neutral" || normalizedConclusion === "skipped") return "SUCCEEDED";
+  if (normalizedConclusion === "cancelled" || normalizedConclusion === "canceled") return "CANCELED";
+  if (normalizedConclusion === "failure" || normalizedConclusion === "timed_out" || normalizedConclusion === "action_required") return "FAILED";
+  return "UNKNOWN";
+}
+
+function gitLabPipelineStatus(status: string): PipelineStatus {
+  const normalized = status.toLowerCase();
+  if (normalized === "success" || normalized === "skipped") return "SUCCEEDED";
+  if (normalized === "failed") return "FAILED";
+  if (normalized === "canceled" || normalized === "cancelled") return "CANCELED";
+  if (normalized === "created" || normalized === "pending") return "QUEUED";
+  if (normalized === "running" || normalized === "waiting_for_resource" || normalized === "preparing" || normalized === "manual" || normalized === "scheduled") return "RUNNING";
+  return "UNKNOWN";
+}
+
 function updateProjectSourceCredentials(project: StoredProject, body: any): StoredProject {
   const repository = project.repository;
   if (!repository) return project;
@@ -15776,13 +16341,18 @@ async function diagnoseProjectRuntime(args: { store: FileStore; project: StoredP
     detail: codeUpgradeConnector?.baseUrl ? `已配置：${codeUpgradeConnector.baseUrl}` : "未配置代码升级运行时连接器。",
     remediation: "配置 EvoPilot 托管代码升级运行时连接器。"
   });
+  const devopsReadiness = await checkProjectDevopsReadiness(project);
   const cicd = project.cicd?.provider === "jenkins" ? project.cicd : undefined;
   const jenkinsConnector = cicd?.connectorId ? args.store.readJenkinsConnector(cicd.connectorId) : undefined;
+  const legacyJenkinsReady = Boolean(cicd?.job && jenkinsConnector?.baseUrl);
   checks.push({
     name: "CI/CD 连接",
-    status: cicd?.job && jenkinsConnector?.baseUrl ? "PASSED" : "FAILED",
-    detail: cicd?.job && jenkinsConnector?.baseUrl ? `Jenkins：${jenkinsConnector.baseUrl}；Job：${cicd.job}` : "项目未完整配置 Jenkins 连接器和 Job。",
-    remediation: "在项目注册中配置项目级 Jenkins 地址、凭证和 Job。"
+    status: devopsReadiness.status === "READY" || legacyJenkinsReady ? "PASSED" : devopsReadiness.status === "OBSERVABLE" ? "WARN" : "FAILED",
+    detail: project.devops
+      ? `DevOps：${project.devops.provider}；readiness=${devopsReadiness.status}；blockers=${devopsReadiness.blockers.join(",") || "none"}`
+      : legacyJenkinsReady ? `兼容 Jenkins：${jenkinsConnector?.baseUrl}；Job：${cicd?.job}` : "项目未配置 GitHub Actions/GitLab CI DevOps。",
+    remediation: project.devops ? "运行 project devops preflight 并修复 tokenRef、workflow、required checks/jobs 或健康检查。"
+      : "通过 project devops set 配置 GitHub Actions 或 GitLab CI；旧 Jenkins 仅作为兼容连接器。"
   });
   const status = checks.some((check) => check.status === "FAILED") ? "FAILED" : checks.some((check) => check.status === "WARN") ? "WARN" : "PASSED";
   return {
@@ -16358,6 +16928,127 @@ function parsedRepositoryFromHost(host: string, namespace: string, repo: string)
   };
 }
 
+async function triggerNativeDevopsDelivery(args: {
+  store: FileStore;
+  auth: AuthContext;
+  run: StoredRun;
+  delivery: DeliveryPlan;
+  plan: EvolutionPlan;
+  body: any;
+  runtime: RuntimeConfig;
+}): Promise<PipelineRun> {
+  const { store, auth, run, delivery, plan, body } = args;
+  const project = store.readProject(plan.projectId);
+  if (!project?.devops) throw httpError(409, "DEVOPS_NOT_CONFIGURED", `项目 ${plan.projectId} 未配置 GitHub Actions 或 GitLab CI DevOps。`);
+  const repository = project.repository;
+  if (!repository) throw httpError(409, "PROJECT_REPOSITORY_NOT_CONFIGURED", `项目 ${plan.projectId} 未配置源码仓库。`);
+  const devops = project.devops;
+  const token = resolveProjectDevopsToken(project);
+  if (!token) throw httpError(409, "DEVOPS_TOKEN_REQUIRED", "GitHub/GitLab 原生 DevOps 需要项目 source token 或 devops tokenRef。");
+  const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
+  const parameters = normalizeDeliveryParameters(delivery, plan, {
+    ...(devops.cd?.deployInputs ?? {}),
+    ...(body.parameters && typeof body.parameters === "object" ? body.parameters : {})
+  }, codeUpgrade);
+  const ref = String(body.ref ?? body.branch ?? devops.ci.ref ?? codeUpgrade?.artifacts.branchName ?? codeUpgrade?.branchStrategy.upgradeBranch ?? repository.defaultBranch ?? "main").trim();
+  const now = new Date().toISOString();
+  logInfo("devops.pipeline.triggering", {
+    actor: auth.actor,
+    target: delivery.id,
+    metadata: {
+      projectId: delivery.projectId,
+      provider: devops.provider,
+      ref,
+      workflow: devops.ci.workflow,
+      deliveryPlanId: delivery.id,
+      codeUpgradeRunId: codeUpgrade?.id
+    }
+  });
+  let pipeline: PipelineRun;
+  if (devops.provider === "github-actions") {
+    if (repository.provider !== "github") throw httpError(409, "DEVOPS_PROVIDER_PROJECT_MISMATCH", "github-actions requires a GitHub project.");
+    if (!repository.owner || !repository.repo) throw httpError(409, "SOURCE_CLOSURE_GITHUB_COORDINATES_REQUIRED", "GitHub Actions requires owner and repo.");
+    const adapter = new GitHubHttpAdapter({ apiBaseUrl: repository.baseUrl, owner: repository.owner, repo: repository.repo, token });
+    if (devops.ci.workflow) {
+      await adapter.triggerWorkflowDispatch(devops.ci.workflow, ref, parameters);
+    }
+    const checks = await readGitHubChecksForPipeline(adapter, ref);
+    const workflowRuns = devops.ci.workflow ? await readGitHubWorkflowRunsForPipeline(adapter, devops.ci.workflow, ref) : [];
+    const latestRun = workflowRuns[0];
+    const status = latestRun ? githubWorkflowRunToPipelineStatus(latestRun.status, latestRun.conclusion)
+      : checks.length > 0 ? aggregatePipelineStatuses(checks.map((check) => githubCheckToPipelineStatus(check.status, check.conclusion)))
+        : devops.ci.workflow ? "QUEUED" : "UNKNOWN";
+    pipeline = createPipelineRun({
+      id: `pipeline-${delivery.id}-${Date.now()}`,
+      projectId: delivery.projectId,
+      deliveryPlanId: delivery.id,
+      provider: "github-actions",
+      connectorId: `project:${project.id}`,
+      jobName: devops.ci.workflow ?? ((devops.ci.requiredChecks ?? []).join(",") || "github-actions"),
+      status,
+      queueId: latestRun ? String(latestRun.id) : undefined,
+      buildUrl: latestRun?.htmlUrl,
+      stages: checks.map((check) => ({
+        id: safeFileName(check.name || "check"),
+        name: check.name || "GitHub check",
+        status: pipelineStageStatusFromPipelineStatus(githubCheckToPipelineStatus(check.status, check.conclusion)),
+        logUrl: latestRun?.htmlUrl
+      })),
+      logRef: { url: latestRun?.htmlUrl, preview: renderNativePipelineLogPreview("github-actions", status, [`ref=${ref}`, `workflow=${devops.ci.workflow ?? "checks"}`, `checks=${checks.length}`]) },
+      parameters: { ...parameters, DEVOPS_REF: ref, DEVOPS_PROVIDER: devops.provider },
+      now
+    });
+  } else if (devops.provider === "gitlab-ci") {
+    if (repository.provider !== "gitlab") throw httpError(409, "DEVOPS_PROVIDER_PROJECT_MISMATCH", "gitlab-ci requires a GitLab project.");
+    if (!repository.baseUrl || !repository.projectId) throw httpError(409, "SOURCE_CLOSURE_GITLAB_COORDINATES_REQUIRED", "GitLab CI requires baseUrl and projectId.");
+    const adapter = new GitLabHttpAdapter({ baseUrl: repository.baseUrl, projectId: repository.projectId, token });
+    const triggered = await adapter.triggerPipeline(ref, parameters);
+    const jobs = await readGitLabJobsForPipeline(adapter, triggered.id);
+    const status = jobs.length > 0 ? aggregatePipelineStatuses(jobs.map((job) => gitLabPipelineStatus(job.status))) : gitLabPipelineStatus(triggered.status);
+    pipeline = createPipelineRun({
+      id: `pipeline-${delivery.id}-${Date.now()}`,
+      projectId: delivery.projectId,
+      deliveryPlanId: delivery.id,
+      provider: "gitlab-ci",
+      connectorId: `project:${project.id}`,
+      jobName: devops.ci.workflow ?? ".gitlab-ci.yml",
+      status,
+      queueId: String(triggered.id),
+      buildUrl: triggered.webUrl,
+      stages: jobs.map((job) => ({
+        id: safeFileName(String(job.id)),
+        name: `${job.stage}/${job.name}`,
+        status: pipelineStageStatusFromPipelineStatus(gitLabPipelineStatus(job.status)),
+        logUrl: job.webUrl
+      })),
+      logRef: { url: triggered.webUrl, preview: renderNativePipelineLogPreview("gitlab-ci", status, [`ref=${ref}`, `pipeline=${triggered.id}`, `jobs=${jobs.length}`]) },
+      parameters: { ...parameters, DEVOPS_REF: ref, DEVOPS_PROVIDER: devops.provider },
+      now
+    });
+  } else {
+    throw httpError(400, "DEVOPS_PROVIDER_UNSUPPORTED", `不支持的 DevOps provider：${String(devops.provider)}`);
+  }
+  store.writePipeline(pipeline);
+  run.pipelineRuns = [...(run.pipelineRuns ?? []).filter((item) => item.id !== pipeline.id), pipeline];
+  store.writeRun(run);
+  store.appendAudit(audit(auth, "devops.pipeline.triggered", pipeline.id, { deliveryId: delivery.id, provider: pipeline.provider, ref }));
+  logInfo("devops.pipeline.triggered", {
+    actor: auth.actor,
+    target: pipeline.id,
+    metadata: {
+      projectId: pipeline.projectId,
+      deliveryPlanId: delivery.id,
+      provider: pipeline.provider,
+      ref,
+      queueId: pipeline.queueId,
+      buildUrl: pipeline.buildUrl,
+      status: pipeline.status
+    }
+  });
+  finalizePipelineIfNeeded(store, pipeline);
+  return pipeline;
+}
+
 async function triggerJenkinsDelivery(args: {
   store: FileStore;
   auth: AuthContext;
@@ -16420,6 +17111,61 @@ async function triggerJenkinsDelivery(args: {
     }
   });
   return pipeline;
+}
+
+async function readGitHubChecksForPipeline(adapter: GitHubHttpAdapter, ref: string): Promise<Array<{ name: string; status: string; conclusion?: string }>> {
+  try {
+    return await adapter.listChecks(ref);
+  } catch {
+    return [];
+  }
+}
+
+async function readGitHubWorkflowRunsForPipeline(adapter: GitHubHttpAdapter, workflow: string, ref: string): Promise<Array<{ id: number; name: string; status: string; conclusion?: string; htmlUrl?: string }>> {
+  try {
+    return await adapter.listWorkflowRuns(workflow, ref);
+  } catch {
+    return [];
+  }
+}
+
+async function readGitLabJobsForPipeline(adapter: GitLabHttpAdapter, pipelineId: number): Promise<Array<{ id: number; name: string; stage: string; status: string; webUrl?: string }>> {
+  try {
+    return await adapter.listPipelineJobs(pipelineId);
+  } catch {
+    return [];
+  }
+}
+
+function githubWorkflowRunToPipelineStatus(status: string, conclusion?: string): PipelineStatus {
+  return githubCheckToPipelineStatus(status, conclusion);
+}
+
+function aggregatePipelineStatuses(statuses: PipelineStatus[]): PipelineStatus {
+  if (statuses.length === 0) return "UNKNOWN";
+  if (statuses.some((status) => status === "FAILED")) return "FAILED";
+  if (statuses.some((status) => status === "CANCELED")) return "CANCELED";
+  if (statuses.some((status) => status === "RUNNING")) return "RUNNING";
+  if (statuses.some((status) => status === "QUEUED")) return "QUEUED";
+  if (statuses.every((status) => status === "SUCCEEDED")) return "SUCCEEDED";
+  return "UNKNOWN";
+}
+
+function pipelineStageStatusFromPipelineStatus(status: PipelineStatus): PipelineStage["status"] {
+  if (status === "QUEUED") return "PENDING";
+  if (status === "RUNNING") return "RUNNING";
+  if (status === "SUCCEEDED") return "SUCCEEDED";
+  if (status === "FAILED") return "FAILED";
+  if (status === "CANCELED") return "SKIPPED";
+  return "UNKNOWN";
+}
+
+function renderNativePipelineLogPreview(provider: ProjectDevopsProvider, status: PipelineStatus, evidence: string[]): string {
+  return [
+    `provider=${provider}`,
+    `status=${status}`,
+    ...evidence
+  ].join("\n");
 }
 
 function resolveJenkinsDeliveryTarget(args: {
@@ -16693,7 +17439,7 @@ function logCategory(event: string): LogCategory {
   if (event.startsWith("http.")) return "http";
   if (event.startsWith("audit.")) return "audit";
   if (event.startsWith("code-upgrade.")) return "code-upgrade";
-  if (event.startsWith("jenkins.")) return "cicd";
+  if (event.startsWith("jenkins.") || event.startsWith("devops.") || event.startsWith("project.devops")) return "cicd";
   if (event.startsWith("loop-worker.")) return "worker";
   if (event.includes("release")) return "release";
   if (event.includes("auth")) return "auth";
@@ -16709,7 +17455,7 @@ function routeGroup(pathname: string): string {
   if (pathname.includes("release")) return "release-governance";
   if (pathname.includes("evidence") || pathname.includes("audit")) return "evidence-audit";
   if (pathname.includes("code-upgrade")) return "code-upgrade";
-  if (pathname.includes("jenkins") || pathname.includes("delivery")) return "cicd";
+  if (pathname.includes("jenkins") || pathname.includes("devops") || pathname.includes("pipeline") || pathname.includes("delivery")) return "cicd";
   return pathname.startsWith("/api/") ? "api" : "dashboard";
 }
 

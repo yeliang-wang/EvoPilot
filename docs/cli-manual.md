@@ -38,6 +38,55 @@ evopilot target run \
 
 The command prints the same product chain the Dashboard exposes: project, release target, GlobalGoal, active GoalTarget, LoopRun, source closure, deploy, release decision, final report, evidence links, blockers, and next action.
 
+For a real GitHub/GitLab project, configure source credentials and native DevOps once before using the one-command wrapper:
+
+```bash
+evopilot project preflight my-agent --json
+evopilot project devops preflight my-agent --json
+```
+
+If DevOps is not configured, use one of these atomic setup commands.
+
+GitHub Actions:
+
+```bash
+evopilot project devops set my-agent \
+  --provider github-actions \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --ci-required-check test \
+  --cd-workflow deploy-prod.yml \
+  --deploy-environment production \
+  --health-url https://my-agent.example.com/health \
+  --json
+```
+
+GitLab CI:
+
+```bash
+evopilot project devops set my-agent \
+  --provider gitlab-ci \
+  --ci-required-stage test \
+  --ci-required-job build \
+  --cd-required-stage deploy \
+  --deploy-environment production \
+  --ready-url https://my-agent.example.com/ready \
+  --json
+```
+
+Then run the wrapper with a fast-fail DevOps guard:
+
+```bash
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, native CI/CD, deployment evidence, release decision, and blocker review" \
+  --until terminal \
+  --max-steps 20 \
+  --require-devops-ready \
+  --json
+```
+
 ## CLI Capability Model
 
 EvoPilot CLI has two command layers.
@@ -119,13 +168,14 @@ evopilot loop run loop-my-agent-rc --max-iterations 10
 A wrapper command may perform these server-governed steps:
 
 1. Resolve or create the project release target.
-2. Create or resume a GlobalGoal.
-3. Generate the goal plan.
-4. Approve the goal plan unless `--no-auto-approve-plan` or `--require-plan-approval` is set.
-5. Advance one GoalTarget at a time.
-6. Bind GoalTargets to LoopRuns.
-7. Read `run-status`, `snapshot`, `graph`, `timeline`, `evidence-matrix`, and release decisions.
-8. Stop at terminal, blocked, human approval, policy review, credential repair, deploy repair, release decision, or `NO-GO`.
+2. Read project DevOps preflight and expose it in the CLI `steps` chain.
+3. Create or resume a GlobalGoal.
+4. Generate the goal plan.
+5. Approve the goal plan unless `--no-auto-approve-plan` or `--require-plan-approval` is set.
+6. Advance one GoalTarget at a time.
+7. Bind GoalTargets to LoopRuns.
+8. Read `run-status`, `snapshot`, `graph`, `timeline`, `evidence-matrix`, and release decisions.
+9. Stop at terminal, blocked, human approval, policy review, credential repair, deploy repair, release decision, or `NO-GO`.
 
 Wrapper commands do not:
 
@@ -182,6 +232,8 @@ The wrapper command is a product shortcut. The equivalent atomic flow is:
 
 ```bash
 evopilot target create --project my-agent --template ga --idempotency-key target-my-agent-ga --json
+evopilot project preflight my-agent --json
+evopilot project devops preflight my-agent --json
 
 evopilot goal create \
   --project my-agent \
@@ -225,6 +277,8 @@ AI agents must not parse human-readable text, store secrets in committed files, 
 |---|---|---|
 | `status` has health but no `summary` | The session is not authenticated. | Check token, server, tenant, and workspace. |
 | `target run` stops at `configure-source-credentials` | Source writeback credentials are missing or read-only. | Configure project credentials, then rerun the same command. |
+| `target run --require-devops-ready` fails before goal execution | Project GitHub Actions/GitLab CI readiness is not `READY`. | Run `project devops preflight`, then repair provider, tokenRef, workflow, required checks/jobs, or health URL. |
+| `project devops set` returns `DEVOPS_PROVIDER_PROJECT_MISMATCH` | The DevOps provider does not match the registered SCM provider. | Use `github-actions` only for GitHub projects and `gitlab-ci` only for GitLab projects. |
 | `goal run` stops at `approve-plan` | Plan approval was required. | Review `goal graph` and `goal evidence-matrix`, then approve. |
 | `goal run` stops at `human-approval` | A governed LoopRun is waiting for approval. | Approve only after a human review. |
 | `goal run` stops at `policy-review` | Release policy blocked merge or promotion. | Inspect release run policy blockers. |

@@ -11,6 +11,8 @@ export const gitHubAdapterCapability = {
   createPullRequest: true,
   listPullRequests: true,
   readChecks: true,
+  triggerWorkflowDispatch: true,
+  readWorkflowRuns: true,
   readRef: true,
   createBranch: true,
   upsertFile: true,
@@ -31,6 +33,15 @@ export interface GitHubFileUpsert {
   message: string;
   branch: string;
   sha?: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion?: string;
+  headBranch?: string;
+  htmlUrl?: string;
 }
 
 export class GitHubHttpAdapter {
@@ -134,7 +145,35 @@ export class GitHubHttpAdapter {
     }));
   }
 
+  async triggerWorkflowDispatch(workflowId: string, ref: string, inputs: Record<string, string> = {}): Promise<void> {
+    await this.request("POST", `/actions/workflows/${encodeURIComponent(workflowId)}/dispatches`, {
+      ref,
+      inputs
+    });
+  }
+
+  async listWorkflowRuns(workflowId: string, branch?: string): Promise<GitHubWorkflowRun[]> {
+    const params = new URLSearchParams({ per_page: "20" });
+    if (branch) params.set("branch", branch);
+    const query = params.toString();
+    const response = await this.requestJson<any>("GET", `/actions/workflows/${encodeURIComponent(workflowId)}/runs${query ? `?${query}` : ""}`);
+    return (response.workflow_runs ?? []).map((run: any) => ({
+      id: Number(run.id),
+      name: String(run.name ?? workflowId),
+      status: String(run.status ?? ""),
+      conclusion: run.conclusion ? String(run.conclusion) : undefined,
+      headBranch: run.head_branch ? String(run.head_branch) : undefined,
+      htmlUrl: run.html_url ? String(run.html_url) : undefined
+    }));
+  }
+
   private async requestJson<T>(method: string, apiPath: string, body?: unknown, options: { allowAnonymous?: boolean } = {}): Promise<T> {
+    const response = await this.request(method, apiPath, body, options);
+    const text = await response.text();
+    return (text ? JSON.parse(text) : {}) as T;
+  }
+
+  private async request(method: string, apiPath: string, body?: unknown, options: { allowAnonymous?: boolean } = {}): Promise<Response> {
     const token = this.config.token;
     if (!token && !options.allowAnonymous) throw new Error("GitHub token is required");
     const baseUrl = (this.config.apiBaseUrl ?? "https://api.github.com").replace(/\/+$/, "");
@@ -148,7 +187,7 @@ export class GitHubHttpAdapter {
       },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
-    if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${response.statusText}`);
-    return response.json() as Promise<T>;
+    if (!response.ok) throw new Error(`GitHub request failed: ${response.status} ${response.statusText} ${await response.text()}`.trim());
+    return response;
   }
 }

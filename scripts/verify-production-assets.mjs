@@ -135,6 +135,6 @@ assert.match(dashboardIntegration, /evopilot-dashboard/);
 const lock = JSON.parse(fs.readFileSync("runtimes/runtime-lock.json", "utf8"));
 assert.equal(lock.schemaVersion, 1);
 assert.ok(lock.runtimes.some((item) => item.implementation === "OpenHands"));
-assert.ok(!lock.runtimes.some((item) => item.implementation === "Jenkins"), "Jenkins must remain an external CI/CD connector, not an EvoPilot managed runtime");
+assert.ok(!lock.runtimes.some((item) => item.implementation === "Jenkins"), "Jenkins must remain a legacy compatibility connector, not an EvoPilot managed runtime");
 
 console.log("production assets verified");

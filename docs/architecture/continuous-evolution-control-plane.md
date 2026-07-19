@@ -14,7 +14,7 @@ This model is based on the Loop Engineering idea shown as nested layers: `Sandbo
 
 | Layer | Design question | EvoPilot ownership |
 |---|---|---|
-| Sandbox | How are executors isolated, constrained, and validated before they can affect product state? | per-step workspaces, code-upgrader runtime, protected path checks, validation commands, Jenkins/GitLab delivery boundaries |
+| Sandbox | How are executors isolated, constrained, and validated before they can affect product state? | per-step workspaces, code-upgrader runtime, protected path checks, validation commands, GitHub Actions/GitLab CI delivery boundaries |
 | Context | How does a 24h+ task keep progress, evidence, artifacts, and intermediate results across rounds? | `LoopRun`, `LoopIteration`, timeline, evidence sets, artifacts, project profile, evaluation datasets, release evidence |
 | Harness | What control plane applies policy, approval, audit, observability, and recovery? | `/api/v1/loops`, RBAC, approval APIs, audit log, structured logs, watchdog, heartbeat leases, retry/stop policies |
 | Loop | When should the system continue, stop, retry, escalate, split work, or produce a release decision? | trigger rules, resume/cancel/approve APIs, ProofOps target loops, release targets, final `GO` / `CONDITIONAL-GO` / `NO-GO` |
@@ -102,14 +102,14 @@ The product loop maps to current EvoPilot runtime surfaces:
 | Global goal planning | `GlobalGoal` plan generation, GoalTarget dependency graph, snapshot, timeline, evidence matrix, and final report |
 | Plan review | Markdown opportunity drafts and user-edited evolution plans |
 | Long-running execution | `LoopRun`, executor graphs, loop worker, heartbeat leases, watchdog recovery |
-| Code and delivery actions | code-upgrader runtime, branch/commit evidence, Jenkins/GitLab connector boundaries |
+| Code and delivery actions | code-upgrader runtime, branch/commit evidence, GitHub Actions/GitLab CI project DevOps boundaries |
 | Release governance | release targets, release evidence bundles, scenario matrices, release decisions |
 | Human control | RBAC roles, approval gates, release-action approval, audit records |
 | Operability | structured JSON Lines logs, request ids, production deployment checks |
 
 ## Boundaries
 
-EvoPilot owns the control plane. Agent runtimes, LLM providers, code-upgrader workers, Jenkins/GitLab, observability systems, and IM adapters remain external executors or evidence sources.
+EvoPilot owns the control plane. Agent runtimes, LLM providers, code-upgrader workers, GitHub/GitLab DevOps platforms, observability systems, and IM adapters remain external executors or evidence sources.
 
 EvoPilot should not:
 

@@ -5,7 +5,7 @@
 EvoPilot 的证据接入层负责把线上 Agent、工具调用、LLM 调用、RAG、评测、用户反馈、APM 链路和日志统一转换为进化证据。所有接入方式最终都会进入同一个闭环：
 
 ```text
-证据上报 -> 证据包 -> 证据聚类 -> 失败归因 -> 触发规则 -> 机会点 -> 用户确认 -> 代码升级 -> 外部 Jenkins CI/CD -> 历史记录
+证据上报 -> 证据包 -> 证据聚类 -> 失败归因 -> 触发规则 -> 机会点 -> 用户确认 -> 代码升级 -> GitHub Actions/GitLab CI -> 历史记录
 ```
 
 ## 接入方式
@@ -230,6 +230,6 @@ EvoPilot 不是 APM 系统，不替代 SkyWalking、Prometheus、Tempo 或日志
 - 接收 APM / Trace / Log / Metrics / Eval / Feedback。
 - 转换为统一进化证据。
 - 触发进化规则和机会点。
-- 驱动代码升级与外部 Jenkins CI/CD。
+- 驱动代码升级与 GitHub Actions/GitLab CI 原生 DevOps。
 
 APM 系统继续负责底层采集、存储、拓扑和排障；EvoPilot 负责把这些信号转化为可执行的产品进化闭环。

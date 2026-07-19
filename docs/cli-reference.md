@@ -160,7 +160,7 @@ The role required depends on the command:
 |---|---|
 | viewer | `status`, `project list`, `target list`, `goal list`, `goal snapshot`, `goal graph`, `release current`, `release-run list`, `worker queue`, `trace`, `audit list` |
 | operator | `goal create`, `goal plan`, `goal approve-plan`, `goal advance`, `loop start`, `loop approve`, `worker claim`, `worker heartbeat`, `sandbox verify`, `replay run`, `release gate` |
-| admin | `project register`, `project credentials set`, `target create`, `source-closure execute`, `source-closure merge`, `connector deploy create` |
+| admin | `project register`, `project credentials set`, `project devops set`, `project devops clear`, `target create`, `source-closure execute`, `source-closure merge`, `connector deploy create` |
 
 Production source, merge, deployment, and release operations remain server-governed. The CLI only submits the request.
 
@@ -257,6 +257,71 @@ evopilot project preflight my-agent --json
 ```
 
 `READY` means EvoPilot can perform the governed source operation. `READ_ONLY` or `BLOCKED` means the agent must stop or request credential repair.
+
+### Configure Project DevOps
+
+EvoPilot no longer requires Jenkins for a normal GitHub/GitLab project. Register SCM first, then bind the project to the repository-native CI/CD provider. The project stores DevOps metadata and optional `tokenRef`; the real token is resolved by the EvoPilot server process from source credentials or the DevOps `tokenRef`.
+
+GitHub Actions:
+
+```bash
+evopilot project devops set my-agent \
+  --provider github-actions \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --ci-required-check test \
+  --cd-workflow deploy-prod.yml \
+  --deploy-environment production \
+  --health-url https://my-agent.example.com/health \
+  --json
+```
+
+GitLab CI:
+
+```bash
+evopilot project devops set my-agent \
+  --provider gitlab-ci \
+  --ci-required-stage test \
+  --ci-required-job build \
+  --cd-required-stage deploy \
+  --deploy-environment production \
+  --ready-url https://my-agent.example.com/ready \
+  --json
+```
+
+Inspect and preflight:
+
+```bash
+evopilot project devops inspect my-agent --json
+evopilot project devops preflight my-agent --json
+```
+
+`project devops preflight` returns `evopilot-project-devops-readiness/v1`:
+
+- `READY`: token, provider, CI contract, and optional health/ready probe are usable.
+- `OBSERVABLE`: configuration and token are usable, but current CI evidence is not green; do not claim release readiness.
+- `BLOCKED`: provider mismatch, missing token, missing CI contract, or project binding problem.
+
+Clear only when intentionally removing the project DevOps contract:
+
+```bash
+evopilot project devops clear my-agent --json
+```
+
+For one-command operation, run the wrapper only after source credentials and DevOps are ready:
+
+```bash
+evopilot project preflight my-agent --json
+evopilot project devops preflight my-agent --json
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, native CI/CD, deployment evidence, release decision, and blocker review" \
+  --until terminal \
+  --max-steps 20 \
+  --require-devops-ready \
+  --json
+```
 
 ### Create A Release Target
 

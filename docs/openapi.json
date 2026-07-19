@@ -159,7 +159,7 @@
     },
     "/api/v1/connectors/jenkins": {
       "get": {
-        "summary": "列出外部 Jenkins CI/CD 连接器配置",
+        "summary": "列出兼容 Jenkins CI/CD 连接器配置",
         "security": [
           {
             "bearerAuth": []
@@ -167,12 +167,12 @@
         ],
         "responses": {
           "200": {
-            "description": "外部 Jenkins CI/CD 连接器配置列表"
+            "description": "兼容 Jenkins CI/CD 连接器配置列表"
           }
         }
       },
       "post": {
-        "summary": "保存外部 Jenkins CI/CD 连接器配置",
+        "summary": "保存兼容 Jenkins CI/CD 连接器配置",
         "security": [
           {
             "bearerAuth": []
@@ -180,7 +180,7 @@
         ],
         "responses": {
           "201": {
-            "description": "外部 Jenkins CI/CD 连接器配置已保存"
+            "description": "兼容 Jenkins CI/CD 连接器配置已保存"
           },
           "403": {
             "description": "需要管理员角色"
@@ -355,7 +355,7 @@
             "description": "交付已执行"
           },
           "202": {
-            "description": "Jenkins 流水线已触发"
+            "description": "GitHub Actions、GitLab CI 或兼容 Jenkins 流水线已触发"
           },
           "409": {
             "description": "需要用户确认"
@@ -4036,6 +4036,225 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/devops": {
+      "get": {
+        "summary": "读取项目 GitHub/GitLab 原生 DevOps 配置",
+        "description": "返回项目级 DevOps 配置。响应不回显 secret；token 通过项目 source credentials 或 devops tokenRef 在服务端解析。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 DevOps 配置"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "权限不足"
+          },
+          "404": {
+            "description": "项目不存在或未配置 DevOps"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "保存项目 GitHub/GitLab 原生 DevOps 配置",
+        "description": "provider 支持 github-actions 和 gitlab-ci。GitHub Actions 只能用于 GitHub 项目；GitLab CI 只能用于 GitLab 项目。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "配置已保存，DevOps READY 或 OBSERVABLE"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "权限不足"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "provider mismatch 或 DevOps BLOCKED"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "更新项目 GitHub/GitLab 原生 DevOps 配置",
+        "description": "语义同 POST。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "配置已保存，DevOps READY 或 OBSERVABLE"
+          },
+          "409": {
+            "description": "provider mismatch 或 DevOps BLOCKED"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "清除项目 DevOps 配置",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DevOps 配置已清除"
+          },
+          "404": {
+            "description": "项目不存在"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/devops/preflight": {
+      "get": {
+        "summary": "读取项目 DevOps readiness",
+        "description": "返回 evopilot-project-devops-readiness/v1，状态为 READY、OBSERVABLE 或 BLOCKED。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DevOps READY"
+          },
+          "409": {
+            "description": "DevOps OBSERVABLE 或 BLOCKED"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "执行项目 DevOps 预检并写入审计",
+        "description": "只读检查 provider、tokenRef、CI contract、当前 pipeline/check evidence 和可选 health/ready URL。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DevOps READY"
+          },
+          "409": {
+            "description": "DevOps OBSERVABLE 或 BLOCKED"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/deliveries/{deliveryId}/code-upgrade": {
       "post": {
         "summary": "启动交付计划代码升级",
@@ -4091,7 +4310,7 @@
     "/api/v1/deliveries/{deliveryId}/schedule": {
       "post": {
         "summary": "调度交付计划执行",
-        "description": "Dashboard 对已确认的交付计划创建 Jenkins/CI 调度，或在计划时间已到时直接触发流水线。",
+        "description": "Dashboard 对已确认的交付计划创建 GitHub Actions/GitLab CI/兼容 Jenkins 调度，或在计划时间已到时直接触发流水线。",
         "security": [
           {
             "bearerAuth": []

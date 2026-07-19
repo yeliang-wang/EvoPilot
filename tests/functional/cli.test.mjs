@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -16,6 +17,8 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   assert.match(help, /evopilot config show/);
   assert.match(help, /evopilot auth token/);
   assert.match(help, /evopilot project list/);
+  assert.match(help, /evopilot project devops set/);
+  assert.match(help, /evopilot project devops preflight/);
   assert.match(help, /evopilot target list/);
   assert.match(help, /evopilot target decision/);
   assert.match(help, /evopilot goal create/);
@@ -31,6 +34,88 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   const versionJson = await runCli(["--version", "--json"]);
   assert.equal(versionJson.name, "@evopilot/cli");
   assert.equal(versionJson.version, "0.1.0");
+});
+
+test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
+  assert.ok(fs.existsSync(cliPath), "CLI must be built before functional tests run");
+
+  const github = await startFakeGitHubForCli();
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-cli-devops-"));
+  const configPath = path.join(dataRoot, "cli-config.json");
+  const server = createServer({
+    dataRoot,
+    runtimeMode: "debug",
+    users: [
+      {
+        username: "tenant-admin",
+        password: "tenant-password",
+        role: "admin",
+        tenantId: "tenant-production",
+        workspaceId: "workspace-agent-products",
+        displayName: "Tenant Admin"
+      }
+    ]
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await runCli([
+      "auth", "login",
+      "--server", baseUrl,
+      "--username", "tenant-admin",
+      "--password", "tenant-password",
+      "--config", configPath,
+      "--json"
+    ]);
+    const project = await runCli([
+      "project", "register",
+      "--id", "github-cli-agent",
+      "--provider", "github",
+      "--base-url", github.baseUrl,
+      "--owner", "org",
+      "--repo-name", "repo",
+      "--branch", "main",
+      "--source-token", "github-token",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(project.id, "github-cli-agent");
+    assert.equal(project.repository.provider, "github");
+
+    const configured = await runCli([
+      "project", "devops", "set", "github-cli-agent",
+      "--provider", "github-actions",
+      "--ci-workflow", "ci.yml",
+      "--ci-required-check", "build",
+      "--ci-required-check", "test",
+      "--cd-workflow", "deploy-prod.yml",
+      "--deploy-environment", "production",
+      "--health-url", `${github.baseUrl}/health`,
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(configured.devops.provider, "github-actions");
+    assert.equal(configured.readiness.status, "READY");
+
+    const preflightText = await runCliText([
+      "project", "devops", "preflight", "github-cli-agent",
+      "--config", configPath
+    ]);
+    assert.match(preflightText, /EvoPilot Project DevOps/);
+    assert.match(preflightText, /Provider   github-actions/);
+    assert.match(preflightText, /\[PASS\] ci-state/);
+
+    const inspected = await runCli(["project", "devops", "inspect", "github-cli-agent", "--config", configPath, "--json"]);
+    assert.equal(inspected.provider, "github-actions");
+
+    const cleared = await runCli(["project", "devops", "clear", "github-cli-agent", "--config", configPath, "--json"]);
+    assert.equal(cleared.cleared, true);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await github.close();
+  }
 });
 
 test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () => {
@@ -106,6 +191,15 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const sourceCredentials = await runCli(["project", "preflight", "cli-agent", "--config", configPath, "--json"]);
     assert.equal(sourceCredentials.status, "READY");
     assert.equal(sourceCredentials.provider, "local-git");
+
+    const devopsMismatch = await runCli([
+      "project", "devops", "set", "cli-agent",
+      "--provider", "github-actions",
+      "--ci-workflow", "ci.yml",
+      "--config", configPath,
+      "--json"
+    ], { status: 2 });
+    assert.equal(devopsMismatch.error, "DEVOPS_PROVIDER_PROJECT_MISMATCH");
 
     const evidenceFile = path.join(dataRoot, "events.json");
     fs.writeFileSync(evidenceFile, JSON.stringify([
@@ -514,4 +608,35 @@ function createGitRepository(repoRoot) {
   execFileSync("git", ["config", "user.name", "EvoPilot CLI"], { cwd: repoRoot, stdio: "ignore" });
   execFileSync("git", ["add", "README.md"], { cwd: repoRoot, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", "initial commit"], { cwd: repoRoot, stdio: "ignore" });
+}
+
+async function startFakeGitHubForCli() {
+  const server = http.createServer(async (request, response) => {
+    if (request.url === "/repos/org/repo/git/trees/main?recursive=1") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ tree: [{ type: "blob", path: "README.md" }] }));
+      return;
+    }
+    if (request.url === "/repos/org/repo/commits/main/check-runs") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ check_runs: [
+        { name: "build", status: "completed", conclusion: "success" },
+        { name: "test", status: "completed", conclusion: "success" }
+      ] }));
+      return;
+    }
+    if (request.url === "/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ status: "UP" }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise((resolve) => server.close(resolve))
+  };
 }

@@ -77,6 +77,12 @@ async function main(argv: string[]): Promise<number> {
       case "project:credentials":
         if (maybeId !== "set") throw usage("Use: evopilot project credentials set <project-id> [options]");
         return await projectCredentialsSet(ctx, args.positionals[3]);
+      case "project:devops":
+        if (maybeId === "set") return await projectDevopsSet(ctx, args.positionals[3]);
+        if (maybeId === "inspect") return await projectDevopsInspect(ctx, args.positionals[3]);
+        if (maybeId === "preflight") return await projectDevopsPreflight(ctx, args.positionals[3]);
+        if (maybeId === "clear") return await projectDevopsClear(ctx, args.positionals[3]);
+        throw usage("Use: evopilot project devops <set|inspect|preflight|clear> <project-id> [options]");
       case "evidence:push":
         return await evidencePush(ctx);
       case "target:templates":
@@ -315,6 +321,78 @@ async function projectCredentialsSet(ctx: RuntimeContext, id?: string): Promise<
   return response.ok ? 0 : 2;
 }
 
+async function projectDevopsSet(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const cdConfigured = hasAnyOption(ctx.args, [
+    "cd-workflow",
+    "deploy-workflow",
+    "deploy-environment",
+    "environment",
+    "cd-required-stage",
+    "cd-required-job",
+    "deploy-input",
+    "health-url",
+    "ready-url",
+    "cd-timeout-seconds",
+    "deploy-timeout-seconds"
+  ]);
+  const body: Record<string, unknown> = {
+    provider: requiredOption(ctx.args, "provider"),
+    tokenRef: stringOption(ctx.args, "token-ref") ?? stringOption(ctx.args, "devops-token-ref"),
+    ci: {
+      workflow: stringOption(ctx.args, "ci-workflow") ?? stringOption(ctx.args, "workflow"),
+      ref: stringOption(ctx.args, "ci-ref") ?? stringOption(ctx.args, "ref") ?? stringOption(ctx.args, "branch"),
+      requiredChecks: [
+        ...repeatedOption(ctx.args, "ci-required-check"),
+        ...repeatedOption(ctx.args, "required-check")
+      ],
+      requiredStages: [
+        ...repeatedOption(ctx.args, "ci-required-stage"),
+        ...repeatedOption(ctx.args, "required-stage")
+      ],
+      requiredJobs: [
+        ...repeatedOption(ctx.args, "ci-required-job"),
+        ...repeatedOption(ctx.args, "required-job")
+      ],
+      timeoutSeconds: numberOption(ctx.args, "ci-timeout-seconds")
+    },
+    cd: cdConfigured ? {
+      workflow: stringOption(ctx.args, "cd-workflow") ?? stringOption(ctx.args, "deploy-workflow"),
+      environment: stringOption(ctx.args, "deploy-environment") ?? stringOption(ctx.args, "environment"),
+      requiredStages: repeatedOption(ctx.args, "cd-required-stage"),
+      requiredJobs: repeatedOption(ctx.args, "cd-required-job"),
+      deployInputs: parseKeyValueOptions(repeatedOption(ctx.args, "deploy-input")),
+      healthUrl: stringOption(ctx.args, "health-url"),
+      readyUrl: stringOption(ctx.args, "ready-url"),
+      timeoutSeconds: numberOption(ctx.args, "cd-timeout-seconds") ?? numberOption(ctx.args, "deploy-timeout-seconds")
+    } : undefined
+  };
+  const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/devops`, body, requestOptions(ctx));
+  printProjectDevopsResult(ctx, "project devops set", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectDevopsInspect(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.get(`/api/v1/projects/${encodeURIComponent(projectId)}/devops`);
+  printProjectDevopsResult(ctx, "project devops inspect", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectDevopsPreflight(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/devops/preflight`, {}, requestOptions(ctx));
+  printProjectDevopsResult(ctx, "project devops preflight", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectDevopsClear(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.request("DELETE", `/api/v1/projects/${encodeURIComponent(projectId)}/devops`, requestOptions(ctx));
+  printProjectDevopsResult(ctx, "project devops clear", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
 async function evidencePush(ctx: RuntimeContext): Promise<number> {
   const file = requiredOption(ctx.args, "file");
   const parsed = readJson(file);
@@ -394,6 +472,11 @@ async function targetRun(ctx: RuntimeContext): Promise<number> {
       const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
       steps.push({ type: "target.created", targetId: field(created, "id"), templateId });
     }
+  }
+  const devopsPreflight = await tryProjectDevopsPreflight(ctx, projectId);
+  steps.push(devopsPreflight);
+  if (hasFlag(ctx.args, "require-devops-ready") && devopsPreflight.status !== "READY") {
+    throw usage(`Project DevOps is not READY: ${devopsPreflight.status}`);
   }
   const objective = stringOption(ctx.args, "objective") ?? `Promote ${projectId} to ${templateId ?? targetId} through source closure, deployment evidence, release decision, and blocker review.`;
   return await runGoalWrapper(ctx, {
@@ -915,6 +998,29 @@ async function releaseGate(ctx: RuntimeContext): Promise<number> {
   return 0;
 }
 
+async function tryProjectDevopsPreflight(ctx: RuntimeContext, projectId: string): Promise<Record<string, unknown>> {
+  try {
+    const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/devops/preflight`, {}, derivedRequestOptions(ctx, "target-run-devops-preflight"));
+    const readiness = isRecord(response.data) ? response.data : undefined;
+    return {
+      type: "project.devops.preflight",
+      projectId,
+      httpStatus: response.status,
+      status: field(readiness, "status") ?? (response.status === 404 ? "NOT_CONFIGURED" : response.ok ? "READY" : "BLOCKED"),
+      nextAction: field(readiness, "nextAction"),
+      provider: field(readiness, "provider"),
+      blockers: field(readiness, "blockers")
+    };
+  } catch (error) {
+    return {
+      type: "project.devops.preflight",
+      projectId,
+      status: "UNAVAILABLE",
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 async function runGoalWrapper(ctx: RuntimeContext, input: {
   command: "goal run" | "target run";
   goalId?: string;
@@ -1263,6 +1369,49 @@ function formatLoopRunStatus(command: string, loop: unknown, steps: Array<Record
   return `${lines.join("\n")}\n`;
 }
 
+function printProjectDevopsResult(ctx: RuntimeContext, command: string, projectId: string, data: unknown, httpStatus: number): void {
+  if (ctx.json) {
+    process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+    return;
+  }
+  const readiness = isRecord(field(data, "readiness")) ? field(data, "readiness") : data;
+  const devops = isRecord(field(data, "devops")) ? field(data, "devops") : data;
+  const checks = Array.isArray(field(readiness, "checks")) ? field(readiness, "checks") as unknown[] : [];
+  const blockers = Array.isArray(field(readiness, "blockers")) ? field(readiness, "blockers") as unknown[] : [];
+  const lines = [
+    "EvoPilot Project DevOps",
+    `Command    ${command}`,
+    `Project    ${projectId}`,
+    `Provider   ${field(readiness, "provider") ?? field(devops, "provider") ?? "-"}`,
+    `Status     ${field(readiness, "status") ?? (httpStatus >= 200 && httpStatus < 300 ? "OK" : `HTTP_${httpStatus}`)}`,
+    "",
+    "Workflow",
+    ...formatDevopsChecks(checks),
+    "",
+    "Next Action",
+    String(field(readiness, "nextAction") ?? (blockers.length > 0 ? "repair" : "run-devops")),
+    "",
+    "Evidence",
+    `- devops: /api/v1/projects/${projectId}/devops`,
+    `- preflight: /api/v1/projects/${projectId}/devops/preflight`,
+    `- pipelines: /api/v1/pipelines?project=${projectId}`,
+    "",
+    "Blockers",
+    ...(blockers.length > 0 ? blockers.map((item) => `- ${String(item)}`) : ["- none"]),
+    ""
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function formatDevopsChecks(checks: unknown[]): string[] {
+  if (checks.length === 0) return ["[SKIP] No readiness checks returned."];
+  return checks.map((item) => {
+    const status = String(field(item, "status") ?? "SKIP");
+    const evidence = Array.isArray(field(item, "evidence")) ? (field(item, "evidence") as unknown[]).join("; ") : "";
+    return `[${status}] ${field(item, "id") ?? "check"} - ${evidence}`;
+  });
+}
+
 function formatChain(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) return ["[PENDING] No chain projection available."];
   return value.map((item: unknown) => {
@@ -1273,7 +1422,7 @@ function formatChain(value: unknown): string[] {
 
 function formatSteps(steps: Array<Record<string, unknown>>): string[] {
   if (steps.length === 0) return ["- none"];
-  return steps.slice(-8).map((step) => `- ${step.type ?? "step"} ${step.status ? `status=${step.status}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}`);
+  return steps.slice(-8).map((step) => `- ${step.type ?? "step"}${step.status ? ` status=${step.status}` : ""}${step.httpStatus ? ` http=${step.httpStatus}` : ""}${step.provider ? ` provider=${step.provider}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.projectId ? ` project=${step.projectId}` : ""}${step.targetId ? ` target=${step.targetId}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}${Array.isArray(step.blockers) && step.blockers.length > 0 ? ` blockers=${step.blockers.length}` : ""}`);
 }
 
 function loopNextAction(loop: unknown): string {
@@ -1369,6 +1518,10 @@ function hasFlag(args: ParsedArgs, name: string): boolean {
   return args.options[name] === true || args.options[name] === "true";
 }
 
+function hasAnyOption(args: ParsedArgs, names: string[]): boolean {
+  return names.some((name) => args.options[name] !== undefined);
+}
+
 function resolveConfigPath(args: ParsedArgs): string {
   return stringOption(args, "config") ?? process.env.EVOPILOT_CONFIG ?? path.join(os.homedir(), ".evopilot", "config.json");
 }
@@ -1411,6 +1564,16 @@ function parseScenario(value: string): { id: string; name: string; status: strin
     evidence: [`cli scenario ${id}=${status.toUpperCase()}`],
     required: true
   };
+}
+
+function parseKeyValueOptions(values: string[]): Record<string, string> | undefined {
+  const result: Record<string, string> = {};
+  for (const value of values) {
+    const separator = value.indexOf("=");
+    if (separator <= 0) throw usage("--deploy-input must use <key>=<value>.");
+    result[value.slice(0, separator)] = value.slice(separator + 1);
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function printOutput(ctx: RuntimeContext, data: unknown, text: string): void {
@@ -1504,6 +1667,10 @@ Usage:
   evopilot project list
   evopilot project preflight <project-id>
   evopilot project credentials set <project-id> [--token-ref <env>]
+  evopilot project devops set <project-id> --provider <github-actions|gitlab-ci> [options]
+  evopilot project devops inspect <project-id>
+  evopilot project devops preflight <project-id>
+  evopilot project devops clear <project-id>
   evopilot evidence push --project <id> --file <events.json>
   evopilot target templates
   evopilot target list
@@ -1566,8 +1733,13 @@ Global options:
   --idempotency-key <key>     Idempotency key for mutating commands
   --timeout <duration>        Wrapper stop boundary, for example 30s, 10m, or 2h
   --until <policy>            Wrapper stop policy: terminal or blocked-or-complete
+  --require-devops-ready      target run fails fast unless project DevOps preflight is READY
   --json                      Print JSON response data
   --config <file>             Config path, defaults to ~/.evopilot/config.json
+
+Project DevOps examples:
+  evopilot project devops set my-agent --provider github-actions --ci-workflow ci.yml --ci-required-check build --ci-required-check test --cd-workflow deploy-prod.yml --deploy-environment production --health-url https://app.example.com/health
+  evopilot project devops set my-agent --provider gitlab-ci --ci-required-stage test --ci-required-job build --cd-required-stage deploy --deploy-environment production --ready-url https://app.example.com/ready
 `);
 }
 

@@ -65,7 +65,7 @@ The Loop execution workspace is split into overview, detail, and creation surfac
 | Worker + Sandbox | worker lease, worker queue, watchdog evidence, `LoopSandboxPolicy`, sandbox proof | The durable execution owner and boundary for code, CI/CD, validators, credentials, network, paths, and resources. |
 | Human Gate | approval state, stop policy, release approval | The point where risky continuation or release actions require explicit human control. |
 | Source Closure | `LoopSourceClosure`, source-closure preflight, `sourceReleaseRun` | The SCM writeback state: branch, commit, PR/MR, tag, required gates, and artifacts. |
-| CI/CD + Deploy | Jenkins/deploy connector state, deploy finalizer, health-ready probes | The delivery boundary, rollback path, and post-merge deployment evidence. |
+| CI/CD + Deploy | Project DevOps state, GitHub Actions/GitLab CI pipeline evidence, deploy finalizer, health-ready probes | The delivery boundary, rollback path, and post-merge deployment evidence. |
 | Release Decision | release policy, `GET /api/v1/release/decisions` | The product-native `GO` / `CONDITIONAL-GO` / `NO-GO` verdict. |
 | GA Release | promoted source release run, merge commit, release evidence | The final auditable state after source closure, deploy, policy, and release decision agree. |
 
@@ -140,7 +140,7 @@ This would improve general multi-agent scheduling, but EvoPilot needs product-na
 
 EvoPilot can now model long tasks independently of a specific release or maturity target. Codex, IM adapters, schedules, runtime signals, evolution batches, and release goals can all create loop runs.
 
-The runtime is still intentionally conservative: it does not pretend to execute arbitrary unsafe actions without approval, and it does not replace concrete executors such as code-upgrader or Jenkins. It records and governs their collaboration.
+The runtime is still intentionally conservative: it does not pretend to execute arbitrary unsafe actions without approval, and it does not replace concrete executors such as code-upgrader, GitHub Actions, or GitLab CI. It records and governs their collaboration.
 
 ## Validation
 

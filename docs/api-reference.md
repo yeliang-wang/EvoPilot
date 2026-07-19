@@ -237,6 +237,59 @@ POST /api/v1/projects/{projectId}/source-credentials/preflight
 
 `source-credentials` 只更新项目级 GitHub/GitLab 写回凭据元数据，例如 `tokenRef`、`token`、`password`、`username` 或 `defaultBranch`，响应不会回显 secret。`source-credentials/preflight` 不写仓库，只检查项目、provider、credential ref、token 解析、source branch 和写回策略。响应 schema 为 `evopilot-source-credential-readiness/v1`，状态为 `READY`、`READ_ONLY` 或 `BLOCKED`。公开 GitHub 无 token 时通常是 `READ_ONLY`，blocker 为 `token-resolution:SOURCE_CREDENTIAL_TOKEN_REQUIRED`；`tokenRef` 已配置但环境变量未解析时仍为 `READ_ONLY`；解析成功并能读取分支后为 `READY`。Dashboard 保存凭据后会立即调用同一 readiness contract，因此用户补齐凭据后可以回到 Target Loop Backlog 继续 autopilot。
 
+项目 DevOps 绑定使用仓库原生 CI/CD，不要求 Jenkins：
+
+```http
+GET /api/v1/projects/{projectId}/devops
+POST /api/v1/projects/{projectId}/devops
+PUT /api/v1/projects/{projectId}/devops
+DELETE /api/v1/projects/{projectId}/devops
+GET /api/v1/projects/{projectId}/devops/preflight
+POST /api/v1/projects/{projectId}/devops/preflight
+```
+
+`devops` 是项目聚合的一部分。`provider=github-actions` 只能用于 GitHub 项目；`provider=gitlab-ci` 只能用于 GitLab 项目。EvoPilot 使用项目 source credentials 或 `devops.tokenRef` 解析平台 token，响应不回显 secret。`devops/preflight` 返回 `evopilot-project-devops-readiness/v1`，状态为：
+
+- `READY`：provider、token、CI 合同和可选 health/ready 探测均可用。
+- `OBSERVABLE`：配置和 token 可用，但当前 CI evidence 不是绿色；不能据此声明发布就绪。
+- `BLOCKED`：provider mismatch、token 缺失、CI 合同缺失或项目绑定错误。
+
+GitHub Actions 请求示例：
+
+```json
+{
+  "provider": "github-actions",
+  "ci": {
+    "workflow": "ci.yml",
+    "requiredChecks": ["build", "test"],
+    "timeoutSeconds": 1800
+  },
+  "cd": {
+    "workflow": "deploy-prod.yml",
+    "environment": "production",
+    "healthUrl": "https://my-agent.example.com/health",
+    "timeoutSeconds": 1800
+  }
+}
+```
+
+GitLab CI 请求示例：
+
+```json
+{
+  "provider": "gitlab-ci",
+  "ci": {
+    "requiredStages": ["test"],
+    "requiredJobs": ["build"]
+  },
+  "cd": {
+    "environment": "production",
+    "requiredStages": ["deploy"],
+    "readyUrl": "https://my-agent.example.com/ready"
+  }
+}
+```
+
 请求示例：
 
 ```json
@@ -274,14 +327,14 @@ POST /api/v1/projects/{projectId}/source-credentials/preflight
 }
 ```
 
-## 外部 Jenkins CI/CD 连接器
+## 兼容 Jenkins CI/CD 连接器
 
 ```http
 GET /api/v1/connectors/jenkins
 POST /api/v1/connectors/jenkins
 ```
 
-Jenkins 是 EvoPilot 的外部 CI/CD 连接器。该接口用于系统管理员配置系统默认 Jenkins，也可以供项目注册流程创建项目独立 Jenkins 连接器。读取接口会隐藏 `apiToken`，只返回是否已配置。
+Jenkins 是旧部署的兼容外部 CI/CD 连接器，不是新 GitHub/GitLab 项目的必需依赖。新项目优先使用项目 DevOps API 绑定 GitHub Actions 或 GitLab CI；保留该接口用于已经接入 Jenkins 的环境。读取接口会隐藏 `apiToken`，只返回是否已配置。
 
 请求示例：
 
@@ -454,6 +507,30 @@ POST /api/v1/deliveries/{deliveryId}/execute
 
 当项目策略要求用户确认且评审尚未确认时，交付会被阻断。
 
+默认生产路径是项目 DevOps。项目配置了 `devops.provider=github-actions` 或 `gitlab-ci` 后，请求体可以不传 `executor`，EvoPilot 会在代码升级成功后触发对应平台并生成统一 `pipelineRun`。
+
+GitHub Actions 请求示例：
+
+```json
+{
+  "parameters": {
+    "VERSION": "1.0.0"
+  }
+}
+```
+
+GitLab CI 请求示例：
+
+```json
+{
+  "executor": "gitlab-ci",
+  "parameters": {
+    "VERSION": "1.0.0",
+    "TARGET_ENV": "production"
+  }
+}
+```
+
 本地兼容执行请求示例：
 
 ```json
@@ -463,7 +540,7 @@ POST /api/v1/deliveries/{deliveryId}/execute
 }
 ```
 
-Jenkins 执行请求示例：
+兼容 Jenkins 执行请求示例：
 
 ```json
 {
@@ -477,7 +554,7 @@ Jenkins 执行请求示例：
 }
 ```
 
-Jenkins 路径会返回 `202` 和 `pipelineRun`。EvoPilot 会通过 Jenkins API 拉取 Queue、Build、Stage、Console Log 和 Artifact；当 Jenkins 完成后，EvoPilot 生成发布报告、学习记录和审计记录。
+GitHub Actions、GitLab CI 和兼容 Jenkins 路径都会返回 `202` 和统一的 `pipelineRun`。EvoPilot 会刷新平台状态、stage/job/check evidence、日志摘要和原始链接；当流水线进入终态后，EvoPilot 生成发布报告、学习记录和审计记录。
 
 ## 流水线
 
@@ -488,7 +565,7 @@ GET /api/v1/pipelines/{pipelineRunId}/logs
 GET /api/v1/pipelines/{pipelineRunId}/artifacts
 ```
 
-返回 EvoPilot 汇总后的 Jenkins 流水线视图，包括 Job、Build Number、Stage、Artifact、日志摘要和 Jenkins 原始链接。深度排障仍应跳转 Jenkins 原始页面。
+返回 EvoPilot 汇总后的流水线视图。GitHub Actions 会映射 workflow run 和 check runs；GitLab CI 会映射 pipeline 和 jobs；兼容 Jenkins 会映射 Queue、Build、Stage、Artifact 和 Console Log。深度排障仍应跳转对应平台原始页面。
 
 ## GA Release 目标与发布判定
 

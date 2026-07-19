@@ -25,6 +25,13 @@ evopilot config show --json
 evopilot status --json
 ```
 
+For an already registered project, verify source credentials and native DevOps before invoking a one-command target:
+
+```bash
+evopilot project preflight my-agent --json
+evopilot project devops preflight my-agent --json
+```
+
 Run one project toward GA with one command:
 
 ```bash
@@ -34,6 +41,7 @@ evopilot target run \
   --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
   --until terminal \
   --max-steps 20 \
+  --require-devops-ready \
   --json
 ```
 
@@ -160,21 +168,49 @@ If the result is still `READ_ONLY`, the tokenRef is stored but the EvoPilot serv
 
 ### Scenario 4: DevOps, CI, CD, And Release Closure
 
-A successful source-to-release loop needs more than a GitHub token. Agents should verify each boundary before claiming an end-to-end result.
+A successful source-to-release loop needs more than a GitHub token. Agents should verify each boundary before claiming an end-to-end result. EvoPilot's primary production path is repository-native DevOps: GitHub projects use GitHub Actions; GitLab projects use GitLab CI. Jenkins remains a legacy compatibility connector, not a required dependency for new projects.
 
 | Boundary | What EvoPilot Uses | How To Check |
 |---|---|---|
 | SCM writeback | GitHub token or tokenRef with repository write permission. | `evopilot project preflight <project-id> --json` returns `READY`. |
 | Source closure | Loop source-closure contract and release run state. | `evopilot source-closure preflight <loop-id> --json` returns no blockers. |
-| CI | GitHub Actions, Jenkins, GitLab CI, or a project connector. | Inspect pipeline or release-run evidence; do not infer from local tests only. |
-| CD | Deploy connector such as `ecs-docker-compose`, webhook, K8s, or cloud deployer. | `evopilot connector deploy list --json` shows the required connector. |
+| CI | Project DevOps config: GitHub Actions or GitLab CI. | `evopilot project devops preflight <project-id> --json` returns `READY`; inspect pipeline evidence after execution. |
+| CD | Project DevOps CD workflow, deploy connector such as `ecs-docker-compose`, webhook, K8s, or cloud deployer. | `project devops preflight` and `connector deploy list` show the required boundary. |
 | Health gate | Deployment health and readiness URLs or connector-provided probe URLs. | Release run gates include health/ready evidence. |
 | Release decision | Product-native release evidence and policy. | `evopilot release decisions --project <project-id> --target <target-id> --json`. |
 
-Common production checks:
+Configure GitHub Actions:
+
+```bash
+evopilot project devops set my-agent \
+  --provider github-actions \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --ci-required-check test \
+  --cd-workflow deploy-prod.yml \
+  --deploy-environment production \
+  --health-url https://my-agent.example.com/health \
+  --json
+```
+
+Configure GitLab CI:
+
+```bash
+evopilot project devops set my-agent \
+  --provider gitlab-ci \
+  --ci-required-stage test \
+  --ci-required-job build \
+  --cd-required-stage deploy \
+  --deploy-environment production \
+  --ready-url https://my-agent.example.com/ready \
+  --json
+```
+
+Common production checks before a one-command target:
 
 ```bash
 evopilot project preflight my-agent --json
+evopilot project devops preflight my-agent --json
 evopilot connector deploy list --json
 evopilot target run \
   --project my-agent \
@@ -182,17 +218,18 @@ evopilot target run \
   --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
   --until terminal \
   --max-steps 20 \
+  --require-devops-ready \
   --json
 ```
 
-If `target run` stops with `configure-source-credentials`, run `project preflight` and repair tokenRef. If it stops with `repair-deploy-target`, inspect or create the deploy connector. If it stops with `policy-review`, inspect the release run and do not merge until the server-side policy allows it. If it returns `NO-GO`, stop and report the release decision as authoritative.
+If `project devops preflight` returns `BLOCKED`, repair provider, tokenRef, workflow, required checks/jobs, or project binding before running the target. If it returns `OBSERVABLE`, current CI evidence is not green; an agent may inspect but must not claim release readiness. If `target run` stops with `configure-source-credentials`, run `project preflight` and repair tokenRef. If it stops with `repair-deploy-target`, inspect or create the deploy connector. If it stops with `policy-review`, inspect the release run and do not merge until the server-side policy allows it. If it returns `NO-GO`, stop and report the release decision as authoritative.
 
 ### Security Rules For Agents
 
 - Do not pass raw GitHub tokens in `target run`.
 - Prefer server-side `tokenRef` over inline `--source-token`.
 - Do not write secrets to committed files or evidence artifacts.
-- Do not continue after `READ_ONLY`, `BLOCKED`, `configure-source-credentials`, or `repair-deploy-target` without explicit operator repair.
+- Do not continue after `READ_ONLY`, `BLOCKED`, `configure-source-credentials`, `configure-devops`, or `repair-deploy-target` without explicit operator repair.
 - Record the `projectId`, `goalId`, `loopId`, `releaseRunId`, `releaseDecisionId`, and `requestId` from JSON output.
 
 ## Command Model
@@ -215,6 +252,7 @@ Agents must stop and report when any of these are returned:
 | `human-approval` | A governed human gate is waiting. | Ask the operator; do not self-approve. |
 | `policy-review` | Release or merge policy blocked progress. | Inspect release run policy blockers. |
 | `configure-source-credentials` | Source writeback credentials are missing or read-only. | Ask for credential repair. |
+| `configure-devops` | Project GitHub Actions/GitLab CI contract is missing or invalid. | Run `project devops set` or ask the operator to repair tokenRef/workflow/checks. |
 | `repair-project` | Project binding is incomplete or invalid. | Inspect project settings and preflight. |
 | `repair-deploy-target` | Deploy connector or health/ready target is not valid. | Repair connector settings. |
 | `repair` | The loop or release run needs a repair path. | Inspect trace, release runs, and audit. |
@@ -272,6 +310,9 @@ evopilot target create \
   --template ga \
   --idempotency-key target-my-agent-ga \
   --json
+
+evopilot project preflight my-agent --json
+evopilot project devops preflight my-agent --json
 
 evopilot goal create \
   --project my-agent \
@@ -395,6 +436,7 @@ journalctl -u evopilot -o cat | jq 'select(.schema=="evopilot-log/v1" and .corre
 journalctl -u evopilot -o cat | jq 'select(.schema=="evopilot-log/v1" and .correlation.goalId=="<goal-id>")'
 journalctl -u evopilot -o cat | jq 'select(.schema=="evopilot-log/v1" and .correlation.loopId=="<loop-id>")'
 journalctl -u evopilot -o cat | jq 'select(.schema=="evopilot-log/v1" and .correlation.releaseRunId=="<release-run-id>")'
+journalctl -u evopilot -o cat | jq 'select(.schema=="evopilot-log/v1" and (.event=="project.devops.preflight" or .event=="devops.pipeline.triggered"))'
 journalctl -u evopilot -o cat | jq 'select(.schema=="evopilot-log/v1" and .outcome=="failed")'
 journalctl -u evopilot-worker -o cat | jq 'select(.schema=="evopilot-log/v1" and (.event|startswith("loop-worker.")))'
 ```
