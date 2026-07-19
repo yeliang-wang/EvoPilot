@@ -4,6 +4,8 @@
 
 Use this manual when WorkBuddy, Codex, Claude Code, CI jobs, release scripts, or an operator needs a fast path into an EvoPilot production control plane. AI agents should start with [AI Agent Runbook](ai-agent-runbook.md), then use this manual for scenario examples. The command reference remains in [CLI Reference](cli-reference.md).
 
+For end-to-end GitHub project operation, including read-only public repositories, writable forks, `tokenRef` repair, source closure, CI/CD, deploy connectors, and release decisions, use [AI Agent Runbook: End-To-End GitHub Project Loop Target](ai-agent-runbook.md#end-to-end-github-project-loop-target).
+
 ## Fastest Path
 
 Configure the target control plane:

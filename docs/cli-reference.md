@@ -14,6 +14,8 @@ For AI-agent production operation, start with [AI Agent Runbook](ai-agent-runboo
 
 Use this path when an AI agent needs to connect to an ECS production EvoPilot instance and operate through the CLI.
 
+For the full GitHub project loop target workflow, including project registration, writable fork setup, `tokenRef` repair, preflight, source closure, CI/CD, deploy connectors, and release decisions, start with [AI Agent Runbook: End-To-End GitHub Project Loop Target](ai-agent-runbook.md#end-to-end-github-project-loop-target).
+
 ### 1. Prepare The CLI
 
 From this repository:

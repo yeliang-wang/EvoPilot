@@ -61,6 +61,140 @@ evopilot target run \
   --json
 ```
 
+## End-To-End GitHub Project Loop Target
+
+Use this section when an AI agent needs to operate a GitHub project from onboarding to a governed Loop Target. The short rule is:
+
+```text
+Register or repair project -> preflight source credentials -> run target -> stop on blockers -> inspect release decision
+```
+
+The GitHub token is not passed in the daily `target run` command. A writable token must be available to the EvoPilot server process through a server-side environment variable or secret manager, and the project stores only a `tokenRef`.
+
+### Scenario 1: Read-Only Public Repository
+
+Use this when the operator only wants repository analysis, target decomposition, evidence review, or blocker discovery. Public GitHub repositories can be registered without a token:
+
+```bash
+evopilot project register \
+  --id public-agent \
+  --provider github \
+  --repo owner/public-agent \
+  --branch main \
+  --json
+
+evopilot project preflight public-agent --json
+```
+
+Expected result:
+
+```json
+{
+  "status": "READ_ONLY",
+  "nextAction": "configure-token-ref"
+}
+```
+
+Agents may continue with read-only inspection, but must not claim that source writeback, PR, merge, or deployment is ready. A later `target run` may stop at `configure-source-credentials`.
+
+### Scenario 2: Real PR To A Writable Fork Or Repository
+
+Use this when EvoPilot must create branches, commits, and PRs. For open-source upstream repositories, register a fork or a repository where the configured token has write permission. EvoPilot cannot bypass GitHub permissions.
+
+First, the production operator configures a token in the EvoPilot server environment, not in the WorkBuddy command:
+
+```bash
+# On the EvoPilot server runtime, for example ECS .env.production or a secret manager.
+GITHUB_WRITE_TOKEN_MY_AGENT=<github-token-with-repo-write>
+```
+
+Restart the EvoPilot server and workers after changing server-side environment variables. Then register the writable project from any machine that can reach the production control plane:
+
+```bash
+evopilot project register \
+  --id my-agent \
+  --provider github \
+  --repo yeliang-wang/my-agent-fork \
+  --branch main \
+  --token-ref GITHUB_WRITE_TOKEN_MY_AGENT \
+  --idempotency-key project-my-agent \
+  --json
+
+evopilot project preflight my-agent --json
+```
+
+Expected result before a real PR run:
+
+```json
+{
+  "status": "READY",
+  "nextAction": "write-source"
+}
+```
+
+Only after `READY`, run the one-command target:
+
+```bash
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --until terminal \
+  --max-steps 20 \
+  --json
+```
+
+### Scenario 3: Repair An Existing Registered Project
+
+Use this when `project list` shows `credentialsConfigured=false`, or `project preflight` returns `READ_ONLY` / `configure-token-ref`.
+
+```bash
+evopilot project credentials set my-agent \
+  --token-ref GITHUB_WRITE_TOKEN_MY_AGENT \
+  --json
+
+evopilot project preflight my-agent --json
+```
+
+If the result is still `READ_ONLY`, the tokenRef is stored but the EvoPilot server process cannot resolve the environment variable. Stop and ask the operator to repair the server-side secret or restart the runtime. Do not retry source closure with the same blocker.
+
+### Scenario 4: DevOps, CI, CD, And Release Closure
+
+A successful source-to-release loop needs more than a GitHub token. Agents should verify each boundary before claiming an end-to-end result.
+
+| Boundary | What EvoPilot Uses | How To Check |
+|---|---|---|
+| SCM writeback | GitHub token or tokenRef with repository write permission. | `evopilot project preflight <project-id> --json` returns `READY`. |
+| Source closure | Loop source-closure contract and release run state. | `evopilot source-closure preflight <loop-id> --json` returns no blockers. |
+| CI | GitHub Actions, Jenkins, GitLab CI, or a project connector. | Inspect pipeline or release-run evidence; do not infer from local tests only. |
+| CD | Deploy connector such as `ecs-docker-compose`, webhook, K8s, or cloud deployer. | `evopilot connector deploy list --json` shows the required connector. |
+| Health gate | Deployment health and readiness URLs or connector-provided probe URLs. | Release run gates include health/ready evidence. |
+| Release decision | Product-native release evidence and policy. | `evopilot release decisions --project <project-id> --target <target-id> --json`. |
+
+Common production checks:
+
+```bash
+evopilot project preflight my-agent --json
+evopilot connector deploy list --json
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --until terminal \
+  --max-steps 20 \
+  --json
+```
+
+If `target run` stops with `configure-source-credentials`, run `project preflight` and repair tokenRef. If it stops with `repair-deploy-target`, inspect or create the deploy connector. If it stops with `policy-review`, inspect the release run and do not merge until the server-side policy allows it. If it returns `NO-GO`, stop and report the release decision as authoritative.
+
+### Security Rules For Agents
+
+- Do not pass raw GitHub tokens in `target run`.
+- Prefer server-side `tokenRef` over inline `--source-token`.
+- Do not write secrets to committed files or evidence artifacts.
+- Do not continue after `READ_ONLY`, `BLOCKED`, `configure-source-credentials`, or `repair-deploy-target` without explicit operator repair.
+- Record the `projectId`, `goalId`, `loopId`, `releaseRunId`, `releaseDecisionId`, and `requestId` from JSON output.
+
 ## Command Model
 
 EvoPilot CLI has two layers:
