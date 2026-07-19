@@ -8,7 +8,6 @@ import { pathToFileURL } from "node:url";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { GitHubHttpAdapter, type GitHubPullRequestDraft } from "@evopilot/adapter-github";
 import { GitLabHttpAdapter } from "@evopilot/adapter-gitlab";
-import { JenkinsClient, type JenkinsConnectorConfig } from "@evopilot/adapter-jenkins";
 import { listRepositoryFiles } from "@evopilot/adapter-local-git";
 import { OpenHandsClient, type OpenHandsConnectorConfig, type OpenHandsRunStatus } from "@evopilot/adapter-openhands";
 import { createLlmClientFromEnv, type LlmGenerateResponse, type LlmTaskClient } from "@evopilot/llm";
@@ -137,7 +136,6 @@ interface StoredProject {
   workspaceId: string;
   repository?: ProjectRepositoryRegistration;
   devops?: ProjectDevopsConfiguration;
-  cicd?: ProjectCicdConfiguration;
   runtime?: ProjectRuntimeConfiguration;
   validation: ProjectValidation;
   createdAt: string;
@@ -163,14 +161,6 @@ interface ProjectRepositoryCredentials {
   password?: string;
   token?: string;
   tokenRef?: string;
-}
-
-interface ProjectCicdConfiguration {
-  provider: "jenkins";
-  mode: "system-default" | "project-override";
-  connectorId?: string;
-  job?: string;
-  parameters?: Record<string, string>;
 }
 
 type ProjectDevopsProvider = "github-actions" | "gitlab-ci";
@@ -372,12 +362,6 @@ interface LogRecord {
   metadata?: Record<string, unknown>;
 }
 
-interface StoredJenkinsConnector extends JenkinsConnectorConfig {
-  jobTemplates?: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
-}
-
 interface StoredOpenHandsConnector extends OpenHandsConnectorConfig {
   createdAt: string;
   updatedAt: string;
@@ -466,7 +450,7 @@ interface ScheduledEvolution {
   projectId: string;
   deliveryPlanId: string;
   planId: string;
-  executor: "jenkins";
+  executor: ProjectDevopsProvider;
   connectorId: string;
   jobName: string;
   scheduledAt: string;
@@ -708,7 +692,6 @@ interface ReleaseEvidenceBundle {
     name: string;
     repository?: Omit<ProjectRepositoryRegistration, "credentials"> & { credentialsConfigured: boolean };
     devops?: ProjectDevopsConfiguration;
-    cicd?: ProjectCicdConfiguration;
     validation: ProjectValidation;
     releaseReadiness?: ReleaseReadinessReport;
     rolloutStrategy?: RolloutStrategyReport;
@@ -3617,10 +3600,6 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         store.appendAudit(audit(auth, "opportunity-draft.created", draft.id, { projectId, datasetIds, codeContextStatus: codeContext.status, codeContextFiles: codeContext.fileCount }));
         return writeJson(response, 201, envelope(draft));
       }
-      if (request.method === "GET" && url.pathname === "/api/v1/connectors/jenkins") {
-        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
-        return writeJson(response, 200, envelope(store.listJenkinsConnectors().map(maskJenkinsConnector)));
-      }
       if (request.method === "GET" && url.pathname === "/api/v1/connectors/openhands") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listOpenHandsConnectors().map(maskOpenHandsConnector)));
@@ -3632,25 +3611,6 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
       if (request.method === "GET" && url.pathname === "/api/v1/schedules") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listSchedules().slice(-20).reverse()));
-      }
-      if (request.method === "POST" && url.pathname === "/api/v1/connectors/jenkins") {
-        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
-        const body = await readJson(request, options.maxBodyBytes);
-        const now = new Date().toISOString();
-        const connector: StoredJenkinsConnector = {
-          id: requireBodyString(body.id, "JENKINS_CONNECTOR_ID_REQUIRED", runtime, "default"),
-          name: String(body.name ?? body.id ?? "生产 CI/CD").trim(),
-          baseUrl: String(body.baseUrl ?? "").trim(),
-          username: body.username ? String(body.username) : undefined,
-          apiToken: body.apiToken ? String(body.apiToken) : undefined,
-          jobTemplates: body.jobTemplates && typeof body.jobTemplates === "object" ? body.jobTemplates : undefined,
-          createdAt: now,
-          updatedAt: now
-        };
-        if (!connector.id || !connector.baseUrl) return writeJson(response, 400, { error: "JENKINS_CONNECTOR_REQUIRED" });
-        store.writeJenkinsConnector(connector);
-        store.appendAudit(audit(auth, "jenkins.connector.saved", connector.id, { baseUrl: connector.baseUrl }));
-        return writeJson(response, 201, envelope(maskJenkinsConnector(connector)));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/connectors/deploy") {
         if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -3905,7 +3865,6 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         }
         const repository = normalizeProjectRepository(body);
         const validation = await validateProjectRepository(repository);
-        const cicd = normalizeProjectCicd(body, projectId);
         const projectRuntime = normalizeProjectRuntime(body);
         const projectDevops = normalizeProjectDevops(body, {
           id: projectId,
@@ -3928,7 +3887,6 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           workspaceId,
           repository,
           devops: projectDevops,
-          cicd: cicd.projectCicd,
           runtime: projectRuntime,
           validation,
           createdAt: now,
@@ -3936,9 +3894,8 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         };
         if (!project.id || !project.name) return writeJson(response, 400, { error: "PROJECT_ID_AND_NAME_REQUIRED" });
         if (project.validation.status !== "VERIFIED") return writeJson(response, 400, { error: "PROJECT_VALIDATION_FAILED", detail: project.validation.message });
-        if (cicd.connector) store.writeJenkinsConnector(cicd.connector);
         store.writeProject(project);
-        store.appendAudit(audit(auth, "project.created", project.id, { provider: repository?.provider, validation: validation.status, devopsProvider: project.devops?.provider, cicdMode: project.cicd?.mode }));
+        store.appendAudit(audit(auth, "project.created", project.id, { provider: repository?.provider, validation: validation.status, devopsProvider: project.devops?.provider }));
         return writeJson(response, 201, envelope(maskProject(project)));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/runs") {
@@ -4117,21 +4074,8 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           }
           return writeJson(response, 202, envelope({ pipelineRun: pipeline, readiness }));
         }
-        if (body.executor === "jenkins") {
-          const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
-          if (!codeUpgrade) return writeJson(response, 409, { error: "CODE_UPGRADE_REQUIRED" });
-          const pipeline = await triggerJenkinsDelivery({ store, auth, run, delivery, plan, body, runtime });
-          if (body.batchId) {
-            store.updateEvolutionBatch(String(body.batchId), {
-              status: "CICD_RUNNING",
-              deliveryPlanId: delivery.id,
-              pipelineRunId: pipeline.id
-            });
-          }
-          return writeJson(response, 202, envelope({ pipelineRun: pipeline }));
-        }
         if (!runtime.allowMockIntegrations) {
-          return writeJson(response, 400, { error: "DELIVERY_EXECUTOR_REQUIRED", detail: "prod 模式只允许通过项目 DevOps（GitHub Actions/GitLab CI）或兼容 CI/CD 连接器执行交付。" });
+          return writeJson(response, 400, { error: "DELIVERY_EXECUTOR_REQUIRED", detail: "prod 模式只允许通过项目 DevOps（GitHub Actions/GitLab CI）执行交付。" });
         }
         const execution = options.deliveryExecutor
           ? await options.deliveryExecutor({ run, delivery, plan, requestBody: body })
@@ -4209,10 +4153,15 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (delivery.approvalRequired && review?.status !== "USER_CONFIRMED") {
           return writeJson(response, 409, { error: "USER_CONFIRMATION_REQUIRED" });
         }
-        const resolved = resolveJenkinsDeliveryTarget({ store, plan, body, runtime });
-        if (resolved.error) return writeJson(response, resolved.statusCode, resolved.error);
-        const connectorId = resolved.connectorId!;
-        const jobName = resolved.jobName!;
+        const project = store.readProject(delivery.projectId);
+        if (!project?.devops) return writeJson(response, 409, { error: "DEVOPS_NOT_CONFIGURED", detail: "项目未配置 GitHub Actions 或 GitLab CI DevOps。", projectId: delivery.projectId });
+        const executor = normalizeProjectDevopsProvider(body.executor ?? project.devops.provider);
+        if (!executor) return writeJson(response, 400, { error: "PROJECT_DEVOPS_PROVIDER_REQUIRED", detail: "provider must be github-actions or gitlab-ci." });
+        if (executor !== project.devops.provider) return writeJson(response, 409, { error: "DEVOPS_PROVIDER_PROJECT_MISMATCH", detail: `scheduled executor=${executor}, project devops=${project.devops.provider}.`, projectId: delivery.projectId });
+        const readiness = await checkProjectDevopsReadiness(project);
+        if (readiness.status === "BLOCKED") return writeJson(response, 409, { error: "DEVOPS_NOT_READY", detail: readiness.blockers.join("; "), readiness });
+        const connectorId = `project:${project.id}`;
+        const jobName = project.devops.provider === "gitlab-ci" ? (project.devops.ci.workflow ?? ".gitlab-ci.yml") : (project.devops.ci.workflow ?? ((project.devops.ci.requiredChecks ?? []).join(",") || "github-actions"));
         const scheduledAt = String(body.scheduledAt ?? "");
         const scheduledTime = new Date(scheduledAt);
         if (Number.isNaN(scheduledTime.getTime())) return writeJson(response, 400, { error: "SCHEDULED_AT_REQUIRED" });
@@ -4223,7 +4172,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           projectId: delivery.projectId,
           deliveryPlanId: delivery.id,
           planId: plan.id,
-          executor: "jenkins",
+          executor,
           connectorId,
           jobName,
           scheduledAt: scheduledTime.toISOString(),
@@ -4234,7 +4183,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (scheduledTime.getTime() <= Date.now()) {
           const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
           if (!codeUpgrade) return writeJson(response, 409, { error: "CODE_UPGRADE_REQUIRED" });
-          const pipeline = await triggerJenkinsDelivery({ store, auth, run, delivery, plan, body: { ...body, connectorId, job: jobName, parameters }, runtime });
+          const pipeline = await triggerNativeDevopsDelivery({ store, auth, run, delivery, plan, body: { ...body, executor, parameters }, runtime });
           const triggered: ScheduledEvolution = {
             ...schedule,
             status: "TRIGGERED",
@@ -4315,7 +4264,6 @@ class FileStore {
     fs.mkdirSync(path.dirname(this.auditFile), { recursive: true });
     fs.mkdirSync(this.idempotencyDir, { recursive: true });
     fs.mkdirSync(this.rulesDir, { recursive: true });
-    fs.mkdirSync(this.jenkinsConnectorsDir, { recursive: true });
     fs.mkdirSync(this.openHandsConnectorsDir, { recursive: true });
     fs.mkdirSync(this.deployConnectorsDir, { recursive: true });
     fs.mkdirSync(this.pipelinesDir, { recursive: true });
@@ -4385,10 +4333,6 @@ class FileStore {
 
   get rulesDir(): string {
     return path.join(this.dataRoot, "rules");
-  }
-
-  get jenkinsConnectorsDir(): string {
-    return path.join(this.dataRoot, "connectors", "jenkins");
   }
 
   get openHandsConnectorsDir(): string {
@@ -5325,28 +5269,6 @@ class FileStore {
 
   writeIdempotency(key: string, response: unknown): void {
     atomicWriteJson(path.join(this.idempotencyDir, `${safeFileName(key)}.json`), response);
-  }
-
-  listJenkinsConnectors(): StoredJenkinsConnector[] {
-    return fs.readdirSync(this.jenkinsConnectorsDir)
-      .filter((file) => file.endsWith(".json"))
-      .sort()
-      .map((file) => JSON.parse(fs.readFileSync(path.join(this.jenkinsConnectorsDir, file), "utf8")) as StoredJenkinsConnector);
-  }
-
-  readJenkinsConnector(id: string): StoredJenkinsConnector | undefined {
-    const file = path.join(this.jenkinsConnectorsDir, `${safeFileName(id)}.json`);
-    if (!fs.existsSync(file)) return undefined;
-    return JSON.parse(fs.readFileSync(file, "utf8")) as StoredJenkinsConnector;
-  }
-
-  writeJenkinsConnector(connector: StoredJenkinsConnector): void {
-    const existing = this.readJenkinsConnector(connector.id);
-    atomicWriteJson(path.join(this.jenkinsConnectorsDir, `${safeFileName(connector.id)}.json`), {
-      ...connector,
-      createdAt: existing?.createdAt ?? connector.createdAt,
-      updatedAt: connector.updatedAt
-    });
   }
 
   listOpenHandsConnectors(): StoredOpenHandsConnector[] {
@@ -7462,7 +7384,6 @@ class FileStore {
         name: project.name,
         repository: maskProject(project).repository,
         devops: project.devops,
-        cicd: project.cicd,
         validation: project.validation,
         releaseReadiness: readiness.find((report) => report.projectId === project.id),
         rolloutStrategy: rollout.find((report) => report.projectId === project.id)
@@ -13644,7 +13565,7 @@ function executorBoundaryLabel(type: ExecutorNodeType): string {
   return ({
     llm: "EvoPilot LLM gateway boundary",
     "code-upgrader": "OpenHands/code-upgrader runtime boundary",
-    ci: "Jenkins CI/CD connector boundary",
+    ci: "repository-native CI/CD boundary",
     validator: "independent validation boundary",
     approval: "human approval boundary",
     "release-action": "guarded release action boundary"
@@ -14697,7 +14618,7 @@ function inferCodeUpgradeAllowedPaths(codeContext: ProjectCodeContext, focusFile
     if (pathName.includes("/")) base.add(first);
     else base.add(pathName);
   }
-  for (const fallback of ["src", "app", "server", "lib", "tests", "test", "scripts", "config", "package.json", "pyproject.toml", "requirements.txt", "pom.xml", "go.mod", "Dockerfile", "Jenkinsfile"]) {
+  for (const fallback of ["src", "app", "server", "lib", "tests", "test", "scripts", "config", "package.json", "pyproject.toml", "requirements.txt", "pom.xml", "go.mod", "Dockerfile"]) {
     base.add(fallback);
   }
   return [...base];
@@ -14929,27 +14850,7 @@ async function refreshPipeline(store: FileStore, pipelineId: string): Promise<Pi
   if (!pipeline) return undefined;
   if (pipeline.provider === "github-actions") return await refreshGitHubActionsPipeline(store, pipeline);
   if (pipeline.provider === "gitlab-ci") return await refreshGitLabCiPipeline(store, pipeline);
-  if (pipeline.provider !== "jenkins") return pipeline;
-  const connector = store.readJenkinsConnector(pipeline.connectorId);
-  if (!connector) return pipeline;
-  if (pipeline.status === "SUCCEEDED" || pipeline.status === "FAILED" || pipeline.status === "CANCELED") return pipeline;
-  const snapshot = await new JenkinsClient(connector).readBuildSnapshot(pipeline.jobName, pipeline.queueId, pipeline.buildNumber);
-  const updated: PipelineRun = {
-    ...pipeline,
-    status: snapshot.status,
-    buildNumber: snapshot.buildNumber ?? pipeline.buildNumber,
-    buildUrl: snapshot.buildUrl ?? pipeline.buildUrl,
-    stages: snapshot.stages,
-    artifacts: snapshot.artifacts,
-    logRef: {
-      url: snapshot.buildNumber ? new JenkinsClient(connector).buildConsoleUrl(pipeline.jobName, snapshot.buildNumber) : pipeline.logRef?.url,
-      preview: snapshot.logPreview
-    },
-    updatedAt: new Date().toISOString()
-  };
-  store.writePipeline(updated);
-  finalizePipelineIfNeeded(store, updated);
-  return updated;
+  return pipeline;
 }
 
 async function refreshGitHubActionsPipeline(store: FileStore, pipeline: PipelineRun): Promise<PipelineRun> {
@@ -15061,12 +14962,7 @@ function finalizePipelineIfNeeded(store: FileStore, pipeline: PipelineRun): void
 function pipelineProviderLabel(provider: PipelineRun["provider"]): string {
   if (provider === "github-actions") return "GitHub Actions";
   if (provider === "gitlab-ci") return "GitLab CI";
-  return "Jenkins";
-}
-
-function maskJenkinsConnector(connector: StoredJenkinsConnector): Omit<StoredJenkinsConnector, "apiToken"> & { apiTokenConfigured: boolean } {
-  const { apiToken, ...safe } = connector;
-  return { ...safe, apiTokenConfigured: Boolean(apiToken) };
+  return provider;
 }
 
 function maskOpenHandsConnector(connector: StoredOpenHandsConnector): Omit<StoredOpenHandsConnector, "apiKey" | "llmApiKey"> & { apiKeyConfigured: boolean; llmApiKeyConfigured: boolean } {
@@ -15628,7 +15524,7 @@ function selectCodeContextFiles(files: string[], protectedPaths: string[], focus
     .slice(0, 6);
   const priority = (file: string): number => {
     const name = path.basename(file).toLowerCase();
-    if (["readme.md", "package.json", "pyproject.toml", "requirements.txt", "pom.xml", "go.mod", "dockerfile", "jenkinsfile"].includes(name)) return 0;
+    if (["readme.md", "package.json", "pyproject.toml", "requirements.txt", "pom.xml", "go.mod", "dockerfile"].includes(name)) return 0;
     if (/^(app|main|server|index)\.(py|js|ts|mjs|java|go)$/.test(name)) return 1;
     if (file.startsWith("src/") || file.startsWith("app/") || file.startsWith("server/")) return 2;
     if (file.startsWith("tests/") || file.startsWith("test/") || file.startsWith("scripts/")) return 3;
@@ -15652,7 +15548,7 @@ function inferWritableCodeRoots(files: string[], protectedPaths: string[]): stri
     const name = rest.at(-1)?.toLowerCase() ?? "";
     const state = roots.get(root) ?? { sourceLike: false, buildLike: false };
     state.sourceLike ||= rest.includes("src") || rest.includes("app") || rest.includes("server") || rest.includes("lib") || rest.includes("tests") || rest.includes("test");
-    state.buildLike ||= ["package.json", "pom.xml", "pyproject.toml", "requirements.txt", "go.mod", "build.gradle", "settings.gradle", "dockerfile", "jenkinsfile"].includes(name);
+    state.buildLike ||= ["package.json", "pom.xml", "pyproject.toml", "requirements.txt", "go.mod", "build.gradle", "settings.gradle", "dockerfile"].includes(name);
     roots.set(root, state);
   }
   return [...roots.entries()]
@@ -15664,7 +15560,7 @@ function inferWritableCodeRoots(files: string[], protectedPaths: string[]): stri
 function isContextTextFile(file: string): boolean {
   const lower = file.toLowerCase();
   return /\.(md|txt|json|ya?ml|toml|ini|properties|py|js|ts|mjs|cjs|java|go|xml|gradle|sh|sql)$/.test(lower) ||
-    ["dockerfile", "jenkinsfile", "makefile"].includes(path.basename(lower));
+    ["dockerfile", "makefile"].includes(path.basename(lower));
 }
 
 function readContextFile(repoRoot: string, relativePath: string): ProjectCodeContext["selectedFiles"][number] | undefined {
@@ -16342,17 +16238,14 @@ async function diagnoseProjectRuntime(args: { store: FileStore; project: StoredP
     remediation: "配置 EvoPilot 托管代码升级运行时连接器。"
   });
   const devopsReadiness = await checkProjectDevopsReadiness(project);
-  const cicd = project.cicd?.provider === "jenkins" ? project.cicd : undefined;
-  const jenkinsConnector = cicd?.connectorId ? args.store.readJenkinsConnector(cicd.connectorId) : undefined;
-  const legacyJenkinsReady = Boolean(cicd?.job && jenkinsConnector?.baseUrl);
   checks.push({
     name: "CI/CD 连接",
-    status: devopsReadiness.status === "READY" || legacyJenkinsReady ? "PASSED" : devopsReadiness.status === "OBSERVABLE" ? "WARN" : "FAILED",
+    status: devopsReadiness.status === "READY" ? "PASSED" : devopsReadiness.status === "OBSERVABLE" ? "WARN" : "FAILED",
     detail: project.devops
       ? `DevOps：${project.devops.provider}；readiness=${devopsReadiness.status}；blockers=${devopsReadiness.blockers.join(",") || "none"}`
-      : legacyJenkinsReady ? `兼容 Jenkins：${jenkinsConnector?.baseUrl}；Job：${cicd?.job}` : "项目未配置 GitHub Actions/GitLab CI DevOps。",
+      : "项目未配置 GitHub Actions/GitLab CI DevOps。",
     remediation: project.devops ? "运行 project devops preflight 并修复 tokenRef、workflow、required checks/jobs 或健康检查。"
-      : "通过 project devops set 配置 GitHub Actions 或 GitLab CI；旧 Jenkins 仅作为兼容连接器。"
+      : "通过 project devops set 配置 GitHub Actions 或 GitLab CI。"
   });
   const status = checks.some((check) => check.status === "FAILED") ? "FAILED" : checks.some((check) => check.status === "WARN") ? "WARN" : "PASSED";
   return {
@@ -16361,53 +16254,6 @@ async function diagnoseProjectRuntime(args: { store: FileStore; project: StoredP
     checks,
     recommendedAction: status === "PASSED" ? "运行时体检通过，可以进入代码升级和 CI/CD。" : checks.find((check) => check.status !== "PASSED")?.remediation ?? "补齐项目运行配置。",
     checkedAt
-  };
-}
-
-function normalizeProjectCicd(body: any, projectId: string): { projectCicd?: ProjectCicdConfiguration; connector?: StoredJenkinsConnector } {
-  const source = body.cicd && typeof body.cicd === "object" ? body.cicd : undefined;
-  const jenkins = source?.jenkins && typeof source.jenkins === "object" ? source.jenkins : source;
-  if (!source || source.provider === "none" || jenkins?.provider === "none") return {};
-  const provider = String(source.provider ?? jenkins?.provider ?? "jenkins");
-  if (provider !== "jenkins") return {};
-  const mode = jenkins?.mode === "project-override" || jenkins?.baseUrl ? "project-override" : "system-default";
-  const explicitConnectorId = jenkins?.connectorId ? String(jenkins.connectorId).trim() : undefined;
-  const job = jenkins?.job ? String(jenkins.job).trim() : undefined;
-  const parameters = jenkins?.parameters && typeof jenkins.parameters === "object" ? normalizeStringMap(jenkins.parameters) : undefined;
-  if (mode === "system-default") {
-    return {
-      projectCicd: {
-        provider: "jenkins",
-        mode,
-        connectorId: explicitConnectorId,
-        job,
-        parameters
-      }
-    };
-  }
-  const connectorId = explicitConnectorId ?? `project-${safeFileName(projectId)}-jenkins`;
-  const connector: StoredJenkinsConnector | undefined = jenkins?.baseUrl ? {
-    id: connectorId,
-    name: String(jenkins.name ?? `${projectId} Jenkins`).trim(),
-    baseUrl: String(jenkins.baseUrl).trim(),
-    username: jenkins.username ? String(jenkins.username) : undefined,
-    apiToken: jenkins.apiToken ? String(jenkins.apiToken) : undefined,
-    jobTemplates: {
-      ...(job ? { [projectId]: job, default: job } : {}),
-      ...(jenkins.jobTemplates && typeof jenkins.jobTemplates === "object" ? normalizeStringMap(jenkins.jobTemplates) : {})
-    },
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  } : undefined;
-  return {
-    projectCicd: {
-      provider: "jenkins",
-      mode,
-      connectorId,
-      job,
-      parameters
-    },
-    connector
   };
 }
 
@@ -17049,70 +16895,6 @@ async function triggerNativeDevopsDelivery(args: {
   return pipeline;
 }
 
-async function triggerJenkinsDelivery(args: {
-  store: FileStore;
-  auth: AuthContext;
-  run: StoredRun;
-  delivery: DeliveryPlan;
-  plan: EvolutionPlan;
-  body: any;
-  runtime: RuntimeConfig;
-}): Promise<PipelineRun> {
-  const { store, auth, run, delivery, plan, body, runtime } = args;
-  const resolved = resolveJenkinsDeliveryTarget({ store, plan, body, runtime });
-  if (resolved.error) throw new HttpError(resolved.statusCode, String(resolved.error.error), resolved.error.detail ? String(resolved.error.detail) : undefined);
-  const connector = resolved.connector!;
-  const jobName = resolved.jobName!;
-  const codeUpgrade = store.findSuccessfulCodeUpgrade(delivery.id);
-  const project = store.readProject(plan.projectId);
-  const parameters = normalizeDeliveryParameters(delivery, plan, {
-    ...(project?.cicd?.parameters ?? {}),
-    ...(body.parameters && typeof body.parameters === "object" ? body.parameters : {})
-  }, codeUpgrade);
-  logInfo("jenkins.build.triggering", {
-    actor: auth.actor,
-    target: delivery.id,
-    metadata: {
-      projectId: delivery.projectId,
-      connectorId: connector.id,
-      jobName,
-      deliveryPlanId: delivery.id,
-      codeUpgradeRunId: codeUpgrade?.id
-    }
-  });
-  const queued = await new JenkinsClient(connector).triggerBuild({ jobName, parameters });
-  const now = new Date().toISOString();
-  const pipeline = createPipelineRun({
-    id: `pipeline-${delivery.id}-${Date.now()}`,
-    projectId: delivery.projectId,
-    deliveryPlanId: delivery.id,
-    provider: "jenkins",
-    connectorId: connector.id,
-    jobName,
-    queueId: queued.queueId,
-    buildUrl: queued.queueUrl,
-    parameters,
-    now
-  });
-  store.writePipeline(pipeline);
-  run.pipelineRuns = [...(run.pipelineRuns ?? []).filter((item) => item.id !== pipeline.id), pipeline];
-  store.writeRun(run);
-  store.appendAudit(audit(auth, "jenkins.build.triggered", pipeline.id, { deliveryId: delivery.id, jobName, queueId: queued.queueId }));
-  logInfo("jenkins.build.triggered", {
-    actor: auth.actor,
-    target: pipeline.id,
-    metadata: {
-      projectId: pipeline.projectId,
-      deliveryPlanId: delivery.id,
-      connectorId: connector.id,
-      jobName,
-      queueId: queued.queueId,
-      buildUrl: pipeline.buildUrl
-    }
-  });
-  return pipeline;
-}
-
 async function readGitHubChecksForPipeline(adapter: GitHubHttpAdapter, ref: string): Promise<Array<{ name: string; status: string; conclusion?: string }>> {
   try {
     return await adapter.listChecks(ref);
@@ -17166,58 +16948,6 @@ function renderNativePipelineLogPreview(provider: ProjectDevopsProvider, status:
     `status=${status}`,
     ...evidence
   ].join("\n");
-}
-
-function resolveJenkinsDeliveryTarget(args: {
-  store: FileStore;
-  plan: EvolutionPlan;
-  body: any;
-  runtime: RuntimeConfig;
-}): {
-  connectorId?: string;
-  connector?: StoredJenkinsConnector;
-  jobName?: string;
-  statusCode: number;
-  error?: { error: string; detail?: string; projectId?: string };
-} {
-  const { store, plan, body, runtime } = args;
-  const project = store.readProject(plan.projectId);
-  const projectCicd = project?.cicd?.provider === "jenkins" ? project.cicd : undefined;
-  const requestedConnectorId = body.connectorId ? String(body.connectorId).trim() : undefined;
-  const connectorId = requestedConnectorId ?? projectCicd?.connectorId ?? (runtime.mode === "debug" ? "default" : undefined);
-  if (!connectorId) {
-    return {
-      statusCode: 409,
-      error: {
-        error: "CICD_NOT_CONFIGURED",
-        detail: "当前项目没有配置项目级 Jenkins，也没有可用的系统默认 Jenkins。代码升级可以完成，但不能进入 CI/CD。",
-        projectId: plan.projectId
-      }
-    };
-  }
-  const connector = store.readJenkinsConnector(connectorId);
-  if (!connector) {
-    return {
-      statusCode: 400,
-      error: {
-        error: requestedConnectorId ? "CICD_CONNECTOR_NOT_FOUND" : "CICD_NOT_CONFIGURED",
-        detail: `未找到 Jenkins 连接器：${connectorId}`,
-        projectId: plan.projectId
-      }
-    };
-  }
-  const jobName = String(body.job ?? projectCicd?.job ?? connector.jobTemplates?.[plan.projectId] ?? connector.jobTemplates?.default ?? "").trim();
-  if (!jobName) {
-    return {
-      statusCode: 400,
-      error: {
-        error: "CICD_JOB_NOT_CONFIGURED",
-        detail: `项目 ${plan.projectId} 没有配置 Jenkins Job，且连接器 ${connector.id} 没有默认 Job。`,
-        projectId: plan.projectId
-      }
-    };
-  }
-  return { connectorId: connector.id, connector, jobName, statusCode: 200 };
 }
 
 function normalizeDeliveryParameters(delivery: DeliveryPlan, plan: EvolutionPlan, parameters: unknown, codeUpgrade?: CodeUpgradeRun): Record<string, string> {
@@ -17439,7 +17169,7 @@ function logCategory(event: string): LogCategory {
   if (event.startsWith("http.")) return "http";
   if (event.startsWith("audit.")) return "audit";
   if (event.startsWith("code-upgrade.")) return "code-upgrade";
-  if (event.startsWith("jenkins.") || event.startsWith("devops.") || event.startsWith("project.devops")) return "cicd";
+  if (event.startsWith("devops.") || event.startsWith("project.devops")) return "cicd";
   if (event.startsWith("loop-worker.")) return "worker";
   if (event.includes("release")) return "release";
   if (event.includes("auth")) return "auth";
@@ -17455,7 +17185,7 @@ function routeGroup(pathname: string): string {
   if (pathname.includes("release")) return "release-governance";
   if (pathname.includes("evidence") || pathname.includes("audit")) return "evidence-audit";
   if (pathname.includes("code-upgrade")) return "code-upgrade";
-  if (pathname.includes("jenkins") || pathname.includes("devops") || pathname.includes("pipeline") || pathname.includes("delivery")) return "cicd";
+  if (pathname.includes("devops") || pathname.includes("pipeline") || pathname.includes("delivery")) return "cicd";
   return pathname.startsWith("/api/") ? "api" : "dashboard";
 }
 

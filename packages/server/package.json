@@ -12,7 +12,6 @@
   "dependencies": {
     "@evopilot/adapter-github": "0.1.0",
     "@evopilot/adapter-gitlab": "0.1.0",
-    "@evopilot/adapter-jenkins": "0.1.0",
     "@evopilot/adapter-local-git": "0.1.0",
     "@evopilot/adapter-openhands": "0.1.0",
     "@evopilot/core": "0.1.0",

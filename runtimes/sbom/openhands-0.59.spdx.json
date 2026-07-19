@@ -23,7 +23,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:oci/code-upgrader-runtime@sha256:04deef9078e85aca13a38e86660da6e093d8062c621d0c7baa6693e09b145405?arch=arm64\u0026repository_url=index.docker.io%2Fevopilot%2Fcode-upgrader-runtime"
+          "referenceLocator": "pkg:oci/code-upgrader-runtime@sha256:04deef9078e85aca13a38e86660da6e093d8062c621d0c7baa6693e09b145405?arch=arm64&repository_url=index.docker.io%2Fevopilot%2Fcode-upgrader-runtime"
         }
       ],
       "primaryPackagePurpose": "CONTAINER",
@@ -273,50 +273,6 @@
           "annotationDate": "2026-06-06T07:58:54Z",
           "annotationType": "OTHER",
           "comment": "PkgID: @evopilot/adapter-gitlab@0.1.0"
-        },
-        {
-          "annotator": "Tool: trivy-0.71.0",
-          "annotationDate": "2026-06-06T07:58:54Z",
-          "annotationType": "OTHER",
-          "comment": "PkgType: node-pkg"
-        }
-      ]
-    },
-    {
-      "name": "@evopilot/adapter-jenkins",
-      "SPDXID": "SPDXRef-Package-65ed3f6b9f0e49bd",
-      "versionInfo": "0.1.0",
-      "supplier": "NOASSERTION",
-      "downloadLocation": "NONE",
-      "filesAnalyzed": false,
-      "licenseConcluded": "NOASSERTION",
-      "licenseDeclared": "NOASSERTION",
-      "externalRefs": [
-        {
-          "referenceCategory": "PACKAGE-MANAGER",
-          "referenceType": "purl",
-          "referenceLocator": "pkg:npm/%40evopilot/adapter-jenkins@0.1.0"
-        }
-      ],
-      "primaryPackagePurpose": "LIBRARY",
-      "annotations": [
-        {
-          "annotator": "Tool: trivy-0.71.0",
-          "annotationDate": "2026-06-06T07:58:54Z",
-          "annotationType": "OTHER",
-          "comment": "LayerDiffID: sha256:162b563df1b9c218122dea323d293873575fa273eed614e7803888dd7ec593bf"
-        },
-        {
-          "annotator": "Tool: trivy-0.71.0",
-          "annotationDate": "2026-06-06T07:58:54Z",
-          "annotationType": "OTHER",
-          "comment": "LayerDigest: sha256:d889eb160b8b6f431488edd516702b5d01a18d3cffa6c9ad6488ae1d860f5053"
-        },
-        {
-          "annotator": "Tool: trivy-0.71.0",
-          "annotationDate": "2026-06-06T07:58:54Z",
-          "annotationType": "OTHER",
-          "comment": "PkgID: @evopilot/adapter-jenkins@0.1.0"
         },
         {
           "annotator": "Tool: trivy-0.71.0",
@@ -638,7 +594,7 @@
       "name": "alpine-baselayout",
       "SPDXID": "SPDXRef-Package-2a56265a9276345",
       "versionInfo": "3.7.2-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -654,7 +610,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/alpine-baselayout@3.7.2-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/alpine-baselayout@3.7.2-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -689,7 +645,7 @@
       "name": "alpine-baselayout-data",
       "SPDXID": "SPDXRef-Package-ac1e27acfbf16268",
       "versionInfo": "3.7.2-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -705,7 +661,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -740,7 +696,7 @@
       "name": "alpine-keys",
       "SPDXID": "SPDXRef-Package-72818cdc2bbcd751",
       "versionInfo": "2.6-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -756,7 +712,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/alpine-keys@2.6-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/alpine-keys@2.6-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -791,7 +747,7 @@
       "name": "alpine-release",
       "SPDXID": "SPDXRef-Package-77831eae4c7ccf3c",
       "versionInfo": "3.23.4-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -807,7 +763,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/alpine-release@3.23.4-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/alpine-release@3.23.4-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -842,7 +798,7 @@
       "name": "apk-tools",
       "SPDXID": "SPDXRef-Package-cedbc2a2b4a57103",
       "versionInfo": "3.0.6-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -858,7 +814,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/apk-tools@3.0.6-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/apk-tools@3.0.6-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -893,7 +849,7 @@
       "name": "brotli-libs",
       "SPDXID": "SPDXRef-Package-1cc9c4e230ca44db",
       "versionInfo": "1.2.0-r0",
-      "supplier": "Organization: prspkt \u003cprspkt@protonmail.com\u003e",
+      "supplier": "Organization: prspkt <prspkt@protonmail.com>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -909,7 +865,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -944,7 +900,7 @@
       "name": "busybox",
       "SPDXID": "SPDXRef-Package-621a4148b804808d",
       "versionInfo": "1.37.0-r30",
-      "supplier": "Organization: Sören Tempel \u003csoeren+alpine@soeren-tempel.net\u003e",
+      "supplier": "Organization: Sören Tempel <soeren+alpine@soeren-tempel.net>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -960,7 +916,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/busybox@1.37.0-r30?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/busybox@1.37.0-r30?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -995,7 +951,7 @@
       "name": "busybox-binsh",
       "SPDXID": "SPDXRef-Package-39f9107c6432968",
       "versionInfo": "1.37.0-r30",
-      "supplier": "Organization: Sören Tempel \u003csoeren+alpine@soeren-tempel.net\u003e",
+      "supplier": "Organization: Sören Tempel <soeren+alpine@soeren-tempel.net>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1011,7 +967,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/busybox-binsh@1.37.0-r30?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/busybox-binsh@1.37.0-r30?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1046,7 +1002,7 @@
       "name": "c-ares",
       "SPDXID": "SPDXRef-Package-83e3e8828f336459",
       "versionInfo": "1.34.6-r0",
-      "supplier": "Organization: Carlo Landmeter \u003cclandmeter@alpinelinux.org\u003e",
+      "supplier": "Organization: Carlo Landmeter <clandmeter@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1062,7 +1018,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/c-ares@1.34.6-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/c-ares@1.34.6-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1097,7 +1053,7 @@
       "name": "ca-certificates",
       "SPDXID": "SPDXRef-Package-a8205fe1f1ce8325",
       "versionInfo": "20260413-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1113,7 +1069,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/ca-certificates@20260413-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/ca-certificates@20260413-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1148,7 +1104,7 @@
       "name": "ca-certificates-bundle",
       "SPDXID": "SPDXRef-Package-ab3034aa6eb37009",
       "versionInfo": "20260413-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1164,7 +1120,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/ca-certificates-bundle@20260413-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/ca-certificates-bundle@20260413-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1287,7 +1243,7 @@
       "name": "git",
       "SPDXID": "SPDXRef-Package-c2df72ae436e8856",
       "versionInfo": "2.52.0-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1303,7 +1259,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/git@2.52.0-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/git@2.52.0-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1338,7 +1294,7 @@
       "name": "git-init-template",
       "SPDXID": "SPDXRef-Package-6d5dfe563259032e",
       "versionInfo": "2.52.0-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1354,7 +1310,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/git-init-template@2.52.0-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/git-init-template@2.52.0-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1389,7 +1345,7 @@
       "name": "libapk",
       "SPDXID": "SPDXRef-Package-dbbd03a46d5fbba",
       "versionInfo": "3.0.6-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1405,7 +1361,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libapk@3.0.6-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libapk@3.0.6-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1440,7 +1396,7 @@
       "name": "libcrypto3",
       "SPDXID": "SPDXRef-Package-313675098c3dea7d",
       "versionInfo": "3.5.6-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1456,7 +1412,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libcrypto3@3.5.6-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libcrypto3@3.5.6-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1491,7 +1447,7 @@
       "name": "libcurl",
       "SPDXID": "SPDXRef-Package-f0ddf7faded9d2ec",
       "versionInfo": "8.19.0-r0",
-      "supplier": "Organization: Achill Gilgenast \u003cachill@achill.org\u003e",
+      "supplier": "Organization: Achill Gilgenast <achill@achill.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1507,7 +1463,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libcurl@8.19.0-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libcurl@8.19.0-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1542,7 +1498,7 @@
       "name": "libedit",
       "SPDXID": "SPDXRef-Package-41ffcd1b111fbeb6",
       "versionInfo": "20251016.3.1-r0",
-      "supplier": "Organization: Celeste \u003ccielesti@protonmail.com\u003e",
+      "supplier": "Organization: Celeste <cielesti@protonmail.com>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1558,7 +1514,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libedit@20251016.3.1-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libedit@20251016.3.1-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1593,7 +1549,7 @@
       "name": "libexpat",
       "SPDXID": "SPDXRef-Package-f2fc2a3af61b9c43",
       "versionInfo": "2.7.5-r0",
-      "supplier": "Organization: Carlo Landmeter \u003cclandmeter@alpinelinux.org\u003e",
+      "supplier": "Organization: Carlo Landmeter <clandmeter@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1609,7 +1565,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libexpat@2.7.5-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libexpat@2.7.5-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1644,7 +1600,7 @@
       "name": "libgcc",
       "SPDXID": "SPDXRef-Package-49427db66282b76b",
       "versionInfo": "15.2.0-r2",
-      "supplier": "Organization: Ariadne Conill \u003cariadne@dereferenced.org\u003e",
+      "supplier": "Organization: Ariadne Conill <ariadne@dereferenced.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1660,7 +1616,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libgcc@15.2.0-r2?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libgcc@15.2.0-r2?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1695,7 +1651,7 @@
       "name": "libidn2",
       "SPDXID": "SPDXRef-Package-a54a20356a9a0085",
       "versionInfo": "2.3.8-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1711,7 +1667,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libidn2@2.3.8-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libidn2@2.3.8-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1746,7 +1702,7 @@
       "name": "libncursesw",
       "SPDXID": "SPDXRef-Package-afe5334ee264c79e",
       "versionInfo": "6.5_p20251123-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1762,7 +1718,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libncursesw@6.5_p20251123-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libncursesw@6.5_p20251123-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1797,7 +1753,7 @@
       "name": "libpsl",
       "SPDXID": "SPDXRef-Package-9945c24b3e3d1fa4",
       "versionInfo": "0.21.5-r3",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1813,7 +1769,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libpsl@0.21.5-r3?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libpsl@0.21.5-r3?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1848,7 +1804,7 @@
       "name": "libssl3",
       "SPDXID": "SPDXRef-Package-b1f2b8e6a6ed4401",
       "versionInfo": "3.5.6-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1864,7 +1820,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libssl3@3.5.6-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libssl3@3.5.6-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1899,7 +1855,7 @@
       "name": "libstdc++",
       "SPDXID": "SPDXRef-Package-e0e60224c008c7ac",
       "versionInfo": "15.2.0-r2",
-      "supplier": "Organization: Ariadne Conill \u003cariadne@dereferenced.org\u003e",
+      "supplier": "Organization: Ariadne Conill <ariadne@dereferenced.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1915,7 +1871,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libstdc%2B%2B@15.2.0-r2?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libstdc%2B%2B@15.2.0-r2?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -1950,7 +1906,7 @@
       "name": "libunistring",
       "SPDXID": "SPDXRef-Package-abdff4be3c1165a5",
       "versionInfo": "1.4.1-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -1966,7 +1922,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/libunistring@1.4.1-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/libunistring@1.4.1-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2001,7 +1957,7 @@
       "name": "musl",
       "SPDXID": "SPDXRef-Package-35d818d09b80d63",
       "versionInfo": "1.2.5-r23",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2017,7 +1973,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/musl@1.2.5-r23?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/musl@1.2.5-r23?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2052,7 +2008,7 @@
       "name": "musl-utils",
       "SPDXID": "SPDXRef-Package-675cc64d4414538b",
       "versionInfo": "1.2.5-r23",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2068,7 +2024,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/musl-utils@1.2.5-r23?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/musl-utils@1.2.5-r23?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2103,7 +2059,7 @@
       "name": "ncurses-terminfo-base",
       "SPDXID": "SPDXRef-Package-7b9b632dac9f275d",
       "versionInfo": "6.5_p20251123-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2119,7 +2075,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/ncurses-terminfo-base@6.5_p20251123-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/ncurses-terminfo-base@6.5_p20251123-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2154,7 +2110,7 @@
       "name": "nghttp2-libs",
       "SPDXID": "SPDXRef-Package-1d7ddc5a6aa64cb5",
       "versionInfo": "1.69.0-r0",
-      "supplier": "Organization: Francesco Colista \u003cfcolista@alpinelinux.org\u003e",
+      "supplier": "Organization: Francesco Colista <fcolista@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2170,7 +2126,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/nghttp2-libs@1.69.0-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/nghttp2-libs@1.69.0-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2205,7 +2161,7 @@
       "name": "openssh-client-common",
       "SPDXID": "SPDXRef-Package-143d307add7fdba6",
       "versionInfo": "10.2_p1-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2221,7 +2177,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/openssh-client-common@10.2_p1-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/openssh-client-common@10.2_p1-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2256,7 +2212,7 @@
       "name": "openssh-client-default",
       "SPDXID": "SPDXRef-Package-66eed290e79cd48f",
       "versionInfo": "10.2_p1-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2272,7 +2228,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/openssh-client-default@10.2_p1-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/openssh-client-default@10.2_p1-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2307,7 +2263,7 @@
       "name": "openssh-keygen",
       "SPDXID": "SPDXRef-Package-a534dcf636de67ab",
       "versionInfo": "10.2_p1-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2323,7 +2279,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/openssh-keygen@10.2_p1-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/openssh-keygen@10.2_p1-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2358,7 +2314,7 @@
       "name": "pcre2",
       "SPDXID": "SPDXRef-Package-8c1c0bb72ccfbe9d",
       "versionInfo": "10.47-r0",
-      "supplier": "Organization: Jakub Jirutka \u003cjakub@jirutka.cz\u003e",
+      "supplier": "Organization: Jakub Jirutka <jakub@jirutka.cz>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2374,7 +2330,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/pcre2@10.47-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/pcre2@10.47-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2409,7 +2365,7 @@
       "name": "scanelf",
       "SPDXID": "SPDXRef-Package-23e80763fb4373b6",
       "versionInfo": "1.3.8-r2",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2425,7 +2381,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/scanelf@1.3.8-r2?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/scanelf@1.3.8-r2?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2460,7 +2416,7 @@
       "name": "ssl_client",
       "SPDXID": "SPDXRef-Package-5082d8897e49bdf4",
       "versionInfo": "1.37.0-r30",
-      "supplier": "Organization: Sören Tempel \u003csoeren+alpine@soeren-tempel.net\u003e",
+      "supplier": "Organization: Sören Tempel <soeren+alpine@soeren-tempel.net>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2476,7 +2432,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/ssl_client@1.37.0-r30?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/ssl_client@1.37.0-r30?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2555,7 +2511,7 @@
       "name": "zlib",
       "SPDXID": "SPDXRef-Package-85ded653e57d4f3a",
       "versionInfo": "1.3.2-r0",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2571,7 +2527,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/zlib@1.3.2-r0?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/zlib@1.3.2-r0?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2606,7 +2562,7 @@
       "name": "zstd-libs",
       "SPDXID": "SPDXRef-Package-8a3bc8d89e16cad0",
       "versionInfo": "1.5.7-r2",
-      "supplier": "Organization: Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+      "supplier": "Organization: Natanael Copa <ncopa@alpinelinux.org>",
       "downloadLocation": "NONE",
       "filesAnalyzed": false,
       "checksums": [
@@ -2622,7 +2578,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:apk/alpine/zstd-libs@1.5.7-r2?arch=aarch64\u0026distro=3.23.4"
+          "referenceLocator": "pkg:apk/alpine/zstd-libs@1.5.7-r2?arch=aarch64&distro=3.23.4"
         }
       ],
       "primaryPackagePurpose": "LIBRARY",
@@ -2714,11 +2670,6 @@
     {
       "spdxElementId": "SPDXRef-ContainerImage-65849809c1371fa3",
       "relatedSpdxElement": "SPDXRef-Package-5dd17f638f3846b3",
-      "relationshipType": "CONTAINS"
-    },
-    {
-      "spdxElementId": "SPDXRef-ContainerImage-65849809c1371fa3",
-      "relatedSpdxElement": "SPDXRef-Package-65ed3f6b9f0e49bd",
       "relationshipType": "CONTAINS"
     },
     {

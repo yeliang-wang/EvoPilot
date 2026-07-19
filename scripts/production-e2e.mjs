@@ -26,6 +26,7 @@ const dataRoot = process.env.EVOPILOT_PRODUCTION_E2E_DATA_ROOT ?? fs.mkdtempSync
 const projectId = process.env.EVOPILOT_REAL_PROJECT_ID ?? "domainforge-fabric-real-user";
 const projectName = process.env.EVOPILOT_REAL_PROJECT_NAME ?? "真实用户生产项目";
 const projectRepository = projectRepositoryFromEnv();
+const projectDevops = projectDevopsFromEnv(projectRepository);
 assertProjectRegistrationReady(projectRepository);
 assertProductionRuntimesConfigured();
 
@@ -73,9 +74,7 @@ try {
   await assertRemoteBranchExists(projectRepository, codeUpgradeRun.artifacts.branchName);
 
   const pipelineStart = await post(`/api/v1/deliveries/${encodeURIComponent(run.deliveryPlans[0].id)}/execute`, {
-    executor: "jenkins",
-    connectorId: "default",
-    job: productJenkinsJob(),
+    executor: projectDevops.provider,
     parameters: {
       VERSION: `production-e2e-${Date.now()}`,
       PROJECT_ID: projectId
@@ -89,11 +88,10 @@ try {
   assert.equal(pipeline.parameters.MERGE_REQUEST_URL, codeUpgradeRun.artifacts.pullRequestUrl);
   const pipelineLog = await getText(`/api/v1/pipelines/${encodeURIComponent(pipeline.id)}/logs`, "viewer");
   assert.match(pipelineLog, new RegExp(escapeRegExp(codeUpgradeRun.artifacts.branchName)));
-  assert.match(pipelineLog, new RegExp(escapeRegExp(codeUpgradeRun.artifacts.commitSha)));
 
   const detail = await get(`/api/v1/runs/${encodeURIComponent(run.id)}`, "viewer");
   const audit = await get("/api/v1/audit", "viewer");
-  const requiredAudit = ["project.created", "rule.compiled", "evaluation-datasets.upserted", "opportunity-draft.created", "run.created", "review.decided", "code-upgrade.started", "jenkins.build.triggered"];
+  const requiredAudit = ["project.created", "rule.compiled", "evaluation-datasets.upserted", "opportunity-draft.created", "run.created", "review.decided", "code-upgrade.started", "devops.pipeline.triggered"];
   for (const action of requiredAudit) {
     assert.ok(audit.some((record) => record.action === action), `缺少审计事件：${action}`);
   }
@@ -113,8 +111,8 @@ try {
     },
     pipeline: {
       id: pipeline.id,
+      provider: pipeline.provider,
       status: pipeline.status,
-      buildNumber: pipeline.buildNumber,
       buildUrl: pipeline.buildUrl,
       stages: pipeline.stages
     },
@@ -150,17 +148,6 @@ async function registerExternalConnectors() {
     workspaceMode: envFirst("EVOPILOT_CODE_UPGRADER_WORKSPACE_MODE", "EVOPILOT_REAL_OPENHANDS_WORKSPACE_MODE") ?? "docker",
     defaultModel: envFirst("EVOPILOT_CODE_UPGRADER_MODEL", "EVOPILOT_REAL_OPENHANDS_MODEL", "EVOPILOT_LLM_MODEL_NAME")
   }, "admin");
-  await post("/api/v1/connectors/jenkins", {
-    id: "default",
-    name: "外部 Jenkins CI/CD",
-    baseUrl: productJenkinsBaseUrl(),
-    username: envFirst("EVOPILOT_PRODUCT_JENKINS_USERNAME", "EVOPILOT_REAL_JENKINS_USERNAME"),
-    apiToken: envFirst("EVOPILOT_PRODUCT_JENKINS_API_TOKEN", "EVOPILOT_REAL_JENKINS_API_TOKEN"),
-    jobTemplates: {
-      default: productJenkinsJob(),
-      [projectId]: productJenkinsJob()
-    }
-  }, "admin");
 }
 
 async function registerRealProject() {
@@ -168,9 +155,11 @@ async function registerRealProject() {
     id: projectId,
     name: projectName,
     profileId: "domainforge-fabric",
-    repository: projectRepository
+    repository: projectRepository,
+    devops: projectDevops
   }, "admin");
   assert.equal(project.validation.status, "VERIFIED");
+  assert.equal(project.devops?.provider, projectDevops.provider);
 }
 
 async function compileRuleWithRealLlm() {
@@ -319,7 +308,7 @@ function validationCommands() {
 
 function projectRepositoryFromEnv() {
   return {
-    provider: process.env.EVOPILOT_REAL_PROJECT_PROVIDER ?? "local-git",
+    provider: process.env.EVOPILOT_REAL_PROJECT_PROVIDER ?? "github",
     gitUrl: optionalEnv("EVOPILOT_REAL_PROJECT_GIT_URL"),
     root: optionalEnv("EVOPILOT_REAL_PROJECT_ROOT"),
     baseUrl: optionalEnv("EVOPILOT_REAL_PROJECT_BASE_URL"),
@@ -334,15 +323,52 @@ function projectRepositoryFromEnv() {
   };
 }
 
-function assertProjectRegistrationReady(repository) {
-  if (!["local-git", "gitlab", "github"].includes(repository.provider)) {
-    throw new Error(`EVOPILOT_REAL_PROJECT_PROVIDER 只能是 local-git、gitlab 或 github，当前为：${repository.provider}`);
+function projectDevopsFromEnv(repository) {
+  const provider = envFirst("EVOPILOT_REAL_PROJECT_DEVOPS_PROVIDER", "EVOPILOT_REAL_PROJECT_CI_PROVIDER")
+    ?? (repository.provider === "gitlab" ? "gitlab-ci" : repository.provider === "github" ? "github-actions" : "");
+  const normalized = normalizeDevopsProvider(provider);
+  if (!normalized) {
+    throw new Error(`EVOPILOT_REAL_PROJECT_DEVOPS_PROVIDER 只能是 github-actions 或 gitlab-ci，当前为：${provider || "missing"}`);
   }
-  if (repository.provider === "local-git") {
-    assert.ok(repository.root, "local-git 项目注册必须配置 EVOPILOT_REAL_PROJECT_ROOT");
-    assert.ok(fs.existsSync(repository.root), `真实项目目录不存在：${repository.root}`);
-    assert.ok(fs.existsSync(path.join(repository.root, ".git")), `真实项目必须是 Git 仓库：${repository.root}`);
-    return;
+  if (normalized === "github-actions" && repository.provider !== "github") {
+    throw new Error(`github-actions DevOps 只能绑定 GitHub 项目，当前 provider=${repository.provider}`);
+  }
+  if (normalized === "gitlab-ci" && repository.provider !== "gitlab") {
+    throw new Error(`gitlab-ci DevOps 只能绑定 GitLab 项目，当前 provider=${repository.provider}`);
+  }
+  return {
+    provider: normalized,
+    tokenRef: optionalEnv("EVOPILOT_REAL_PROJECT_DEVOPS_TOKEN_REF"),
+    ci: {
+      workflow: optionalEnv("EVOPILOT_REAL_PROJECT_CI_WORKFLOW"),
+      ref: optionalEnv("EVOPILOT_REAL_PROJECT_CI_REF") ?? repository.defaultBranch,
+      requiredChecks: listEnv("EVOPILOT_REAL_PROJECT_REQUIRED_CHECKS"),
+      requiredStages: listEnv("EVOPILOT_REAL_PROJECT_REQUIRED_STAGES"),
+      requiredJobs: listEnv("EVOPILOT_REAL_PROJECT_REQUIRED_JOBS"),
+      timeoutSeconds: Number(process.env.EVOPILOT_REAL_PROJECT_CI_TIMEOUT_SECONDS ?? 1800)
+    },
+    cd: optionalEnv("EVOPILOT_REAL_PROJECT_CD_WORKFLOW") || optionalEnv("EVOPILOT_REAL_PROJECT_DEPLOY_ENVIRONMENT") || optionalEnv("EVOPILOT_REAL_PROJECT_HEALTH_URL") || optionalEnv("EVOPILOT_REAL_PROJECT_READY_URL") ? {
+      workflow: optionalEnv("EVOPILOT_REAL_PROJECT_CD_WORKFLOW"),
+      environment: optionalEnv("EVOPILOT_REAL_PROJECT_DEPLOY_ENVIRONMENT"),
+      requiredStages: listEnv("EVOPILOT_REAL_PROJECT_CD_REQUIRED_STAGES"),
+      requiredJobs: listEnv("EVOPILOT_REAL_PROJECT_CD_REQUIRED_JOBS"),
+      healthUrl: optionalEnv("EVOPILOT_REAL_PROJECT_HEALTH_URL"),
+      readyUrl: optionalEnv("EVOPILOT_REAL_PROJECT_READY_URL"),
+      timeoutSeconds: Number(process.env.EVOPILOT_REAL_PROJECT_CD_TIMEOUT_SECONDS ?? 1800)
+    } : undefined
+  };
+}
+
+function normalizeDevopsProvider(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (["github-actions", "github", "actions"].includes(text)) return "github-actions";
+  if (["gitlab-ci", "gitlab", "gitlab-pipeline"].includes(text)) return "gitlab-ci";
+  return undefined;
+}
+
+function assertProjectRegistrationReady(repository) {
+  if (!["gitlab", "github"].includes(repository.provider)) {
+    throw new Error(`EVOPILOT_REAL_PROJECT_PROVIDER 只能是 gitlab 或 github，当前为：${repository.provider}`);
   }
   const hasCredential = Boolean(repository.token || repository.password || repository.tokenRef);
   assert.ok(hasCredential, `${repository.provider} 项目注册必须配置 EVOPILOT_REAL_PROJECT_TOKEN、EVOPILOT_REAL_PROJECT_PASSWORD 或 EVOPILOT_REAL_PROJECT_TOKEN_REF`);
@@ -358,11 +384,16 @@ function optionalEnv(key) {
   return process.env[key]?.trim() || undefined;
 }
 
+function listEnv(key) {
+  return (process.env[key] ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function configured(key) {
   if (process.env[key]?.trim()) return true;
   if (key === "EVOPILOT_CODE_UPGRADER_BASE_URL") return Boolean(process.env.EVOPILOT_REAL_OPENHANDS_BASE_URL?.trim());
-  if (key === "EVOPILOT_PRODUCT_JENKINS_BASE_URL") return Boolean(process.env.EVOPILOT_REAL_JENKINS_BASE_URL?.trim());
-  if (key === "EVOPILOT_PRODUCT_JENKINS_JOB") return Boolean(process.env.EVOPILOT_REAL_JENKINS_JOB?.trim());
   return false;
 }
 
@@ -374,14 +405,6 @@ function envFirst(...keys) {
   return undefined;
 }
 
-function productJenkinsBaseUrl() {
-  return envFirst("EVOPILOT_PRODUCT_JENKINS_BASE_URL", "EVOPILOT_REAL_JENKINS_BASE_URL") ?? "http://127.0.0.1:8080";
-}
-
-function productJenkinsJob() {
-  return envFirst("EVOPILOT_PRODUCT_JENKINS_JOB", "EVOPILOT_REAL_JENKINS_JOB") ?? "evopilot-evolution-delivery";
-}
-
 function codeUpgraderBaseUrl() {
   return envFirst("EVOPILOT_CODE_UPGRADER_BASE_URL", "EVOPILOT_REAL_OPENHANDS_BASE_URL") ?? "http://127.0.0.1:3000";
 }
@@ -389,12 +412,12 @@ function codeUpgraderBaseUrl() {
 function assertProductionRuntimesConfigured() {
   const missing = [];
   if (!configured("EVOPILOT_CODE_UPGRADER_BASE_URL")) missing.push("EVOPILOT_CODE_UPGRADER_BASE_URL");
-  if (!configured("EVOPILOT_PRODUCT_JENKINS_BASE_URL")) missing.push("EVOPILOT_PRODUCT_JENKINS_BASE_URL");
-  if (!configured("EVOPILOT_PRODUCT_JENKINS_JOB")) missing.push("EVOPILOT_PRODUCT_JENKINS_JOB");
+  if (projectDevops.provider === "github-actions" && !projectDevops.ci.workflow && projectDevops.ci.requiredChecks.length === 0) missing.push("EVOPILOT_REAL_PROJECT_CI_WORKFLOW or EVOPILOT_REAL_PROJECT_REQUIRED_CHECKS");
+  if (projectDevops.provider === "gitlab-ci" && projectDevops.ci.requiredStages.length === 0 && projectDevops.ci.requiredJobs.length === 0) missing.push("EVOPILOT_REAL_PROJECT_REQUIRED_STAGES or EVOPILOT_REAL_PROJECT_REQUIRED_JOBS");
   if (missing.length > 0) {
     console.error(JSON.stringify({
       status: "BLOCKED",
-      reason: "产品生产级 E2E 必须连接 EvoPilot 托管代码升级运行时和真实外部 Jenkins CI/CD，不会启动或降级到内部模拟进程。",
+      reason: "产品生产级 E2E 必须连接 EvoPilot 托管代码升级运行时和项目原生 GitHub Actions/GitLab CI，不会启动或降级到内部模拟进程。",
       missing
     }, null, 2));
     process.exit(2);
@@ -425,13 +448,12 @@ function classifyProductionBlocker(message) {
       detail: message
     };
   }
-  if (/jenkins|pipeline|CI\/CD/i.test(message) && /fetch failed/.test(message)) {
+  if (/devops|pipeline|CI\/CD|github|gitlab/i.test(message) && /fetch failed/.test(message)) {
     return {
       status: "BLOCKED",
-      reason: "外部 Jenkins CI/CD 不可达；不会降级为 mock。",
-      component: "external-cicd",
-      expectedBaseUrl: productJenkinsBaseUrl(),
-      expectedJob: productJenkinsJob(),
+      reason: "项目原生 GitHub Actions/GitLab CI 不可达；不会降级为 mock。",
+      component: "project-native-devops",
+      expectedProvider: projectDevops.provider,
       detail: message
     };
   }

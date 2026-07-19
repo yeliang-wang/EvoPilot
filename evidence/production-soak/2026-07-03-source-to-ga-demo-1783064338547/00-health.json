@@ -1,8 +1,0 @@
-{
-  "status": "UP",
-  "service": "evopilot",
-  "profile": "domainforge-fabric",
-  "runtimeMode": "prod",
-  "dataRoot": "/var/lib/evopilot",
-  "authRequired": true
-}

@@ -7,7 +7,7 @@
   "targetPlan": {
     "finalGoal": "EvoPilot reaches GA Release Target with product-native GA release decision GO.",
     "phaseGoals": [
-      "readiness: verify real EvoPilot server, code-upgrader, GitLab, Jenkins, GLM/LLM, data root, release API, and runner boundaries",
+      "readiness: verify real EvoPilot server, code-upgrader, GitHub/GitLab native DevOps, GLM/LLM, data root, release API, and runner boundaries",
       "coverage-matrix: register production representative sandbox projects and cover project onboarding, release evidence, code upgrade, SCM, CI/CD, LLM analysis, risk register, and release decision",
       "repair-loop: diagnose, productize fixes, and verify failed matrix rows without rerun-only behavior",
       "soak-and-ga-decision: produce final product-native GA release decision with full decision chain"
@@ -15,7 +15,7 @@
     "acceptanceCriteria": [
       "npm run check passes",
       "production E2E passes",
-      "Jenkins evidence uses real external or production-grade boundary",
+      "GitHub Actions/GitLab CI evidence uses project-native production boundary",
       "GitLab evidence uses real token and real repository interaction",
       "LLM/GLM evidence uses real invocation chain",
       "GA required coverage matrix rows are PASS or explicitly NO-GO/BLOCKED with evidence",
@@ -117,16 +117,6 @@
       "required": true
     },
     {
-      "id": "jenkins-boundary",
-      "type": "boundary",
-      "capability": "external-boundary",
-      "scenario": "jenkins",
-      "url": "http://172.18.124.14:8080/login",
-      "auth": false,
-      "requiredEvidence": "Jenkins /login reachable through real external boundary",
-      "required": true
-    },
-    {
       "id": "gitlab-boundary",
       "type": "boundary",
       "capability": "external-boundary",
@@ -177,13 +167,21 @@
         "EVOPILOT_LLM_TIMEOUT_SECONDS",
         "EVOPILOT_PRODUCTION_E2E_POLL_MS",
         "EVOPILOT_PRODUCTION_E2E_TIMEOUT_MS",
-        "EVOPILOT_PRODUCT_JENKINS_API_TOKEN",
-        "EVOPILOT_PRODUCT_JENKINS_BASE_URL",
-        "EVOPILOT_PRODUCT_JENKINS_JOB",
-        "EVOPILOT_PRODUCT_JENKINS_USERNAME",
         "EVOPILOT_REAL_PROJECT_BASE_URL",
+        "EVOPILOT_REAL_PROJECT_CD_REQUIRED_JOBS",
+        "EVOPILOT_REAL_PROJECT_CD_REQUIRED_STAGES",
+        "EVOPILOT_REAL_PROJECT_CD_TIMEOUT_SECONDS",
+        "EVOPILOT_REAL_PROJECT_CD_WORKFLOW",
+        "EVOPILOT_REAL_PROJECT_CI_PROVIDER",
+        "EVOPILOT_REAL_PROJECT_CI_REF",
+        "EVOPILOT_REAL_PROJECT_CI_TIMEOUT_SECONDS",
+        "EVOPILOT_REAL_PROJECT_CI_WORKFLOW",
         "EVOPILOT_REAL_PROJECT_DEFAULT_BRANCH",
+        "EVOPILOT_REAL_PROJECT_DEPLOY_ENVIRONMENT",
+        "EVOPILOT_REAL_PROJECT_DEVOPS_PROVIDER",
+        "EVOPILOT_REAL_PROJECT_DEVOPS_TOKEN_REF",
         "EVOPILOT_REAL_PROJECT_GIT_URL",
+        "EVOPILOT_REAL_PROJECT_HEALTH_URL",
         "EVOPILOT_REAL_PROJECT_ID",
         "EVOPILOT_REAL_PROJECT_NAME",
         "EVOPILOT_REAL_PROJECT_OWNER",
@@ -191,6 +189,10 @@
         "EVOPILOT_REAL_PROJECT_PROVIDER",
         "EVOPILOT_REAL_PROJECT_REMOTE_ID",
         "EVOPILOT_REAL_PROJECT_REPO",
+        "EVOPILOT_REAL_PROJECT_REQUIRED_CHECKS",
+        "EVOPILOT_REAL_PROJECT_REQUIRED_JOBS",
+        "EVOPILOT_REAL_PROJECT_REQUIRED_STAGES",
+        "EVOPILOT_REAL_PROJECT_READY_URL",
         "EVOPILOT_REAL_PROJECT_ROOT",
         "EVOPILOT_REAL_PROJECT_TOKEN",
         "EVOPILOT_REAL_PROJECT_TOKEN_REF",
@@ -208,7 +210,7 @@
       "command": "npm",
       "args": ["run", "test:e2e:production"],
       "timeoutMs": 1800000,
-      "requiredEvidence": "npm run test:e2e:production exits 0 using real LLM, SCM, code-upgrader, and Jenkins boundaries",
+      "requiredEvidence": "npm run test:e2e:production exits 0 using real LLM, SCM, code-upgrader, and GitHub Actions/GitLab CI boundaries",
       "required": true
     },
     {
@@ -219,7 +221,7 @@
       "command": "node",
       "args": ["scripts/release-matrix-project-loop.mjs"],
       "timeoutMs": 7200000,
-      "requiredEvidence": "Each registered production representative project completes run, review confirmation, code upgrade, and Jenkins CI/CD through EvoPilot product APIs",
+      "requiredEvidence": "Each registered production representative project completes run, review confirmation, code upgrade, and repository-native CI/CD through EvoPilot product APIs",
       "required": true
     },
     {

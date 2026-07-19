@@ -5,7 +5,6 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
 import { isProductImplementationFile, normalizeRelativePath, normalizeRepairAttempts, renderEvidenceFile, renderRepairHistory, resolvePullRequestUrl, runGeneratedQualityGate, sanitizeGeneratedContent, startInternalCodeUpgrader } from "../../scripts/internal-code-upgrader.mjs";
-import { startInternalProductCicd } from "../../scripts/internal-product-cicd.mjs";
 
 test("内置代码升级执行器会产生非证据实现文件", async () => {
   const previousMode = process.env.EVOPILOT_RUN_MODE;
@@ -251,26 +250,6 @@ test("内置代码升级执行器按项目运行配置启动服务并执行冒�
   } finally {
     await runtime.close();
     process.env.EVOPILOT_RUN_MODE = previousMode;
-  }
-});
-
-test("测试用 Jenkins fixture 缺少升级参数时失败", async () => {
-  const runtime = await startInternalProductCicd({ port: 0 });
-  try {
-    const response = await fetch(`${runtime.baseUrl}/job/evopilot-evolution-delivery/buildWithParameters`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ PROJECT_ID: "p1" })
-    });
-    assert.equal(response.status, 201);
-    const queueUrl = response.headers.get("location");
-    const queue = await (await fetch(`${queueUrl}api/json`)).json();
-    const build = await (await fetch(`${runtime.baseUrl}/job/evopilot-evolution-delivery/${queue.executable.number}/api/json`)).json();
-    assert.equal(build.result, "FAILURE");
-    const log = await (await fetch(`${runtime.baseUrl}/job/evopilot-evolution-delivery/${queue.executable.number}/consoleText`)).text();
-    assert.match(log, /required parameters: failed/);
-  } finally {
-    await runtime.close();
   }
 });
 

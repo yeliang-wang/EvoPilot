@@ -91,7 +91,7 @@ async function runUpgrade(id, body, dataRoot) {
     persistSession(session);
 
     const protectedPaths = normalizePathList(body.protectedPaths ?? process.env.EVOPILOT_CODE_UPGRADER_PROTECTED_PATHS);
-    const allowedPaths = normalizePathList(body.allowedPaths ?? process.env.EVOPILOT_CODE_UPGRADER_ALLOWED_PATHS ?? "src,app,server,lib,tests,test,scripts,config,package.json,pyproject.toml,requirements.txt,pom.xml,go.mod,Dockerfile,Jenkinsfile,.evopilot/runtime-upgrades,docs/evopilot-upgrades");
+    const allowedPaths = normalizePathList(body.allowedPaths ?? process.env.EVOPILOT_CODE_UPGRADER_ALLOWED_PATHS ?? "src,app,server,lib,tests,test,scripts,config,package.json,pyproject.toml,requirements.txt,pom.xml,go.mod,Dockerfile,.evopilot/runtime-upgrades,docs/evopilot-upgrades");
     const implementationPlan = await createImplementationPlan({ id, body, repoDir, protectedPaths, allowedPaths, sourceBranch, upgradeBranch, session });
     session.llmTrace = implementationPlan.llmTrace;
     session.events.push(event("info", "生成升级计划", `已生成 ${implementationPlan.edits.length} 个文件级升级动作。`, "agent", {
@@ -875,7 +875,7 @@ export function isProductImplementationFile(file) {
   if (relative.startsWith("docs/")) return false;
   if (/(^|\/)(readme|changelog|license)(\.[^/]*)?$/i.test(relative)) return false;
   return /(^|\/)(src|app|server|lib|tests?|scripts|config)\//.test(relative) ||
-    /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|requirements\.txt|pom\.xml|build\.gradle|settings\.gradle|go\.mod|go\.sum|Dockerfile|Jenkinsfile|Makefile)$/i.test(relative) ||
+    /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|requirements\.txt|pom\.xml|build\.gradle|settings\.gradle|go\.mod|go\.sum|Dockerfile|Makefile)$/i.test(relative) ||
     /\.(py|js|ts|mjs|cjs|java|go|sh|json|ya?ml|toml|properties|xml|gradle|sql)$/i.test(relative);
 }
 

@@ -17,8 +17,8 @@ This directory contains reusable Product Kit assets for onboarding real GitHub p
 | Git URL | `https://github.com/yeliang-wang/evopilot-demo-node-api.git` |
 | Default branch | `main` |
 | Token ref | `EVOPILOT_GITHUB_TOKEN` |
-| CI mode | `system-default` |
-| Jenkins job | `evopilot-demo-node-api` |
+| CI provider | `github-actions` |
+| CI workflow | `ci.yml` |
 | Runtime | `node` |
 | Unit command | `npm test` |
 | Smoke command | `npm run smoke` |

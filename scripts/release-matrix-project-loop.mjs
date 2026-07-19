@@ -14,7 +14,6 @@ const projectIds = (process.env.EVOPILOT_RELEASE_MATRIX_PROJECT_IDS ?? "")
   .map((item) => item.trim())
   .filter(Boolean);
 const projectLimit = Number(process.env.EVOPILOT_RELEASE_MATRIX_PROJECT_LIMIT ?? 0);
-const jenkinsJobOverride = process.env.EVOPILOT_RELEASE_MATRIX_JENKINS_JOB ?? process.env.EVOPILOT_PRODUCT_JENKINS_JOB ?? "";
 const timeoutMs = Number(process.env.EVOPILOT_RELEASE_MATRIX_TIMEOUT_MS ?? 20 * 60 * 1000);
 const pollMs = Number(process.env.EVOPILOT_RELEASE_MATRIX_POLL_MS ?? 5000);
 const projectAttempts = Math.max(1, Math.min(5, Number(process.env.EVOPILOT_RELEASE_MATRIX_PROJECT_ATTEMPTS ?? 3)));
@@ -39,7 +38,7 @@ if (projects.length === 0) {
 
 const results = [];
 for (const project of projects) {
-  results.push(await exerciseProjectWithRetry(await ensureJenkinsReachableScm(project)));
+  results.push(await exerciseProjectWithRetry(await ensureRepositoryNativeDevops(project)));
 }
 
 const failed = results.filter((item) => item.status !== "PASSED");
@@ -89,7 +88,7 @@ async function exerciseProject(project, attempt = 1) {
   try {
     assert.equal(project.validation?.status, "VERIFIED", `${project.id} 项目注册未验证通过`);
     assert.ok(project.repository?.provider, `${project.id} 缺少 repository.provider`);
-    assert.ok(project.cicd?.provider === "jenkins", `${project.id} 缺少 Jenkins CI/CD 配置`);
+    assert.ok(project.devops?.provider === "github-actions" || project.devops?.provider === "gitlab-ci", `${project.id} 缺少 GitHub Actions/GitLab CI DevOps 配置`);
 
     const run = await post("/api/v1/runs", {
       projectId: project.id,
@@ -121,9 +120,7 @@ async function exerciseProject(project, attempt = 1) {
     assert.ok((codeUpgradeRun.artifacts?.changedFiles ?? []).some((file) => !file.startsWith(".evopilot/upgrades/")), `${project.id} 代码升级没有产生项目实现变更`);
 
     const pipelineStart = await post(`/api/v1/deliveries/${encodeURIComponent(run.deliveryPlans[0].id)}/execute`, {
-      executor: "jenkins",
-      connectorId: project.cicd.connectorId ?? "default",
-      job: jenkinsJob(project),
+      executor: project.devops.provider,
       parameters: {
         GIT_URL: project.repository?.gitUrl,
         GIT_USERNAME: gitlabUsername,
@@ -134,7 +131,7 @@ async function exerciseProject(project, attempt = 1) {
     });
     const pipeline = await waitForTerminal(
       `/api/v1/pipelines/${encodeURIComponent(pipelineStart.pipelineRun.id)}`,
-      `${project.id} Jenkins pipeline`,
+      `${project.id} native DevOps pipeline`,
       (item) => ["SUCCEEDED", "FAILED", "CANCELED", "UNKNOWN"].includes(item.status)
     );
     assert.equal(pipeline.status, "SUCCEEDED", `${project.id} CI/CD 未成功：${JSON.stringify(pipeline)}`);
@@ -157,7 +154,7 @@ async function exerciseProject(project, attempt = 1) {
         "POST /api/v1/runs generated opportunities",
         "POST /api/v1/reviews/{id}/decision confirmed user gate",
         "POST /api/v1/deliveries/{id}/code-upgrade produced implementation changes",
-        "POST /api/v1/deliveries/{id}/execute reached Jenkins SUCCEEDED"
+        "POST /api/v1/deliveries/{id}/execute reached repository-native DevOps SUCCEEDED"
       ]
     };
   } catch (error) {
@@ -172,8 +169,13 @@ async function exerciseProject(project, attempt = 1) {
   }
 }
 
-async function ensureJenkinsReachableScm(project) {
-  if (project.repository?.provider !== "local-git") return project;
+async function ensureRepositoryNativeDevops(project) {
+  if (project.devops?.provider === "github-actions" || project.devops?.provider === "gitlab-ci") return project;
+  if (project.repository?.provider !== "local-git") {
+    const provider = project.repository?.provider === "github" ? "github-actions" : project.repository?.provider === "gitlab" ? "gitlab-ci" : undefined;
+    assert.ok(provider, `${project.id} 只能绑定 GitHub Actions 或 GitLab CI DevOps`);
+    return await post(`/api/v1/projects/${encodeURIComponent(project.id)}/devops`, releaseMatrixDevops(provider)).then((result) => result.project);
+  }
   if (!gitlabToken) return project;
   const root = project.repository?.root;
   if (!root || !fs.existsSync(root)) return project;
@@ -193,12 +195,7 @@ async function ensureJenkinsReachableScm(project) {
       username: gitlabUsername,
       token: gitlabToken
     },
-    cicd: {
-      ...(project.cicd ?? {}),
-      provider: "jenkins",
-      connectorId: project.cicd?.connectorId ?? "default",
-      job: jenkinsJob(project)
-    }
+    devops: releaseMatrixDevops("gitlab-ci", defaultBranch)
   });
   assert.equal(registered.validation?.status, "VERIFIED", `${project.id} GitLab 注册未验证通过：${registered.validation?.message}`);
   return registered;
@@ -319,7 +316,7 @@ function representativeEvents(project) {
 function representativeFiles(project) {
   const root = project.repository?.root;
   if (!root || !fs.existsSync(root)) return ["src", "tests", "package.json"];
-  return ["src", "tests", "package.json", "Jenkinsfile"].filter((item) => fs.existsSync(path.join(root, item)));
+  return ["src", "tests", "package.json"].filter((item) => fs.existsSync(path.join(root, item)));
 }
 
 function proposalMarkdown(project) {
@@ -328,7 +325,7 @@ function proposalMarkdown(project) {
     "",
     "## Goal",
     "",
-    "Use the registered production representative project to prove EvoPilot can drive a full project-level evolution loop through code upgrade and Jenkins CI/CD.",
+    "Use the registered production representative project to prove EvoPilot can drive a full project-level evolution loop through code upgrade and repository-native CI/CD.",
     "",
     "## Required Change",
     "",
@@ -340,12 +337,34 @@ function proposalMarkdown(project) {
     "",
     `- Project ID: ${project.id}`,
     `- Repository provider: ${project.repository?.provider}`,
-        `- Jenkins job: ${jenkinsJob(project)}`
+    `- DevOps provider: ${project.devops?.provider ?? "not-configured"}`
   ].join("\n");
 }
 
-function jenkinsJob(project) {
-  return jenkinsJobOverride || project.cicd?.job;
+function releaseMatrixDevops(provider, ref) {
+  if (provider === "github-actions") {
+    return {
+      provider,
+      ci: {
+        workflow: envFirst("EVOPILOT_RELEASE_MATRIX_GITHUB_WORKFLOW", "EVOPILOT_REAL_PROJECT_CI_WORKFLOW") ?? "ci.yml",
+        ref,
+        requiredChecks: listEnv("EVOPILOT_RELEASE_MATRIX_GITHUB_REQUIRED_CHECKS", "EVOPILOT_REAL_PROJECT_REQUIRED_CHECKS"),
+        timeoutSeconds: Number(process.env.EVOPILOT_RELEASE_MATRIX_CI_TIMEOUT_SECONDS ?? 1800)
+      }
+    };
+  }
+  return {
+    provider: "gitlab-ci",
+    ci: {
+      ref,
+      requiredStages: (envFirst("EVOPILOT_RELEASE_MATRIX_GITLAB_REQUIRED_STAGES", "EVOPILOT_REAL_PROJECT_REQUIRED_STAGES") ?? "test")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      requiredJobs: listEnv("EVOPILOT_RELEASE_MATRIX_GITLAB_REQUIRED_JOBS", "EVOPILOT_REAL_PROJECT_REQUIRED_JOBS"),
+      timeoutSeconds: Number(process.env.EVOPILOT_RELEASE_MATRIX_CI_TIMEOUT_SECONDS ?? 1800)
+    }
+  };
 }
 
 function safePath(value) {
@@ -413,4 +432,9 @@ function envFirst(...keys) {
     if (value) return value;
   }
   return undefined;
+}
+
+function listEnv(...keys) {
+  const value = envFirst(...keys) ?? "";
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
 }

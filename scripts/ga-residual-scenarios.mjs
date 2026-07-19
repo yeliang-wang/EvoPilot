@@ -164,7 +164,7 @@ async function verifyRollbackPath() {
   if (!baseline) {
     return {
       ok: false,
-      evidence: ["no successful Jenkins pipeline with Git rollback parameters was available"]
+      evidence: ["no successful repository-native pipeline with Git rollback parameters was available"]
     };
   }
   const sourceBranch = String(baseline.parameters.SOURCE_BRANCH);
@@ -186,9 +186,7 @@ async function verifyRollbackPath() {
   });
   const version = `rollback-validation-${Date.now()}`;
   const start = await apiPost(`/api/v1/deliveries/${encodeURIComponent(baseline.deliveryPlanId)}/execute`, {
-    executor: "jenkins",
-    connectorId: baseline.connectorId ?? "default",
-    job: baseline.jobName,
+    executor: baseline.provider,
     parameters: {
       GIT_URL: baseline.parameters.GIT_URL,
       GIT_USERNAME: baseline.parameters.GIT_USERNAME ?? "oauth2",
@@ -218,7 +216,7 @@ async function verifyRollbackPath() {
       `rollbackValidationBranch=${rollbackBranch}`,
       `rollbackValidationCommitSha=${rollbackCommit}`,
       `rollbackVersion=${version}`,
-      ok ? "Jenkins validated a rollback branch derived from the source branch through EvoPilot delivery execute API" : `rollback pipeline status=${pipeline.status}`
+      ok ? "repository-native DevOps validated a rollback branch derived from the source branch through EvoPilot delivery execute API" : `rollback pipeline status=${pipeline.status}`
     ]
   };
 }

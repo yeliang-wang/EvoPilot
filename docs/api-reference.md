@@ -237,7 +237,7 @@ POST /api/v1/projects/{projectId}/source-credentials/preflight
 
 `source-credentials` 只更新项目级 GitHub/GitLab 写回凭据元数据，例如 `tokenRef`、`token`、`password`、`username` 或 `defaultBranch`，响应不会回显 secret。`source-credentials/preflight` 不写仓库，只检查项目、provider、credential ref、token 解析、source branch 和写回策略。响应 schema 为 `evopilot-source-credential-readiness/v1`，状态为 `READY`、`READ_ONLY` 或 `BLOCKED`。公开 GitHub 无 token 时通常是 `READ_ONLY`，blocker 为 `token-resolution:SOURCE_CREDENTIAL_TOKEN_REQUIRED`；`tokenRef` 已配置但环境变量未解析时仍为 `READ_ONLY`；解析成功并能读取分支后为 `READY`。Dashboard 保存凭据后会立即调用同一 readiness contract，因此用户补齐凭据后可以回到 Target Loop Backlog 继续 autopilot。
 
-项目 DevOps 绑定使用仓库原生 CI/CD，不要求 Jenkins：
+项目 DevOps 绑定使用仓库原生 CI/CD。GitHub 项目绑定 GitHub Actions，GitLab 项目绑定 GitLab CI：
 
 ```http
 GET /api/v1/projects/{projectId}/devops
@@ -323,31 +323,6 @@ GitLab CI 请求示例：
       "gitUrl": "https://gitlab.example.com/group/agent-prod.git",
       "credentialsConfigured": true
     }
-  }
-}
-```
-
-## 兼容 Jenkins CI/CD 连接器
-
-```http
-GET /api/v1/connectors/jenkins
-POST /api/v1/connectors/jenkins
-```
-
-Jenkins 是旧部署的兼容外部 CI/CD 连接器，不是新 GitHub/GitLab 项目的必需依赖。新项目优先使用项目 DevOps API 绑定 GitHub Actions 或 GitLab CI；保留该接口用于已经接入 Jenkins 的环境。读取接口会隐藏 `apiToken`，只返回是否已配置。
-
-请求示例：
-
-```json
-{
-  "id": "default",
-  "name": "生产 Jenkins",
-  "baseUrl": "https://jenkins.example.com/",
-  "username": "evopilot",
-  "apiToken": "<jenkins-api-token>",
-  "jobTemplates": {
-    "default": "agent-evolution-delivery",
-    "domainforge-fabric": "domainforge-fabric-evolution"
   }
 }
 ```
@@ -540,21 +515,7 @@ GitLab CI 请求示例：
 }
 ```
 
-兼容 Jenkins 执行请求示例：
-
-```json
-{
-  "executor": "jenkins",
-  "connectorId": "default",
-  "job": "domainforge-fabric-evolution",
-  "parameters": {
-    "VERSION": "0.2.0",
-    "TARGET_ENV": "staging"
-  }
-}
-```
-
-GitHub Actions、GitLab CI 和兼容 Jenkins 路径都会返回 `202` 和统一的 `pipelineRun`。EvoPilot 会刷新平台状态、stage/job/check evidence、日志摘要和原始链接；当流水线进入终态后，EvoPilot 生成发布报告、学习记录和审计记录。
+GitHub Actions 和 GitLab CI 路径都会返回 `202` 和统一的 `pipelineRun`。EvoPilot 会刷新平台状态、stage/job/check evidence、日志摘要和原始链接；当流水线进入终态后，EvoPilot 生成发布报告、学习记录和审计记录。
 
 ## 流水线
 
@@ -565,7 +526,7 @@ GET /api/v1/pipelines/{pipelineRunId}/logs
 GET /api/v1/pipelines/{pipelineRunId}/artifacts
 ```
 
-返回 EvoPilot 汇总后的流水线视图。GitHub Actions 会映射 workflow run 和 check runs；GitLab CI 会映射 pipeline 和 jobs；兼容 Jenkins 会映射 Queue、Build、Stage、Artifact 和 Console Log。深度排障仍应跳转对应平台原始页面。
+返回 EvoPilot 汇总后的流水线视图。GitHub Actions 会映射 workflow run 和 check runs；GitLab CI 会映射 pipeline 和 jobs。深度排障仍应跳转对应平台原始页面。
 
 ## GA Release 目标与发布判定
 

@@ -47,7 +47,7 @@ Detailed release evidence and deployment checklists live in [docs/saas-productio
 | Evidence ingestion | Runtime events, traces, logs, evaluations, release signals, APM-derived data, and user feedback. |
 | Human approval | Reviewable proposals before high-risk evolution, source writeback, merge, or release actions. |
 | Code upgrades | Bounded code-upgrader execution with allowed paths, validation commands, branch/commit evidence, and source closure. |
-| CI/CD delivery | GitHub Actions and GitLab CI native project DevOps, deploy connectors, health gates, pipeline evidence, and legacy Jenkins compatibility. |
+| CI/CD delivery | GitHub Actions and GitLab CI native project DevOps, deploy connectors, health gates, and pipeline evidence. |
 | Release governance | Per-project release targets, evidence bundles, scenario matrices, risk registers, and `GO` / `CONDITIONAL-GO` / `NO-GO` decisions. |
 | SaaS multi-tenancy | Platform admin, tenant admin, tenant user flows, workspace RBAC, tenant-aware evidence, quota foundations, and scoped secrets. |
 | Dashboard | Chinese SaaS console for onboarding, projects, loops, approvals, release decisions, observability, tenants, users, and help manual workflows. |
@@ -198,7 +198,6 @@ packages/llm/                           LLM gateway, routing, compression, metri
 packages/adapter-github/                GitHub adapter
 packages/adapter-gitlab/                GitLab adapter
 packages/adapter-local-git/             local Git adapter
-packages/adapter-jenkins/               legacy external Jenkins compatibility boundary
 docs/                                   user, API, deployment, architecture, testing, release docs
 examples/                               onboarding and integration examples
 scripts/                                E2E, LLM, Postgres store, release, and verification scripts

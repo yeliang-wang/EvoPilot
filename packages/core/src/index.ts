@@ -265,7 +265,7 @@ export interface DeliveryPlan {
   postReleaseVerificationRequired: boolean;
 }
 
-export type PipelineProvider = "github-actions" | "gitlab-ci" | "jenkins";
+export type PipelineProvider = "github-actions" | "gitlab-ci";
 export type PipelineStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED" | "UNKNOWN";
 export type PipelineStageStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED" | "UNKNOWN";
 

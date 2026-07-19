@@ -168,7 +168,7 @@ If the result is still `READ_ONLY`, the tokenRef is stored but the EvoPilot serv
 
 ### Scenario 4: DevOps, CI, CD, And Release Closure
 
-A successful source-to-release loop needs more than a GitHub token. Agents should verify each boundary before claiming an end-to-end result. EvoPilot's primary production path is repository-native DevOps: GitHub projects use GitHub Actions; GitLab projects use GitLab CI. Jenkins remains a legacy compatibility connector, not a required dependency for new projects.
+A successful source-to-release loop needs more than a GitHub token. Agents should verify each boundary before claiming an end-to-end result. EvoPilot's production path is repository-native DevOps: GitHub projects use GitHub Actions; GitLab projects use GitLab CI.
 
 | Boundary | What EvoPilot Uses | How To Check |
 |---|---|---|

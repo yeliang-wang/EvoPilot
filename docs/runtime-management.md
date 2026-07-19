@@ -12,7 +12,7 @@ EvoPilot 产品套件
 └── evopilot-code-upgrader  基于真实 OpenHands 能力的托管代码升级运行时
 ```
 
-代码升级运行时由 EvoPilot 的 `docker-compose.yml`、K8s YAML 或 Helm 包统一部署、统一配置、统一健康检查和统一治理。Dashboard 独立为 `evopilot-dashboard` 服务，通过 EvoPilot API 接入。GitHub/GitLab/Jenkins 都不随 EvoPilot 打包部署，不进入运行时锁；EvoPilot 只通过 API 触发并记录真实 CI/CD 证据。
+代码升级运行时由 EvoPilot 的 `docker-compose.yml`、K8s YAML 或 Helm 包统一部署、统一配置、统一健康检查和统一治理。Dashboard 独立为 `evopilot-dashboard` 服务，通过 EvoPilot API 接入。GitHub Actions 和 GitLab CI 属于项目仓库自身的 DevOps 边界，不随 EvoPilot 打包部署，不进入运行时锁；EvoPilot 只通过项目 DevOps API 触发并记录真实 CI/CD 证据。
 
 ## 运行时锁定
 
@@ -67,22 +67,6 @@ npm run verify:runtime-lock:strict
 - GitLab 项目：`provider=gitlab-ci`，触发 pipeline，读取 pipeline jobs。
 
 项目 DevOps 使用项目 source credentials 或 `devops.tokenRef` 解析平台 token。token 必须由 EvoPilot 服务端运行环境或 secret manager 提供，不能依赖 WorkBuddy/Codex 本机环境变量。
-
-## 兼容 Jenkins 连接器
-
-Jenkins 不作为 EvoPilot 托管运行时，也不以 jar 依赖进入 EvoPilot 主进程。它只保留为旧部署兼容连接器：
-
-```text
-packages/adapter-jenkins
-/api/v1/connectors/jenkins
-```
-
-兼容连接器支持两级配置：
-
-- 系统默认 Jenkins：适合多数项目共用。
-- 项目独立 Jenkins：在项目注册时覆盖系统默认连接器和 Job。
-
-新项目缺少项目 DevOps 时，代码升级完成后 CI/CD 会进入阻断状态，不会跳过或模拟成功。只有显式请求兼容 `executor=jenkins` 时才会走 Jenkins 连接器。
 
 ## OpenHands 运行时
 

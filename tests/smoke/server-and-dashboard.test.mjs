@@ -1277,16 +1277,6 @@ test("release evidence endpoint persists release candidate evidence without leak
           root: repoRoot,
           defaultBranch: "main",
           token: "secret-project-token"
-        },
-        cicd: {
-          provider: "jenkins",
-          jenkins: {
-            mode: "project-override",
-            baseUrl: "http://jenkins.internal",
-            username: "ci-user",
-            apiToken: "secret-jenkins-token",
-            job: "connected-project-release"
-          }
         }
       })
     });
@@ -1425,7 +1415,7 @@ test("release evidence endpoint persists release candidate evidence without leak
     assert.ok(body.data.riskRegister.some((item) => item.source === "scenario-matrix"));
     assert.equal(body.data.riskRegister.find((item) => item.id === "risk-code-upgrade-failed-upgrade")?.status, "MITIGATED");
     assert.ok(body.data.artifacts.some((item) => item.type === "dashboard"));
-    assert.doesNotMatch(JSON.stringify(body.data), /secret-project-token|secret-jenkins-token|secret-openhands-token/);
+    assert.doesNotMatch(JSON.stringify(body.data), /secret-project-token|secret-openhands-token/);
 
     const fetched = await fetch(`${baseUrl}/api/v1/release/evidence/rc-1`, {
       headers: { authorization: "Bearer viewer-token" }

@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { createServer } from "../../packages/server/dist/index.js";
 
 test("API product flow covers connected projects, rules, opportunities, confirmation, pipeline, schedule, and history", async () => {
   const openhands = await startFakeOpenHands();
-  const jenkins = await startFakeJenkins();
+  const github = await startFakeGitHubActions();
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-product-e2e-"));
   const server = createServer({
     dataRoot,
@@ -23,16 +24,6 @@ test("API product flow covers connected projects, rules, opportunities, confirma
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
-    const connector = await postWithToken(`${baseUrl}/api/v1/connectors/jenkins`, {
-      id: "default",
-      name: "产品 E2E Jenkins",
-      baseUrl: jenkins.baseUrl,
-      username: "tester",
-      apiToken: "secret",
-      jobTemplates: { default: "domainforge-fabric-evolution" }
-    }, "admin-token");
-    assert.equal(connector.data.apiTokenConfigured, true);
-    assert.equal(connector.data.apiToken, undefined);
     const openhandsConnector = await postWithToken(`${baseUrl}/api/v1/connectors/openhands`, {
       id: "default",
       name: "产品 E2E OpenHands",
@@ -50,23 +41,26 @@ test("API product flow covers connected projects, rules, opportunities, confirma
       name: "Agent Product",
       profileId: "domainforge-fabric",
       repository: {
-        provider: "local-git",
-        gitUrl: "file:///agent-prod",
-        root: repoRoot,
+        provider: "github",
+        gitUrl: pathToFileURL(repoRoot).href,
+        baseUrl: github.baseUrl,
+        owner: "org",
+        repo: "agent-prod",
+        defaultBranch: "main",
         username: "agent-user",
-        token: "local-token"
+        token: "github-token"
       },
-      cicd: {
-        provider: "jenkins",
-        jenkins: {
-          mode: "system-default",
-          job: "domainforge-fabric-evolution"
+      devops: {
+        provider: "github-actions",
+        ci: {
+          workflow: "ci.yml",
+          requiredChecks: ["build"]
         }
       }
     }, "admin-token");
     assert.equal(project.data.id, "agent-prod");
     assert.equal(project.data.validation.status, "VERIFIED");
-    assert.equal(project.data.cicd.mode, "system-default");
+    assert.equal(project.data.devops.provider, "github-actions");
     assert.equal(project.data.repository.credentialsConfigured, true);
     assert.equal(project.data.repository.credentials, undefined);
 
@@ -84,7 +78,7 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     assert.match(ruleMarkdown, /"attributes.durationMs"/);
 
     const run = await postWithToken(`${baseUrl}/api/v1/runs`, {
-      projectId: "domainforge-fabric",
+      projectId: "agent-prod",
       now: "2026-06-03T10:00:00.000Z",
       events: [
         {
@@ -122,7 +116,7 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     const blockedBeforeConfirmation = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: authHeaders("admin-token"),
-      body: JSON.stringify({ executor: "jenkins", connectorId: "default" })
+      body: JSON.stringify({ executor: "github-actions" })
     });
     assert.equal(blockedBeforeConfirmation.status, 409);
 
@@ -143,7 +137,7 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     const blockedBeforeCodeUpgrade = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: authHeaders("admin-token"),
-      body: JSON.stringify({ executor: "jenkins", connectorId: "default" })
+      body: JSON.stringify({ executor: "github-actions" })
     });
     assert.equal(blockedBeforeCodeUpgrade.status, 409);
     assert.match(await blockedBeforeCodeUpgrade.text(), /CODE_UPGRADE_REQUIRED/);
@@ -155,13 +149,13 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     }, "admin-token");
     assert.equal(codeUpgrade.data.codeUpgradeRun.status, "SUCCEEDED");
     assert.equal(codeUpgrade.data.codeUpgradeRun.branchStrategy.sourceBranch, "main");
-    assert.match(codeUpgrade.data.codeUpgradeRun.branchStrategy.upgradeBranch, /^evopilot\/upgrade\/domainforge-fabric\//);
+    assert.match(codeUpgrade.data.codeUpgradeRun.branchStrategy.upgradeBranch, /^evopilot\/upgrade\/agent-prod\//);
     assert.match(openhands.prompt, /降低链路延迟/);
     assert.match(openhands.prompt, /npm run check/);
     assert.match(openhands.prompt, /源分支：main/);
-    assert.match(openhands.prompt, /升级分支：evopilot\/upgrade\/domainforge-fabric\//);
+    assert.match(openhands.prompt, /升级分支：evopilot\/upgrade\/agent-prod\//);
     assert.equal(openhands.body.selected_branch, "main");
-    assert.match(openhands.body.initial_user_msg, /升级分支：evopilot\/upgrade\/domainforge-fabric\//);
+    assert.match(openhands.body.initial_user_msg, /升级分支：evopilot\/upgrade\/agent-prod\//);
     const codeUpgradeEvents = await getWithToken(`${baseUrl}/api/v1/code-upgrade-runs/${encodeURIComponent(codeUpgrade.data.codeUpgradeRun.id)}/events`, "viewer-token");
     assert.ok(codeUpgradeEvents.data.some((event) => event.phase === "生成补丁"));
     const codeUpgradeDetail = await getWithToken(`${baseUrl}/api/v1/code-upgrade-runs/${encodeURIComponent(codeUpgrade.data.codeUpgradeRun.id)}`, "viewer-token");
@@ -169,31 +163,31 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     assert.match(fs.readFileSync(codeUpgradeDetail.data.artifacts.diffPath, "utf8"), /performance budget/);
 
     const pipelineStart = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
-      executor: "jenkins",
+      executor: "github-actions",
       parameters: { VERSION: "1.0.0" }
     }, "admin-token");
-    assert.equal(pipelineStart.data.pipelineRun.status, "QUEUED");
-    assert.match(jenkins.triggeredBody, /VERSION=1.0.0/);
-    assert.match(jenkins.triggeredBody, /SOURCE_BRANCH=main/);
-    assert.match(jenkins.triggeredBody, /UPGRADE_BRANCH=evopilot%2Fupgrade-latency/);
-    assert.match(jenkins.triggeredBody, /MERGE_REQUEST_URL=https%3A%2F%2Fgit.example.com%2Fagent-prod%2Fpulls%2F1/);
+    assert.equal(pipelineStart.data.pipelineRun.status, "SUCCEEDED");
+    assert.match(github.dispatchBody, /VERSION/);
+    assert.match(github.dispatchBody, /SOURCE_BRANCH/);
+    assert.match(github.dispatchBody, /UPGRADE_BRANCH/);
+    assert.match(github.dispatchBody, /MERGE_REQUEST_URL/);
 
     const pipeline = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(pipelineStart.data.pipelineRun.id)}`, "viewer-token");
     assert.equal(pipeline.data.status, "SUCCEEDED");
-    assert.equal(pipeline.data.buildNumber, 42);
-    assert.ok(pipeline.data.stages.some((stage) => stage.name === "功能闭环测试"));
+    assert.equal(pipeline.data.provider, "github-actions");
+    assert.ok(pipeline.data.stages.some((stage) => stage.name === "build"));
 
     const logs = await fetch(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(pipeline.data.id)}/logs`, {
       headers: authHeaders("viewer-token")
     });
     assert.equal(logs.status, 200);
-    assert.match(await logs.text(), /Pipeline finished successfully/);
+    assert.match(await logs.text(), /provider=github-actions/);
 
     const artifacts = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(pipeline.data.id)}/artifacts`, "viewer-token");
-    assert.equal(artifacts.data[0].name, "release.zip");
+    assert.deepEqual(artifacts.data, []);
 
     const scheduledRun = await postWithToken(`${baseUrl}/api/v1/runs`, {
-      projectId: "domainforge-fabric",
+      projectId: "agent-prod",
       now: "2026-06-03T11:00:00.000Z",
       events: [{
         id: "trace-2",
@@ -217,7 +211,7 @@ test("API product flow covers connected projects, rules, opportunities, confirma
       validationCommands: ["npm test"]
     }, "admin-token");
     const futureSchedule = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(scheduledRun.data.deliveryPlans[0].id)}/schedule`, {
-      executor: "jenkins",
+      executor: "github-actions",
       scheduledAt: "2099-01-01T00:00:00.000Z",
       parameters: { VERSION: "1.1.0" }
     }, "admin-token");
@@ -228,12 +222,12 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     assert.ok(schedules.data.some((item) => item.id === futureSchedule.data.id && item.status === "SCHEDULED"));
 
     const dueSchedule = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(scheduledRun.data.deliveryPlans[0].id)}/schedule`, {
-      executor: "jenkins",
+      executor: "github-actions",
       scheduledAt: "2000-01-01T00:00:00.000Z",
       parameters: { VERSION: "1.1.1" }
     }, "admin-token");
     assert.equal(dueSchedule.data.schedule.status, "TRIGGERED");
-    assert.equal(dueSchedule.data.pipelineRun.status, "QUEUED");
+    assert.equal(dueSchedule.data.pipelineRun.status, "SUCCEEDED");
 
     const runDetail = await getWithToken(`${baseUrl}/api/v1/runs/${encodeURIComponent(run.data.id)}`, "viewer-token");
     assert.equal(runDetail.data.releaseReports[0].status, "SUCCEEDED");
@@ -246,13 +240,13 @@ test("API product flow covers connected projects, rules, opportunities, confirma
     assert.ok(summary.data.recentRuns.some((item) => item.releaseReports.length > 0));
 
     const audit = await getWithToken(`${baseUrl}/api/v1/audit`, "viewer-token");
-    for (const action of ["project.created", "run.created", "review.decided", "code-upgrade.started", "jenkins.build.triggered", "delivery.scheduled", "delivery.schedule.triggered"]) {
+    for (const action of ["project.created", "run.created", "review.decided", "code-upgrade.started", "devops.pipeline.triggered", "delivery.scheduled", "delivery.schedule.triggered"]) {
       assert.ok(audit.data.some((record) => record.action === action), `missing audit action ${action}`);
     }
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await openhands.close();
-    await jenkins.close();
+    await github.close();
   }
 });
 
@@ -352,43 +346,31 @@ async function startFakeOpenHands() {
   };
 }
 
-async function startFakeJenkins() {
-  const state = { triggeredBody: "" };
+async function startFakeGitHubActions() {
+  const state = { baseUrl: "", dispatchBody: "" };
   const server = (await import("node:http")).createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method === "POST" && url.pathname === "/job/domainforge-fabric-evolution/buildWithParameters") {
-      state.triggeredBody = await readRequestBody(request);
-      response.writeHead(201, { location: `${state.baseUrl}/queue/item/9/` });
+    if (request.method === "GET" && url.pathname === "/repos/org/agent-prod/git/trees/main" && url.searchParams.get("recursive") === "1") {
+      return writeFakeJson(response, { tree: [
+        { type: "blob", path: "README.md" },
+        { type: "blob", path: "src/index.ts" }
+      ] });
+    }
+    if (request.method === "POST" && url.pathname === "/repos/org/agent-prod/actions/workflows/ci.yml/dispatches") {
+      state.dispatchBody = await readRequestBody(request);
+      response.writeHead(204);
       response.end();
       return;
     }
-    if (request.method === "GET" && url.pathname === "/queue/item/9/api/json") {
-      return writeFakeJson(response, { executable: { number: 42, url: `${state.baseUrl}/job/domainforge-fabric-evolution/42/` } });
+    if (request.method === "GET" && url.pathname.startsWith("/repos/org/agent-prod/commits/") && url.pathname.endsWith("/check-runs")) {
+      return writeFakeJson(response, { check_runs: [
+        { name: "build", status: "completed", conclusion: "success" }
+      ] });
     }
-    if (request.method === "GET" && url.pathname === "/job/domainforge-fabric-evolution/42/api/json") {
-      return writeFakeJson(response, {
-        building: false,
-        result: "SUCCESS",
-        url: `${state.baseUrl}/job/domainforge-fabric-evolution/42/`,
-        artifacts: [{ displayPath: "release.zip", relativePath: "release.zip" }]
-      });
-    }
-    if (request.method === "GET" && url.pathname === "/job/domainforge-fabric-evolution/42/wfapi/describe") {
-      return writeFakeJson(response, {
-        stages: [
-          { id: "1", name: "方案装配", status: "SUCCESS", durationMillis: 1000 },
-          { id: "2", name: "代码生成", status: "SUCCESS", durationMillis: 2000 },
-          { id: "3", name: "单元测试", status: "SUCCESS", durationMillis: 3000 },
-          { id: "4", name: "冒烟测试", status: "SUCCESS", durationMillis: 4000 },
-          { id: "5", name: "功能闭环测试", status: "SUCCESS", durationMillis: 5000 },
-          { id: "6", name: "质量报告", status: "SUCCESS", durationMillis: 1000 }
-        ]
-      });
-    }
-    if (request.method === "GET" && url.pathname === "/job/domainforge-fabric-evolution/42/consoleText") {
-      response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-      response.end("Pipeline finished successfully");
-      return;
+    if (request.method === "GET" && url.pathname === "/repos/org/agent-prod/actions/workflows/ci.yml/runs") {
+      return writeFakeJson(response, { workflow_runs: [
+        { id: 42, name: "ci", status: "completed", conclusion: "success", html_url: `${state.baseUrl}/org/agent-prod/actions/runs/42` }
+      ] });
     }
     response.writeHead(404);
     response.end("not found");
@@ -398,7 +380,7 @@ async function startFakeJenkins() {
   state.baseUrl = `http://127.0.0.1:${address.port}`;
   return {
     get baseUrl() { return state.baseUrl; },
-    get triggeredBody() { return state.triggeredBody; },
+    get dispatchBody() { return state.dispatchBody; },
     close: () => new Promise((resolve) => server.close(resolve))
   };
 }

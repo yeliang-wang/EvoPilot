@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
 const requiredFiles = [
@@ -31,6 +32,7 @@ for (const file of requiredFiles) {
 
 const openapi = JSON.parse(fs.readFileSync("docs/openapi.json", "utf8"));
 assert.equal(openapi.openapi, "3.1.0");
+assert.ok(!openapi.paths["/api/v1/connectors/jen" + "kins"], "legacy CI/CD connector path must not be published");
 assert.ok(openapi.paths["/api/v1/runs"]);
 assert.ok(openapi.paths["/api/v1/evidence/events"]);
 assert.ok(openapi.paths["/api/v1/evidence/otlp/v1/traces"]);
@@ -135,6 +137,24 @@ assert.match(dashboardIntegration, /evopilot-dashboard/);
 const lock = JSON.parse(fs.readFileSync("runtimes/runtime-lock.json", "utf8"));
 assert.equal(lock.schemaVersion, 1);
 assert.ok(lock.runtimes.some((item) => item.implementation === "OpenHands"));
-assert.ok(!lock.runtimes.some((item) => item.implementation === "Jenkins"), "Jenkins must remain a legacy compatibility connector, not an EvoPilot managed runtime");
+assert.ok(lock.runtimes.every((item) => item.role !== "project-ci-cd"), "Project CI/CD must remain repository-native GitHub Actions/GitLab CI, not an EvoPilot managed runtime");
+
+const legacyCiWords = [
+  ["Jen", "kins"].join(""),
+  ["jen", "kins"].join(""),
+  ["adapter-", "jen", "kins"].join(""),
+  ["connectors/", "jen", "kins"].join(""),
+  ["Jen", "kins", "file"].join("")
+];
+const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
+const legacyCiMatches = [];
+for (const file of trackedFiles) {
+  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) continue;
+  const buffer = fs.readFileSync(file);
+  if (buffer.includes(0)) continue;
+  const content = buffer.toString("utf8");
+  if (legacyCiWords.some((word) => content.includes(word))) legacyCiMatches.push(file);
+}
+assert.deepEqual(legacyCiMatches, [], `legacy CI/CD references must be removed from tracked files: ${legacyCiMatches.join(", ")}`);
 
 console.log("production assets verified");

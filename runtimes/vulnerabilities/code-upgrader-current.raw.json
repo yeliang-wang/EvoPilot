@@ -60,7 +60,7 @@
         },
         {
           "created": "2026-05-14T17:29:11Z",
-          "created_by": "RUN /bin/sh -c addgroup -g 1000 node     \u0026\u0026 adduser -u 1000 -G node -s /bin/sh -D node     \u0026\u0026 apk add --no-cache         libstdc++     \u0026\u0026 apk add --no-cache --virtual .build-deps         curl     \u0026\u0026 ARCH= OPENSSL_ARCH='linux*' \u0026\u0026 alpineArch=\"$(apk --print-arch)\"       \u0026\u0026 case \"${alpineArch##*-}\" in         x86_64) ARCH='x64' CHECKSUM=\"fc04ab27123cb34d2bca3416493e86ced2f81e1ab9b51e532721ed27a1ef677d\" OPENSSL_ARCH=linux-x86_64;;         x86) OPENSSL_ARCH=linux-elf;;         aarch64) OPENSSL_ARCH=linux-aarch64;;         arm*) OPENSSL_ARCH=linux-armv4;;         ppc64le) OPENSSL_ARCH=linux-ppc64le;;         s390x) OPENSSL_ARCH=linux-s390x;;         *) ;;       esac   \u0026\u0026 if [ -n \"${CHECKSUM}\" ]; then     set -eu;     curl -fsSLO --compressed \"https://unofficial-builds.nodejs.org/download/release/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\";     echo \"$CHECKSUM  node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\" | sha256sum -c -       \u0026\u0026 tar -xJf \"node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\" -C /usr/local --strip-components=1 --no-same-owner       \u0026\u0026 ln -s /usr/local/bin/node /usr/local/bin/nodejs;   else     echo \"Building from source\"     \u0026\u0026 apk add --no-cache --virtual .build-deps-full         binutils-gold         g++         gcc         gnupg         libgcc         linux-headers         make         python3         py-setuptools     \u0026\u0026 export GNUPGHOME=\"$(mktemp -d)\"     \u0026\u0026 for key in       5BE8A3F6C8A5C01D106C0AD820B1A390B168D356       DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7       CC68F5A3106FF448322E48ED27F5E38D5B0A215F       8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600       890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4       C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C       108F52B48DB57BB0CC439B2997B01419BD92F80A       A363A499291CBBC940DD62E41F10027AF002F8B0     ; do       { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys \"$key\" \u0026\u0026 gpg --batch --fingerprint \"$key\"; } ||       { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \"$key\" \u0026\u0026 gpg --batch --fingerprint \"$key\"; } ;     done     \u0026\u0026 curl -fsSLO --compressed \"https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION.tar.xz\"     \u0026\u0026 curl -fsSLO --compressed \"https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc\"     \u0026\u0026 gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc     \u0026\u0026 gpgconf --kill all     \u0026\u0026 rm -rf \"$GNUPGHOME\"     \u0026\u0026 grep \" node-v$NODE_VERSION.tar.xz\\$\" SHASUMS256.txt | sha256sum -c -     \u0026\u0026 tar -xf \"node-v$NODE_VERSION.tar.xz\"     \u0026\u0026 cd \"node-v$NODE_VERSION\"     \u0026\u0026 ./configure     \u0026\u0026 make -j$(getconf _NPROCESSORS_ONLN) V=     \u0026\u0026 make install     \u0026\u0026 apk del .build-deps-full     \u0026\u0026 cd ..     \u0026\u0026 rm -Rf \"node-v$NODE_VERSION\"     \u0026\u0026 rm \"node-v$NODE_VERSION.tar.xz\" SHASUMS256.txt.asc SHASUMS256.txt;   fi   \u0026\u0026 rm -f \"node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\"   \u0026\u0026 find /usr/local/include/node/openssl/archs -mindepth 1 -maxdepth 1 ! -name \"$OPENSSL_ARCH\" -exec rm -rf {} \\;   \u0026\u0026 apk del .build-deps   \u0026\u0026 node --version   \u0026\u0026 npm --version   \u0026\u0026 rm -rf /tmp/* # buildkit",
+          "created_by": "RUN /bin/sh -c addgroup -g 1000 node     && adduser -u 1000 -G node -s /bin/sh -D node     && apk add --no-cache         libstdc++     && apk add --no-cache --virtual .build-deps         curl     && ARCH= OPENSSL_ARCH='linux*' && alpineArch=\"$(apk --print-arch)\"       && case \"${alpineArch##*-}\" in         x86_64) ARCH='x64' CHECKSUM=\"fc04ab27123cb34d2bca3416493e86ced2f81e1ab9b51e532721ed27a1ef677d\" OPENSSL_ARCH=linux-x86_64;;         x86) OPENSSL_ARCH=linux-elf;;         aarch64) OPENSSL_ARCH=linux-aarch64;;         arm*) OPENSSL_ARCH=linux-armv4;;         ppc64le) OPENSSL_ARCH=linux-ppc64le;;         s390x) OPENSSL_ARCH=linux-s390x;;         *) ;;       esac   && if [ -n \"${CHECKSUM}\" ]; then     set -eu;     curl -fsSLO --compressed \"https://unofficial-builds.nodejs.org/download/release/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\";     echo \"$CHECKSUM  node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\" | sha256sum -c -       && tar -xJf \"node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\" -C /usr/local --strip-components=1 --no-same-owner       && ln -s /usr/local/bin/node /usr/local/bin/nodejs;   else     echo \"Building from source\"     && apk add --no-cache --virtual .build-deps-full         binutils-gold         g++         gcc         gnupg         libgcc         linux-headers         make         python3         py-setuptools     && export GNUPGHOME=\"$(mktemp -d)\"     && for key in       5BE8A3F6C8A5C01D106C0AD820B1A390B168D356       DD792F5973C6DE52C432CBDAC77ABFA00DDBF2B7       CC68F5A3106FF448322E48ED27F5E38D5B0A215F       8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600       890C08DB8579162FEE0DF9DB8BEAB4DFCF555EF4       C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C       108F52B48DB57BB0CC439B2997B01419BD92F80A       A363A499291CBBC940DD62E41F10027AF002F8B0     ; do       { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys \"$key\" && gpg --batch --fingerprint \"$key\"; } ||       { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \"$key\" && gpg --batch --fingerprint \"$key\"; } ;     done     && curl -fsSLO --compressed \"https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION.tar.xz\"     && curl -fsSLO --compressed \"https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc\"     && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc     && gpgconf --kill all     && rm -rf \"$GNUPGHOME\"     && grep \" node-v$NODE_VERSION.tar.xz\\$\" SHASUMS256.txt | sha256sum -c -     && tar -xf \"node-v$NODE_VERSION.tar.xz\"     && cd \"node-v$NODE_VERSION\"     && ./configure     && make -j$(getconf _NPROCESSORS_ONLN) V=     && make install     && apk del .build-deps-full     && cd ..     && rm -Rf \"node-v$NODE_VERSION\"     && rm \"node-v$NODE_VERSION.tar.xz\" SHASUMS256.txt.asc SHASUMS256.txt;   fi   && rm -f \"node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz\"   && find /usr/local/include/node/openssl/archs -mindepth 1 -maxdepth 1 ! -name \"$OPENSSL_ARCH\" -exec rm -rf {} \\;   && apk del .build-deps   && node --version   && npm --version   && rm -rf /tmp/* # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
@@ -71,7 +71,7 @@
         },
         {
           "created": "2026-05-14T17:29:15Z",
-          "created_by": "RUN /bin/sh -c apk add --no-cache --virtual .build-deps-yarn curl gnupg tar   \u0026\u0026 export GNUPGHOME=\"$(mktemp -d)\"   \u0026\u0026 for key in     6A010C5166006599AA17F08146C2130DFD2497F5   ; do     { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys \"$key\" \u0026\u0026 gpg --batch --fingerprint \"$key\"; } ||     { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \"$key\" \u0026\u0026 gpg --batch --fingerprint \"$key\"; } ;   done   \u0026\u0026 curl -fsSLO --compressed \"https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz\"   \u0026\u0026 curl -fsSLO --compressed \"https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz.asc\"   \u0026\u0026 gpg --batch --verify yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz   \u0026\u0026 gpgconf --kill all   \u0026\u0026 rm -rf \"$GNUPGHOME\"   \u0026\u0026 mkdir -p /opt   \u0026\u0026 tar -xzf yarn-v$YARN_VERSION.tar.gz -C /opt/   \u0026\u0026 ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/local/bin/yarn   \u0026\u0026 ln -s /opt/yarn-v$YARN_VERSION/bin/yarnpkg /usr/local/bin/yarnpkg   \u0026\u0026 rm yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz   \u0026\u0026 apk del .build-deps-yarn   \u0026\u0026 yarn --version   \u0026\u0026 rm -rf /tmp/* # buildkit",
+          "created_by": "RUN /bin/sh -c apk add --no-cache --virtual .build-deps-yarn curl gnupg tar   && export GNUPGHOME=\"$(mktemp -d)\"   && for key in     6A010C5166006599AA17F08146C2130DFD2497F5   ; do     { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys \"$key\" && gpg --batch --fingerprint \"$key\"; } ||     { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \"$key\" && gpg --batch --fingerprint \"$key\"; } ;   done   && curl -fsSLO --compressed \"https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz\"   && curl -fsSLO --compressed \"https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz.asc\"   && gpg --batch --verify yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz   && gpgconf --kill all   && rm -rf \"$GNUPGHOME\"   && mkdir -p /opt   && tar -xzf yarn-v$YARN_VERSION.tar.gz -C /opt/   && ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/local/bin/yarn   && ln -s /opt/yarn-v$YARN_VERSION/bin/yarnpkg /usr/local/bin/yarnpkg   && rm yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz   && apk del .build-deps-yarn   && yarn --version   && rm -rf /tmp/* # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
@@ -128,7 +128,7 @@
         },
         {
           "created": "2026-06-06T07:58:24Z",
-          "created_by": "/bin/sh -c npm ci \u0026\u0026 npm run build --workspaces --if-present \u0026\u0026 npm prune --omit=dev"
+          "created_by": "/bin/sh -c npm ci && npm run build --workspaces --if-present && npm prune --omit=dev"
         },
         {
           "created": "2026-06-06T07:58:25Z",
@@ -286,7 +286,7 @@
           "ID": "alpine-baselayout@3.7.2-r0",
           "Name": "alpine-baselayout",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/alpine-baselayout@3.7.2-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/alpine-baselayout@3.7.2-r0?arch=aarch64&distro=3.23.4",
             "UID": "3e836d04bd2aec3c"
           },
           "Version": "3.7.2-r0",
@@ -296,7 +296,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "alpine-baselayout-data@3.7.2-r0",
             "busybox-binsh@1.37.0-r30"
@@ -327,7 +327,7 @@
           "ID": "alpine-baselayout-data@3.7.2-r0",
           "Name": "alpine-baselayout-data",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r0?arch=aarch64&distro=3.23.4",
             "UID": "45030c6120d17023"
           },
           "Version": "3.7.2-r0",
@@ -337,7 +337,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "Layer": {
             "Digest": "sha256:d17f077ada118cc762df373ff803592abf2dfa3ddafaa7381e364dd27a88fca7",
             "DiffID": "sha256:a8d26d037006414043b277ecb95287692d0960219289d9e27b0bcea0ce233b02"
@@ -366,7 +366,7 @@
           "ID": "alpine-keys@2.6-r0",
           "Name": "alpine-keys",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/alpine-keys@2.6-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/alpine-keys@2.6-r0?arch=aarch64&distro=3.23.4",
             "UID": "eef5bbd499c35822"
           },
           "Version": "2.6-r0",
@@ -376,7 +376,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "Layer": {
             "Digest": "sha256:d17f077ada118cc762df373ff803592abf2dfa3ddafaa7381e364dd27a88fca7",
             "DiffID": "sha256:a8d26d037006414043b277ecb95287692d0960219289d9e27b0bcea0ce233b02"
@@ -430,7 +430,7 @@
           "ID": "alpine-release@3.23.4-r0",
           "Name": "alpine-release",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/alpine-release@3.23.4-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/alpine-release@3.23.4-r0?arch=aarch64&distro=3.23.4",
             "UID": "907551e829ff2743"
           },
           "Version": "3.23.4-r0",
@@ -440,7 +440,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "alpine-keys@2.6-r0"
           ],
@@ -462,7 +462,7 @@
           "ID": "apk-tools@3.0.6-r0",
           "Name": "apk-tools",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/apk-tools@3.0.6-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/apk-tools@3.0.6-r0?arch=aarch64&distro=3.23.4",
             "UID": "93d32a8fc8570dcc"
           },
           "Version": "3.0.6-r0",
@@ -472,7 +472,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "ca-certificates-bundle@20260413-r0",
             "libapk@3.0.6-r0",
@@ -494,7 +494,7 @@
           "ID": "brotli-libs@1.2.0-r0",
           "Name": "brotli-libs",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/brotli-libs@1.2.0-r0?arch=aarch64&distro=3.23.4",
             "UID": "59c7c65b8d2f1117"
           },
           "Version": "1.2.0-r0",
@@ -504,7 +504,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "prspkt \u003cprspkt@protonmail.com\u003e",
+          "Maintainer": "prspkt <prspkt@protonmail.com>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -527,7 +527,7 @@
           "ID": "busybox@1.37.0-r30",
           "Name": "busybox",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/busybox@1.37.0-r30?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/busybox@1.37.0-r30?arch=aarch64&distro=3.23.4",
             "UID": "961acdffc157ee00"
           },
           "Version": "1.37.0-r30",
@@ -537,7 +537,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Sören Tempel \u003csoeren+alpine@soeren-tempel.net\u003e",
+          "Maintainer": "Sören Tempel <soeren+alpine@soeren-tempel.net>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -561,7 +561,7 @@
           "ID": "busybox-binsh@1.37.0-r30",
           "Name": "busybox-binsh",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/busybox-binsh@1.37.0-r30?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/busybox-binsh@1.37.0-r30?arch=aarch64&distro=3.23.4",
             "UID": "cc5cd489c4f06e08"
           },
           "Version": "1.37.0-r30",
@@ -571,7 +571,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Sören Tempel \u003csoeren+alpine@soeren-tempel.net\u003e",
+          "Maintainer": "Sören Tempel <soeren+alpine@soeren-tempel.net>",
           "DependsOn": [
             "busybox@1.37.0-r30"
           ],
@@ -589,7 +589,7 @@
           "ID": "c-ares@1.34.6-r0",
           "Name": "c-ares",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/c-ares@1.34.6-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/c-ares@1.34.6-r0?arch=aarch64&distro=3.23.4",
             "UID": "f48008473b5e1f9c"
           },
           "Version": "1.34.6-r0",
@@ -599,7 +599,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Carlo Landmeter \u003cclandmeter@alpinelinux.org\u003e",
+          "Maintainer": "Carlo Landmeter <clandmeter@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -618,7 +618,7 @@
           "ID": "ca-certificates@20260413-r0",
           "Name": "ca-certificates",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/ca-certificates@20260413-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/ca-certificates@20260413-r0?arch=aarch64&distro=3.23.4",
             "UID": "8be593473a930154"
           },
           "Version": "20260413-r0",
@@ -629,7 +629,7 @@
             "MPL-2.0",
             "MIT"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "busybox-binsh@1.37.0-r30",
             "libcrypto3@3.5.6-r0",
@@ -798,7 +798,7 @@
           "ID": "ca-certificates-bundle@20260413-r0",
           "Name": "ca-certificates-bundle",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/ca-certificates-bundle@20260413-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/ca-certificates-bundle@20260413-r0?arch=aarch64&distro=3.23.4",
             "UID": "39b77a7241297f9d"
           },
           "Version": "20260413-r0",
@@ -809,7 +809,7 @@
             "MPL-2.0",
             "MIT"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "Layer": {
             "Digest": "sha256:d17f077ada118cc762df373ff803592abf2dfa3ddafaa7381e364dd27a88fca7",
             "DiffID": "sha256:a8d26d037006414043b277ecb95287692d0960219289d9e27b0bcea0ce233b02"
@@ -827,7 +827,7 @@
           "ID": "git@2.52.0-r0",
           "Name": "git",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/git@2.52.0-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/git@2.52.0-r0?arch=aarch64&distro=3.23.4",
             "UID": "91d345ba0b73873f"
           },
           "Version": "2.52.0-r0",
@@ -837,7 +837,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libcurl@8.19.0-r0",
             "libexpat@2.7.5-r0",
@@ -1049,7 +1049,7 @@
           "ID": "git-init-template@2.52.0-r0",
           "Name": "git-init-template",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/git-init-template@2.52.0-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/git-init-template@2.52.0-r0?arch=aarch64&distro=3.23.4",
             "UID": "1a2e54cb72ebfb93"
           },
           "Version": "2.52.0-r0",
@@ -1059,7 +1059,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "Layer": {
             "Digest": "sha256:d69bdc088ad03980a43b07960be4433ccb87f71566ed55009898438341434658",
             "DiffID": "sha256:c204d6d3690c77f05cfdfcdbf2d5580282a09024ae8a30717853dc5315e9d251"
@@ -1088,7 +1088,7 @@
           "ID": "libapk@3.0.6-r0",
           "Name": "libapk",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libapk@3.0.6-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libapk@3.0.6-r0?arch=aarch64&distro=3.23.4",
             "UID": "144a86955acced36"
           },
           "Version": "3.0.6-r0",
@@ -1098,7 +1098,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libcrypto3@3.5.6-r0",
             "libssl3@3.5.6-r0",
@@ -1119,7 +1119,7 @@
           "ID": "libcrypto3@3.5.6-r0",
           "Name": "libcrypto3",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libcrypto3@3.5.6-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libcrypto3@3.5.6-r0?arch=aarch64&distro=3.23.4",
             "UID": "f8a73d72270e6aa0"
           },
           "Version": "3.5.6-r0",
@@ -1129,7 +1129,7 @@
           "Licenses": [
             "Apache-2.0"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1156,7 +1156,7 @@
           "ID": "libcurl@8.19.0-r0",
           "Name": "libcurl",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libcurl@8.19.0-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libcurl@8.19.0-r0?arch=aarch64&distro=3.23.4",
             "UID": "e72971ee6c3149af"
           },
           "Version": "8.19.0-r0",
@@ -1166,7 +1166,7 @@
           "Licenses": [
             "curl"
           ],
-          "Maintainer": "Achill Gilgenast \u003cachill@achill.org\u003e",
+          "Maintainer": "Achill Gilgenast <achill@achill.org>",
           "DependsOn": [
             "brotli-libs@1.2.0-r0",
             "c-ares@1.34.6-r0",
@@ -1195,7 +1195,7 @@
           "ID": "libedit@20251016.3.1-r0",
           "Name": "libedit",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libedit@20251016.3.1-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libedit@20251016.3.1-r0?arch=aarch64&distro=3.23.4",
             "UID": "74bc562c778abb9"
           },
           "Version": "20251016.3.1-r0",
@@ -1205,7 +1205,7 @@
           "Licenses": [
             "BSD-3-Clause"
           ],
-          "Maintainer": "Celeste \u003ccielesti@protonmail.com\u003e",
+          "Maintainer": "Celeste <cielesti@protonmail.com>",
           "DependsOn": [
             "libncursesw@6.5_p20251123-r0",
             "musl@1.2.5-r23"
@@ -1225,7 +1225,7 @@
           "ID": "libexpat@2.7.5-r0",
           "Name": "libexpat",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libexpat@2.7.5-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libexpat@2.7.5-r0?arch=aarch64&distro=3.23.4",
             "UID": "5d505840d84f5283"
           },
           "Version": "2.7.5-r0",
@@ -1235,7 +1235,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Carlo Landmeter \u003cclandmeter@alpinelinux.org\u003e",
+          "Maintainer": "Carlo Landmeter <clandmeter@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1254,7 +1254,7 @@
           "ID": "libgcc@15.2.0-r2",
           "Name": "libgcc",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libgcc@15.2.0-r2?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libgcc@15.2.0-r2?arch=aarch64&distro=3.23.4",
             "UID": "deafbaaeb682670"
           },
           "Version": "15.2.0-r2",
@@ -1265,7 +1265,7 @@
             "GPL-2.0-or-later",
             "LGPL-2.1-or-later"
           ],
-          "Maintainer": "Ariadne Conill \u003cariadne@dereferenced.org\u003e",
+          "Maintainer": "Ariadne Conill <ariadne@dereferenced.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1283,7 +1283,7 @@
           "ID": "libidn2@2.3.8-r0",
           "Name": "libidn2",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libidn2@2.3.8-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libidn2@2.3.8-r0?arch=aarch64&distro=3.23.4",
             "UID": "900030e9bdd7a8e5"
           },
           "Version": "2.3.8-r0",
@@ -1294,7 +1294,7 @@
             "GPL-2.0-or-later",
             "LGPL-3.0-or-later"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libunistring@1.4.1-r0",
             "musl@1.2.5-r23"
@@ -1314,7 +1314,7 @@
           "ID": "libncursesw@6.5_p20251123-r0",
           "Name": "libncursesw",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libncursesw@6.5_p20251123-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libncursesw@6.5_p20251123-r0?arch=aarch64&distro=3.23.4",
             "UID": "77218be8a8fe127a"
           },
           "Version": "6.5_p20251123-r0",
@@ -1324,7 +1324,7 @@
           "Licenses": [
             "X-11"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23",
             "ncurses-terminfo-base@6.5_p20251123-r0"
@@ -1344,7 +1344,7 @@
           "ID": "libpsl@0.21.5-r3",
           "Name": "libpsl",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libpsl@0.21.5-r3?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libpsl@0.21.5-r3?arch=aarch64&distro=3.23.4",
             "UID": "86a001677e5f1390"
           },
           "Version": "0.21.5-r3",
@@ -1354,7 +1354,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libidn2@2.3.8-r0",
             "libunistring@1.4.1-r0",
@@ -1375,7 +1375,7 @@
           "ID": "libssl3@3.5.6-r0",
           "Name": "libssl3",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libssl3@3.5.6-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libssl3@3.5.6-r0?arch=aarch64&distro=3.23.4",
             "UID": "ef7e769ee3a86bc3"
           },
           "Version": "3.5.6-r0",
@@ -1385,7 +1385,7 @@
           "Licenses": [
             "Apache-2.0"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libcrypto3@3.5.6-r0",
             "musl@1.2.5-r23"
@@ -1404,7 +1404,7 @@
           "ID": "libstdc++@15.2.0-r2",
           "Name": "libstdc++",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libstdc%2B%2B@15.2.0-r2?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libstdc%2B%2B@15.2.0-r2?arch=aarch64&distro=3.23.4",
             "UID": "406e86112ac753a"
           },
           "Version": "15.2.0-r2",
@@ -1415,7 +1415,7 @@
             "GPL-2.0-or-later",
             "LGPL-2.1-or-later"
           ],
-          "Maintainer": "Ariadne Conill \u003cariadne@dereferenced.org\u003e",
+          "Maintainer": "Ariadne Conill <ariadne@dereferenced.org>",
           "DependsOn": [
             "libgcc@15.2.0-r2",
             "musl@1.2.5-r23"
@@ -1435,7 +1435,7 @@
           "ID": "libunistring@1.4.1-r0",
           "Name": "libunistring",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/libunistring@1.4.1-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/libunistring@1.4.1-r0?arch=aarch64&distro=3.23.4",
             "UID": "7a0c4b1a1969ff65"
           },
           "Version": "1.4.1-r0",
@@ -1446,7 +1446,7 @@
             "GPL-2.0-or-later",
             "LGPL-3.0-or-later"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1465,7 +1465,7 @@
           "ID": "musl@1.2.5-r23",
           "Name": "musl",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/musl@1.2.5-r23?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/musl@1.2.5-r23?arch=aarch64&distro=3.23.4",
             "UID": "d7383c5607b1fa6"
           },
           "Version": "1.2.5-r23",
@@ -1475,7 +1475,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "Layer": {
             "Digest": "sha256:d17f077ada118cc762df373ff803592abf2dfa3ddafaa7381e364dd27a88fca7",
             "DiffID": "sha256:a8d26d037006414043b277ecb95287692d0960219289d9e27b0bcea0ce233b02"
@@ -1491,7 +1491,7 @@
           "ID": "musl-utils@1.2.5-r23",
           "Name": "musl-utils",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/musl-utils@1.2.5-r23?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/musl-utils@1.2.5-r23?arch=aarch64&distro=3.23.4",
             "UID": "34eeae7dbbc4aa66"
           },
           "Version": "1.2.5-r23",
@@ -1503,7 +1503,7 @@
             "BSD-2-Clause",
             "GPL-2.0-or-later"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23",
             "scanelf@1.3.8-r2"
@@ -1526,7 +1526,7 @@
           "ID": "ncurses-terminfo-base@6.5_p20251123-r0",
           "Name": "ncurses-terminfo-base",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/ncurses-terminfo-base@6.5_p20251123-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/ncurses-terminfo-base@6.5_p20251123-r0?arch=aarch64&distro=3.23.4",
             "UID": "962b598026d4cc5d"
           },
           "Version": "6.5_p20251123-r0",
@@ -1536,7 +1536,7 @@
           "Licenses": [
             "X-11"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "Layer": {
             "Digest": "sha256:d69bdc088ad03980a43b07960be4433ccb87f71566ed55009898438341434658",
             "DiffID": "sha256:c204d6d3690c77f05cfdfcdbf2d5580282a09024ae8a30717853dc5315e9d251"
@@ -1591,7 +1591,7 @@
           "ID": "nghttp2-libs@1.69.0-r0",
           "Name": "nghttp2-libs",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/nghttp2-libs@1.69.0-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/nghttp2-libs@1.69.0-r0?arch=aarch64&distro=3.23.4",
             "UID": "2a865af1f3de90c6"
           },
           "Version": "1.69.0-r0",
@@ -1601,7 +1601,7 @@
           "Licenses": [
             "MIT"
           ],
-          "Maintainer": "Francesco Colista \u003cfcolista@alpinelinux.org\u003e",
+          "Maintainer": "Francesco Colista <fcolista@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1620,7 +1620,7 @@
           "ID": "openssh-client-common@10.2_p1-r0",
           "Name": "openssh-client-common",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/openssh-client-common@10.2_p1-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/openssh-client-common@10.2_p1-r0?arch=aarch64&distro=3.23.4",
             "UID": "d7d08797d3cd46cc"
           },
           "Version": "10.2_p1-r0",
@@ -1630,7 +1630,7 @@
           "Licenses": [
             "SSH-OpenSSH"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libcrypto3@3.5.6-r0",
             "libedit@20251016.3.1-r0",
@@ -1660,7 +1660,7 @@
           "ID": "openssh-client-default@10.2_p1-r0",
           "Name": "openssh-client-default",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/openssh-client-default@10.2_p1-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/openssh-client-default@10.2_p1-r0?arch=aarch64&distro=3.23.4",
             "UID": "e6c10423ed7c96ce"
           },
           "Version": "10.2_p1-r0",
@@ -1670,7 +1670,7 @@
           "Licenses": [
             "SSH-OpenSSH"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libcrypto3@3.5.6-r0",
             "musl@1.2.5-r23",
@@ -1692,7 +1692,7 @@
           "ID": "openssh-keygen@10.2_p1-r0",
           "Name": "openssh-keygen",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/openssh-keygen@10.2_p1-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/openssh-keygen@10.2_p1-r0?arch=aarch64&distro=3.23.4",
             "UID": "9e0880e768b0da0d"
           },
           "Version": "10.2_p1-r0",
@@ -1702,7 +1702,7 @@
           "Licenses": [
             "SSH-OpenSSH"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "libcrypto3@3.5.6-r0",
             "musl@1.2.5-r23"
@@ -1721,7 +1721,7 @@
           "ID": "pcre2@10.47-r0",
           "Name": "pcre2",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/pcre2@10.47-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/pcre2@10.47-r0?arch=aarch64&distro=3.23.4",
             "UID": "c0988007c8e3c5af"
           },
           "Version": "10.47-r0",
@@ -1731,7 +1731,7 @@
           "Licenses": [
             "BSD-3-Clause"
           ],
-          "Maintainer": "Jakub Jirutka \u003cjakub@jirutka.cz\u003e",
+          "Maintainer": "Jakub Jirutka <jakub@jirutka.cz>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1752,7 +1752,7 @@
           "ID": "scanelf@1.3.8-r2",
           "Name": "scanelf",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/scanelf@1.3.8-r2?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/scanelf@1.3.8-r2?arch=aarch64&distro=3.23.4",
             "UID": "f65c3c14237bbd53"
           },
           "Version": "1.3.8-r2",
@@ -1762,7 +1762,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1780,7 +1780,7 @@
           "ID": "ssl_client@1.37.0-r30",
           "Name": "ssl_client",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/ssl_client@1.37.0-r30?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/ssl_client@1.37.0-r30?arch=aarch64&distro=3.23.4",
             "UID": "98e975edab80905d"
           },
           "Version": "1.37.0-r30",
@@ -1790,7 +1790,7 @@
           "Licenses": [
             "GPL-2.0-only"
           ],
-          "Maintainer": "Sören Tempel \u003csoeren+alpine@soeren-tempel.net\u003e",
+          "Maintainer": "Sören Tempel <soeren+alpine@soeren-tempel.net>",
           "DependsOn": [
             "libcrypto3@3.5.6-r0",
             "libssl3@3.5.6-r0",
@@ -1810,7 +1810,7 @@
           "ID": "zlib@1.3.2-r0",
           "Name": "zlib",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/zlib@1.3.2-r0?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/zlib@1.3.2-r0?arch=aarch64&distro=3.23.4",
             "UID": "c19b6dd4ecb7589e"
           },
           "Version": "1.3.2-r0",
@@ -1820,7 +1820,7 @@
           "Licenses": [
             "Zlib"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1839,7 +1839,7 @@
           "ID": "zstd-libs@1.5.7-r2",
           "Name": "zstd-libs",
           "Identifier": {
-            "PURL": "pkg:apk/alpine/zstd-libs@1.5.7-r2?arch=aarch64\u0026distro=3.23.4",
+            "PURL": "pkg:apk/alpine/zstd-libs@1.5.7-r2?arch=aarch64&distro=3.23.4",
             "UID": "240873299fc2eb73"
           },
           "Version": "1.5.7-r2",
@@ -1850,7 +1850,7 @@
             "BSD-3-Clause",
             "GPL-2.0-or-later"
           ],
-          "Maintainer": "Natanael Copa \u003cncopa@alpinelinux.org\u003e",
+          "Maintainer": "Natanael Copa <ncopa@alpinelinux.org>",
           "DependsOn": [
             "musl@1.2.5-r23"
           ],
@@ -1915,21 +1915,6 @@
             "DiffID": "sha256:162b563df1b9c218122dea323d293873575fa273eed614e7803888dd7ec593bf"
           },
           "FilePath": "app/packages/adapter-gitlab/package.json",
-          "AnalyzedBy": "node-pkg"
-        },
-        {
-          "ID": "@evopilot/adapter-jenkins@0.1.0",
-          "Name": "@evopilot/adapter-jenkins",
-          "Identifier": {
-            "PURL": "pkg:npm/%40evopilot/adapter-jenkins@0.1.0",
-            "UID": "1e726c3197611c52"
-          },
-          "Version": "0.1.0",
-          "Layer": {
-            "Digest": "sha256:d889eb160b8b6f431488edd516702b5d01a18d3cffa6c9ad6488ae1d860f5053",
-            "DiffID": "sha256:162b563df1b9c218122dea323d293873575fa273eed614e7803888dd7ec593bf"
-          },
-          "FilePath": "app/packages/adapter-jenkins/package.json",
           "AnalyzedBy": "node-pkg"
         },
         {

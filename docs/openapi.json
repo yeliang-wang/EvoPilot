@@ -157,37 +157,6 @@
         }
       }
     },
-    "/api/v1/connectors/jenkins": {
-      "get": {
-        "summary": "列出兼容 Jenkins CI/CD 连接器配置",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "兼容 Jenkins CI/CD 连接器配置列表"
-          }
-        }
-      },
-      "post": {
-        "summary": "保存兼容 Jenkins CI/CD 连接器配置",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "兼容 Jenkins CI/CD 连接器配置已保存"
-          },
-          "403": {
-            "description": "需要管理员角色"
-          }
-        }
-      }
-    },
     "/api/v1/pipelines": {
       "get": {
         "summary": "列出流水线运行",
@@ -355,7 +324,7 @@
             "description": "交付已执行"
           },
           "202": {
-            "description": "GitHub Actions、GitLab CI 或兼容 Jenkins 流水线已触发"
+            "description": "GitHub Actions 或 GitLab CI 流水线已触发"
           },
           "409": {
             "description": "需要用户确认"
@@ -4310,7 +4279,7 @@
     "/api/v1/deliveries/{deliveryId}/schedule": {
       "post": {
         "summary": "调度交付计划执行",
-        "description": "Dashboard 对已确认的交付计划创建 GitHub Actions/GitLab CI/兼容 Jenkins 调度，或在计划时间已到时直接触发流水线。",
+        "description": "Dashboard 对已确认的交付计划创建 GitHub Actions/GitLab CI 调度，或在计划时间已到时直接触发流水线。",
         "security": [
           {
             "bearerAuth": []

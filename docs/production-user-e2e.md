@@ -130,5 +130,5 @@ EVOPILOT_REAL_VALIDATION_COMMANDS=npm run check
 
 - 真实 Git 项目和真实 LLM 需要由生产环境配置提供。
 - 代码升级执行器必须由 EvoPilot 产品套件部署为真实进程。
-- 项目 DevOps 必须绑定真实 GitHub Actions 或 GitLab CI；Jenkins 只作为旧部署兼容连接器，不是新项目必需项。
+- 项目 DevOps 必须绑定真实 GitHub Actions 或 GitLab CI；EvoPilot 不托管项目 CI/CD，也不提供其他 CI/CD 连接器。
 - 当前环境如果没有 Docker、无法拉取镜像、无法生成 SBOM 或无法完成漏洞扫描，应返回 `BLOCKED` 或失败，不允许自动降级。

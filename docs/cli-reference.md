@@ -260,7 +260,7 @@ evopilot project preflight my-agent --json
 
 ### Configure Project DevOps
 
-EvoPilot no longer requires Jenkins for a normal GitHub/GitLab project. Register SCM first, then bind the project to the repository-native CI/CD provider. The project stores DevOps metadata and optional `tokenRef`; the real token is resolved by the EvoPilot server process from source credentials or the DevOps `tokenRef`.
+Register SCM first, then bind the project to its repository-native CI/CD provider. GitHub projects use GitHub Actions and GitLab projects use GitLab CI. The project stores DevOps metadata and optional `tokenRef`; the real token is resolved by the EvoPilot server process from source credentials or the DevOps `tokenRef`.
 
 GitHub Actions:
 

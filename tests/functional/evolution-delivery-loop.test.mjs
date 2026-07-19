@@ -158,7 +158,6 @@ test("self-learning discovery generates evaluation datasets and opportunity insi
     assert.ok(policies.data.some((policy) => policy.name === "成本预算门禁" && policy.status !== "PASSED"));
 
     const supplyChain = await getWithToken(`${baseUrl}/api/v1/supply-chain/reports`, "viewer-token");
-    assert.ok(!supplyChain.data.some((report) => report.implementation === "Jenkins"));
     assert.ok(supplyChain.data.some((report) => report.implementation === "OpenHands" && report.status === "READY"));
     assert.ok(supplyChain.data.every((report) => Array.isArray(report.packageArtifacts)));
     assert.ok(supplyChain.data.every((report) => Array.isArray(report.missingArtifacts)));
@@ -449,10 +448,10 @@ test("supports run detail API and pluggable delivery executor", async () => {
   }
 });
 
-test("triggers Jenkins after review gate and closes delivery from Jenkins pipeline result", async () => {
+test("triggers repository-native DevOps after review gate and closes delivery from pipeline result", async () => {
   const openhands = await startFakeOpenHands();
-  const jenkins = await startFakeJenkins();
-  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-jenkins-loop-"));
+  const github = await startFakeGitHubActions();
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-native-devops-loop-"));
   const server = createServer({
     dataRoot,
     runtimeMode: "debug",
@@ -472,22 +471,23 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
       id: "domainforge-fabric",
       name: "DomainForge Fabric",
       repository: {
-        provider: "local-git",
-        root: repoRoot,
+        provider: "github",
+        gitUrl: pathToFileURL(repoRoot).href,
+        baseUrl: github.baseUrl,
+        owner: "org",
+        repo: "repo",
+        token: "github-token",
         defaultBranch: "main"
       },
-      cicd: {
-        provider: "jenkins",
-        jenkins: {
-          mode: "project-override",
-          baseUrl: jenkins.baseUrl,
-          username: "tester",
-          apiToken: "secret",
-          job: "domainforge-fabric-evolution"
+      devops: {
+        provider: "github-actions",
+        ci: {
+          workflow: "ci.yml",
+          requiredChecks: ["build"]
         }
       }
     }, "admin-token");
-    assert.equal(project.data.cicd.mode, "project-override");
+    assert.equal(project.data.devops.provider, "github-actions");
     const openhandsConnector = await postWithToken(`${baseUrl}/api/v1/connectors/openhands`, {
       id: "default",
       name: "本地测试 OpenHands",
@@ -515,20 +515,20 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
     const blocked = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
-      body: JSON.stringify({ executor: "jenkins" })
+      body: JSON.stringify({ executor: "github-actions" })
     });
     assert.equal(blocked.status, 409);
 
     await postWithToken(`${baseUrl}/api/v1/reviews/${encodeURIComponent(run.data.reviews[0].id)}/decision`, {
       action: "accept",
       actor: "tester",
-      note: "允许触发 Jenkins"
+      note: "允许触发原生 DevOps"
     }, "operator-token");
 
     const blockedBeforeCodeUpgrade = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
-      body: JSON.stringify({ executor: "jenkins" })
+      body: JSON.stringify({ executor: "github-actions" })
     });
     assert.equal(blockedBeforeCodeUpgrade.status, 409);
     assert.match(await blockedBeforeCodeUpgrade.text(), /CODE_UPGRADE_REQUIRED/);
@@ -540,32 +540,31 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
     }, "admin-token");
     assert.equal(upgrade.data.codeUpgradeRun.status, "SUCCEEDED");
     assert.match(openhands.prompt, /性能优化方案/);
-    assert.ok(openhands.allowedPaths.includes("services"), `allowedPaths should include services: ${JSON.stringify(openhands.allowedPaths)}`);
+    assert.ok(openhands.allowedPaths.includes("src"), `allowedPaths should include src: ${JSON.stringify(openhands.allowedPaths)}`);
     const upgradeEvents = await getWithToken(`${baseUrl}/api/v1/code-upgrade-runs/${encodeURIComponent(upgrade.data.codeUpgradeRun.id)}/events`, "viewer-token");
     assert.ok(upgradeEvents.data.some((event) => event.phase === "运行验证"));
 
     const delivery = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
-      executor: "jenkins",
+      executor: "github-actions",
       parameters: { VERSION: "0.2.0" }
     }, "admin-token");
-    assert.equal(delivery.data.pipelineRun.status, "QUEUED");
-    assert.equal(jenkins.triggeredJob, "/job/domainforge-fabric-evolution/buildWithParameters");
-    assert.match(jenkins.triggeredBody, /PLAN_ID=/);
+    assert.equal(delivery.data.pipelineRun.status, "SUCCEEDED");
+    assert.equal(github.dispatchPath, "/repos/org/repo/actions/workflows/ci.yml/dispatches");
+    assert.match(github.dispatchBody, /VERSION/);
 
     const pipeline = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(delivery.data.pipelineRun.id)}`, "viewer-token");
     assert.equal(pipeline.data.status, "SUCCEEDED");
-    assert.equal(pipeline.data.buildNumber, 42);
-    assert.equal(pipeline.data.stages[0].name, "Build");
-    assert.equal(pipeline.data.artifacts[0].name, "release.zip");
+    assert.equal(pipeline.data.provider, "github-actions");
+    assert.equal(pipeline.data.stages[0].name, "build");
 
     const logs = await fetch(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(pipeline.data.id)}/logs`, {
       headers: { authorization: "Bearer viewer-token" }
     });
     assert.equal(logs.status, 200);
-    assert.match(await logs.text(), /Pipeline finished successfully/);
+    assert.match(await logs.text(), /provider=github-actions/);
 
     const artifacts = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(pipeline.data.id)}/artifacts`, "viewer-token");
-    assert.equal(artifacts.data[0].name, "release.zip");
+    assert.deepEqual(artifacts.data, []);
 
     const detail = await getWithToken(`${baseUrl}/api/v1/runs/${encodeURIComponent(run.data.id)}`, "viewer-token");
     assert.equal(detail.data.releaseReports[0].status, "SUCCEEDED");
@@ -574,17 +573,17 @@ test("triggers Jenkins after review gate and closes delivery from Jenkins pipeli
 
     const audit = await getWithToken(`${baseUrl}/api/v1/audit`, "viewer-token");
     assert.ok(audit.data.some((record) => record.action === "code-upgrade.started"));
-    assert.ok(audit.data.some((record) => record.action === "jenkins.build.triggered"));
+    assert.ok(audit.data.some((record) => record.action === "devops.pipeline.triggered"));
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await openhands.close();
-    await jenkins.close();
+    await github.close();
   }
 });
 
 test("cost over budget freezes standard evolution but allows cost optimization delivery", async () => {
   const openhands = await startFakeOpenHands();
-  const jenkins = await startFakeJenkins();
+  const github = await startFakeGitHubActions();
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-cost-freeze-"));
   const server = createServer({
     dataRoot,
@@ -605,18 +604,19 @@ test("cost over budget freezes standard evolution but allows cost optimization d
       id: "domainforge-fabric",
       name: "DomainForge Fabric",
       repository: {
-        provider: "local-git",
-        root: repoRoot,
+        provider: "github",
+        gitUrl: pathToFileURL(repoRoot).href,
+        baseUrl: github.baseUrl,
+        owner: "org",
+        repo: "repo",
+        token: "github-token",
         defaultBranch: "main"
       },
-      cicd: {
-        provider: "jenkins",
-        jenkins: {
-          mode: "project-override",
-          baseUrl: jenkins.baseUrl,
-          username: "tester",
-          apiToken: "secret",
-          job: "domainforge-fabric-evolution"
+      devops: {
+        provider: "github-actions",
+        ci: {
+          workflow: "ci.yml",
+          requiredChecks: ["build"]
         }
       }
     }, "admin-token");
@@ -684,18 +684,18 @@ test("cost over budget freezes standard evolution but allows cost optimization d
     const blockedDelivery = await fetch(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer admin-token" },
-      body: JSON.stringify({ executor: "jenkins" })
+      body: JSON.stringify({ executor: "github-actions" })
     });
     assert.equal(blockedDelivery.status, 409);
     const blockedDeliveryBody = await blockedDelivery.json();
     assert.equal(blockedDeliveryBody.error, "EVOLUTION_COST_BUDGET_FROZEN");
 
     const costOptimizationDelivery = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.data.deliveryPlans[0].id)}/execute`, {
-      executor: "jenkins",
+      executor: "github-actions",
       parameters: { VERSION: "cost-optimization-e2e" },
       batchId: scan.data.created[0].id
     }, "admin-token");
-    assert.equal(costOptimizationDelivery.data.pipelineRun.status, "QUEUED");
+    assert.equal(costOptimizationDelivery.data.pipelineRun.status, "SUCCEEDED");
     const pipeline = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(costOptimizationDelivery.data.pipelineRun.id)}`, "viewer-token");
     assert.equal(pipeline.data.status, "SUCCEEDED");
 
@@ -705,13 +705,13 @@ test("cost over budget freezes standard evolution but allows cost optimization d
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await openhands.close();
-    await jenkins.close();
+    await github.close();
   }
 });
 
 test("OTLP trace evidence enters the full evolution delivery loop", async () => {
   const openhands = await startFakeOpenHands();
-  const jenkins = await startFakeJenkins();
+  const github = await startFakeGitHubActions();
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-otlp-loop-"));
   const server = createServer({
     dataRoot,
@@ -727,16 +727,31 @@ test("OTLP trace evidence enters the full evolution delivery loop", async () => 
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   try {
+    const repoRoot = createLocalProjectRepo(dataRoot, "domainforge-fabric-otlp-repo");
+    await postWithToken(`${baseUrl}/api/v1/projects`, {
+      id: "domainforge-fabric",
+      name: "DomainForge Fabric",
+      repository: {
+        provider: "github",
+        gitUrl: pathToFileURL(repoRoot).href,
+        baseUrl: github.baseUrl,
+        owner: "org",
+        repo: "repo",
+        token: "github-token",
+        defaultBranch: "main"
+      },
+      devops: {
+        provider: "github-actions",
+        ci: {
+          workflow: "ci.yml",
+          requiredChecks: ["build"]
+        }
+      }
+    }, "admin-token");
     await postWithToken(`${baseUrl}/api/v1/connectors/openhands`, {
       id: "default",
       name: "代码升级执行器",
       baseUrl: openhands.baseUrl
-    }, "admin-token");
-    await postWithToken(`${baseUrl}/api/v1/connectors/jenkins`, {
-      id: "default",
-      name: "外部 Jenkins CI/CD",
-      baseUrl: jenkins.baseUrl,
-      jobTemplates: { default: "domainforge-fabric-evolution" }
     }, "admin-token");
 
     const ingested = await postWithToken(`${baseUrl}/api/v1/evidence/otlp/v1/traces?projectId=domainforge-fabric`, {
@@ -770,8 +785,7 @@ test("OTLP trace evidence enters the full evolution delivery loop", async () => 
       validationCommands: ["npm test"]
     }, "admin-token");
     const delivery = await postWithToken(`${baseUrl}/api/v1/deliveries/${encodeURIComponent(run.deliveryPlans[0].id)}/execute`, {
-      executor: "jenkins",
-      connectorId: "default",
+      executor: "github-actions",
       parameters: { VERSION: "otlp-e2e" }
     }, "admin-token");
     const pipeline = await getWithToken(`${baseUrl}/api/v1/pipelines/${encodeURIComponent(delivery.data.pipelineRun.id)}`, "viewer-token");
@@ -781,7 +795,7 @@ test("OTLP trace evidence enters the full evolution delivery loop", async () => 
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await openhands.close();
-    await jenkins.close();
+    await github.close();
   }
 });
 
@@ -1019,40 +1033,33 @@ function fakeOpenHandsEvents() {
   ];
 }
 
-async function startFakeJenkins() {
-  const state = { triggeredJob: "", triggeredBody: "" };
+async function startFakeGitHubActions() {
+  const state = { baseUrl: "", dispatchPath: "", dispatchBody: "" };
   const server = (await import("node:http")).createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method === "POST" && url.pathname === "/job/domainforge-fabric-evolution/buildWithParameters") {
-      state.triggeredJob = url.pathname;
-      state.triggeredBody = await readRequestBody(request);
-      response.writeHead(201, { location: `${state.baseUrl}/queue/item/9/` });
+    if (request.method === "GET" && url.pathname === "/repos/org/repo/git/trees/main" && url.searchParams.get("recursive") === "1") {
+      return writeFakeJson(response, { tree: [
+        { type: "blob", path: "README.md" },
+        { type: "blob", path: "src/index.ts" },
+        { type: "blob", path: "services/domainforge-fabric-service/pom.xml" }
+      ] });
+    }
+    if (request.method === "POST" && url.pathname === "/repos/org/repo/actions/workflows/ci.yml/dispatches") {
+      state.dispatchPath = url.pathname;
+      state.dispatchBody = await readRequestBody(request);
+      response.writeHead(204);
       response.end();
       return;
     }
-    if (request.method === "GET" && url.pathname === "/queue/item/9/api/json") {
-      return writeFakeJson(response, { executable: { number: 42, url: `${state.baseUrl}/job/domainforge-fabric-evolution/42/` } });
+    if (request.method === "GET" && url.pathname.startsWith("/repos/org/repo/commits/") && url.pathname.endsWith("/check-runs")) {
+      return writeFakeJson(response, { check_runs: [
+        { name: "build", status: "completed", conclusion: "success" }
+      ] });
     }
-    if (request.method === "GET" && url.pathname === "/job/domainforge-fabric-evolution/42/api/json") {
-      return writeFakeJson(response, {
-        building: false,
-        result: "SUCCESS",
-        url: `${state.baseUrl}/job/domainforge-fabric-evolution/42/`,
-        artifacts: [{ displayPath: "release.zip", relativePath: "release.zip" }]
-      });
-    }
-    if (request.method === "GET" && url.pathname === "/job/domainforge-fabric-evolution/42/wfapi/describe") {
-      return writeFakeJson(response, {
-        stages: [
-          { id: "1", name: "Build", status: "SUCCESS", durationMillis: 1000 },
-          { id: "2", name: "Deploy", status: "SUCCESS", durationMillis: 2000 }
-        ]
-      });
-    }
-    if (request.method === "GET" && url.pathname === "/job/domainforge-fabric-evolution/42/consoleText") {
-      response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-      response.end("Pipeline finished successfully");
-      return;
+    if (request.method === "GET" && url.pathname === "/repos/org/repo/actions/workflows/ci.yml/runs") {
+      return writeFakeJson(response, { workflow_runs: [
+        { id: 42, name: "ci", status: "completed", conclusion: "success", html_url: `${state.baseUrl}/org/repo/actions/runs/42` }
+      ] });
     }
     response.writeHead(404);
     response.end("not found");
@@ -1062,8 +1069,8 @@ async function startFakeJenkins() {
   state.baseUrl = `http://127.0.0.1:${address.port}`;
   return {
     get baseUrl() { return state.baseUrl; },
-    get triggeredJob() { return state.triggeredJob; },
-    get triggeredBody() { return state.triggeredBody; },
+    get dispatchPath() { return state.dispatchPath; },
+    get dispatchBody() { return state.dispatchBody; },
     close: () => new Promise((resolve) => server.close(resolve))
   };
 }

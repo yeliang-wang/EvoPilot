@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "policy": "EvoPilot 生产发布要求托管代码升级运行时以独立真实进程随产品套件部署，并锁定版本、镜像、Digest、SBOM、许可证报告、漏洞报告和健康端点。Jenkins 是外部 CI/CD 连接器，不纳入 EvoPilot 托管运行时锁。",
+  "policy": "EvoPilot 生产发布要求托管代码升级运行时以独立真实进程随产品套件部署，并锁定版本、镜像、Digest、SBOM、许可证报告、漏洞报告和健康端点。项目 CI/CD 不作为 EvoPilot 托管运行时部署；GitHub 项目使用 GitHub Actions，GitLab 项目使用 GitLab CI。",
   "runtimes": [
     {
       "id": "evopilot-code-upgrader",
