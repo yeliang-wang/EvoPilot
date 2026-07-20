@@ -71,6 +71,8 @@ async function main(argv: string[]): Promise<number> {
       case "project:register":
         return await projectRegister(ctx);
       case "project:onboard":
+        if (maybeId === "plan") return await projectOnboardPlan(ctx, args.positionals[3]);
+        if (maybeId === "verify") return await projectOnboardVerify(ctx, args.positionals[3]);
         return await projectOnboard(ctx, maybeId);
       case "project:preflight":
         return await projectPreflight(ctx, maybeId);
@@ -393,30 +395,92 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
   return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, steps, 0);
 }
 
+async function projectOnboardPlan(ctx: RuntimeContext, providerArg?: string): Promise<number> {
+  const provider = providerArg ?? stringOption(ctx.args, "provider");
+  if (!provider || !["local-git", "github", "gitlab"].includes(provider)) {
+    throw usage("Use: evopilot project onboard plan <github|gitlab|local-git> [options]");
+  }
+  const body = projectOnboardingChecklistBody(ctx.args, provider);
+  const response = await ctx.client.post("/api/v1/onboarding/project/checklist", body, requestOptions(ctx));
+  const checklist = response.data ?? response.body;
+  printProjectOnboardingChecklist(ctx, "project onboard plan", checklist, response.status, response.requestId);
+  return onboardingChecklistExitCode(checklist, "plan", response.ok);
+}
+
+async function projectOnboardVerify(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.get(`/api/v1/projects/${encodeURIComponent(projectId)}/onboarding-checklist`, {
+    ...requestOptions(ctx),
+    query: {
+      template: stringOption(ctx.args, "template"),
+      objective: stringOption(ctx.args, "objective")
+    }
+  });
+  const checklist = response.data ?? response.body;
+  printProjectOnboardingChecklist(ctx, "project onboard verify", checklist, response.status, response.requestId);
+  return onboardingChecklistExitCode(checklist, "verify", response.ok);
+}
+
 function projectRegistrationBody(args: ParsedArgs, id: string, provider: string): Record<string, unknown> {
-  const repo = stringOption(args, "repo");
-  const ownerRepo = repo?.includes("/") ? repo.split("/") : undefined;
   return {
     id,
     name: stringOption(args, "name") ?? id,
     profileId: stringOption(args, "profile-id"),
     tenantId: stringOption(args, "tenant") ?? stringOption(args, "tenant-id"),
     workspaceId: stringOption(args, "workspace") ?? stringOption(args, "workspace-id"),
-    repository: {
-      provider,
-      root: stringOption(args, "root"),
-      gitUrl: stringOption(args, "git-url") ?? stringOption(args, "url"),
-      baseUrl: stringOption(args, "base-url"),
-      projectId: stringOption(args, "project-id"),
-      owner: stringOption(args, "owner") ?? ownerRepo?.[0],
-      repo: stringOption(args, "repo-name") ?? ownerRepo?.slice(1).join("/") ?? (!ownerRepo ? repo : undefined),
-      defaultBranch: stringOption(args, "branch") ?? stringOption(args, "default-branch"),
-      username: stringOption(args, "username"),
-      password: stringOption(args, "password"),
-      token: stringOption(args, "source-token"),
-      tokenRef: stringOption(args, "token-ref")
-    }
+    repository: projectRepositoryBody(args, provider)
   };
+}
+
+function projectOnboardingChecklistBody(args: ParsedArgs, provider: string): Record<string, unknown> {
+  const id = optionalDerivedProjectId(args, provider);
+  const body: Record<string, unknown> = {
+    id,
+    name: stringOption(args, "name") ?? id,
+    profileId: stringOption(args, "profile-id"),
+    tenantId: stringOption(args, "tenant") ?? stringOption(args, "tenant-id"),
+    workspaceId: stringOption(args, "workspace") ?? stringOption(args, "workspace-id"),
+    repository: projectRepositoryBody(args, provider),
+    template: stringOption(args, "template"),
+    releaseTargetTemplate: stringOption(args, "release-target-template"),
+    objective: stringOption(args, "objective"),
+    githubAppInstallationId: stringOption(args, "github-app-installation-id") ?? stringOption(args, "github-app-id") ?? stringOption(args, "installation-id")
+  };
+  const devopsProvider = nativeDevopsProvider(provider);
+  if (devopsProvider && shouldConfigureProjectDevops(args, provider)) {
+    body.devops = buildProjectDevopsBody(args, devopsProvider);
+  }
+  return body;
+}
+
+function projectRepositoryBody(args: ParsedArgs, provider: string): Record<string, unknown> {
+  const repo = stringOption(args, "repo");
+  const ownerRepo = repo?.includes("/") ? repo.split("/") : undefined;
+  return {
+    provider,
+    root: stringOption(args, "root"),
+    gitUrl: stringOption(args, "git-url") ?? stringOption(args, "url"),
+    baseUrl: stringOption(args, "base-url"),
+    projectId: stringOption(args, "project-id"),
+    owner: stringOption(args, "owner") ?? ownerRepo?.[0],
+    repo: stringOption(args, "repo-name") ?? ownerRepo?.slice(1).join("/") ?? (!ownerRepo ? repo : undefined),
+    defaultBranch: stringOption(args, "branch") ?? stringOption(args, "default-branch"),
+    username: stringOption(args, "username"),
+    password: stringOption(args, "password"),
+    token: stringOption(args, "source-token"),
+    tokenRef: stringOption(args, "token-ref")
+  };
+}
+
+function optionalDerivedProjectId(args: ParsedArgs, provider: string): string | undefined {
+  const explicit = stringOption(args, "id");
+  if (explicit) return explicit;
+  try {
+    return deriveProjectId(args, provider);
+  } catch (error) {
+    if (error instanceof UsageError) return undefined;
+    throw error;
+  }
 }
 
 function deriveProjectId(args: ParsedArgs, provider: string): string {
@@ -1737,6 +1801,52 @@ function printProjectDevopsResult(ctx: RuntimeContext, command: string, projectI
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
+function printProjectOnboardingChecklist(ctx: RuntimeContext, command: string, data: unknown, httpStatus: number, requestId?: string): void {
+  const output = attachRequestId(data, requestId);
+  if (ctx.json) {
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+    return;
+  }
+  const steps = Array.isArray(field(output, "steps")) ? field(output, "steps") as unknown[] : [];
+  const missingInputs = Array.isArray(field(output, "missingInputs")) ? field(output, "missingInputs") as unknown[] : [];
+  const blockers = Array.isArray(field(output, "blockers")) ? field(output, "blockers") as unknown[] : [];
+  const commands = Array.isArray(field(output, "commands")) ? field(output, "commands") as unknown[] : [];
+  const lines = [
+    "EvoPilot Project Onboarding",
+    `Command    ${command}`,
+    `HTTP       ${httpStatus}`,
+    `Request    ${requestId ?? "-"}`,
+    `Scope      ${field(output, "tenantId") ?? "-"} / ${field(output, "workspaceId") ?? "-"}`,
+    `Project    ${field(output, "projectId") ?? "-"}`,
+    `Provider   ${field(output, "provider") ?? "-"}`,
+    `Status     ${field(output, "status") ?? "UNKNOWN"}`,
+    "",
+    "Workflow",
+    ...formatOnboardingSteps(steps),
+    "",
+    "Next Action",
+    String(field(output, "nextAction") ?? "unknown"),
+    "",
+    "Missing Inputs",
+    ...(missingInputs.length > 0 ? missingInputs.map((item) => `- ${String(item)}`) : ["- none"]),
+    "",
+    "Blockers",
+    ...(blockers.length > 0 ? blockers.map((item) => `- ${String(item)}`) : ["- none"]),
+    "",
+    "Suggested Commands",
+    ...formatOnboardingCommands(commands),
+    ""
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function onboardingChecklistExitCode(data: unknown, mode: "plan" | "verify", ok: boolean): number {
+  const status = String(field(data, "status") ?? "");
+  if (!ok || status === "BLOCKED") return 2;
+  if (mode === "verify" && status !== "READY_TO_RUN") return 2;
+  return 0;
+}
+
 function formatDevopsChecks(checks: unknown[]): string[] {
   if (checks.length === 0) return ["[SKIP] No readiness checks returned."];
   return checks.map((item) => {
@@ -1744,6 +1854,21 @@ function formatDevopsChecks(checks: unknown[]): string[] {
     const evidence = Array.isArray(field(item, "evidence")) ? (field(item, "evidence") as unknown[]).join("; ") : "";
     return `[${status}] ${field(item, "id") ?? "check"} - ${evidence}`;
   });
+}
+
+function formatOnboardingSteps(steps: unknown[]): string[] {
+  if (steps.length === 0) return ["[PENDING] No onboarding checklist returned."];
+  return steps.map((item) => {
+    const status = String(field(item, "status") ?? "SKIP");
+    const required = field(item, "required") === true ? "required" : "optional";
+    const evidence = Array.isArray(field(item, "evidence")) ? (field(item, "evidence") as unknown[]).slice(0, 2).join("; ") : "";
+    return `[${status}] ${field(item, "id") ?? "step"} - ${field(item, "label") ?? ""} (${required})${field(item, "nextAction") ? ` next=${field(item, "nextAction")}` : ""}${evidence ? ` evidence=${evidence}` : ""}`;
+  });
+}
+
+function formatOnboardingCommands(commands: unknown[]): string[] {
+  if (commands.length === 0) return ["- none"];
+  return commands.map((item) => `- ${field(item, "id") ?? "command"}: ${field(item, "command") ?? ""}${field(item, "requiresHuman") ? " [human]" : ""}`);
 }
 
 function formatChain(value: unknown): string[] {
@@ -1936,6 +2061,11 @@ function printOutput(ctx: RuntimeContext, data: unknown, text: string): void {
   }
 }
 
+function attachRequestId(data: unknown, requestId?: string): unknown {
+  if (!requestId || !isRecord(data) || data.requestId) return data;
+  return { ...data, requestId };
+}
+
 function listSummary(value: unknown, fieldName: string): string {
   if (!Array.isArray(value)) return "ok";
   if (value.length === 0) return "No records.";
@@ -2016,7 +2146,9 @@ Usage:
   evopilot config show
   evopilot status [--json]
   evopilot project register --id <id> --provider <local-git|github|gitlab> [options]
+  evopilot project onboard plan <github|gitlab|local-git> [options]
   evopilot project onboard <github|gitlab|local-git> [options]
+  evopilot project onboard verify <project-id>
   evopilot project list
   evopilot project preflight <project-id>
   evopilot project credentials set <project-id> [--token-ref <env>]
@@ -2098,6 +2230,8 @@ Global options:
   --config <file>             Config path, defaults to ~/.evopilot/config.json
 
 Project DevOps examples:
+  evopilot project onboard plan github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --ci-workflow ci.yml --ci-required-check build --template ga --objective "Promote my-agent to GA stable" --json
+  evopilot project onboard verify my-agent --template ga --json
   evopilot project onboard github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --ci-workflow ci.yml --ci-required-check build --template ga --objective "Promote my-agent to GA stable" --require-source-ready --require-devops-ready
   evopilot project devops set my-agent --provider github-actions --ci-workflow ci.yml --ci-required-check build --ci-required-check test --cd-workflow deploy-prod.yml --deploy-environment production --health-url https://app.example.com/health
   evopilot project devops set my-agent --provider gitlab-ci --ci-required-stage test --ci-required-job build --cd-required-stage deploy --deploy-environment production --ready-url https://app.example.com/ready

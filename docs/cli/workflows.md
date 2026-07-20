@@ -19,6 +19,25 @@ Do not continue to source writeback, deploy, merge, or release actions unless `s
 
 Use a server-side `tokenRef` for real source writeback. The token value must be available to the EvoPilot server process environment or the same tenant/workspace EvoPilot secret vault.
 
+Start with a non-mutating checklist. Agents should parse `status`, `nextAction`, `missingInputs`, `blockers`, and `commands` before attempting registration:
+
+```bash
+evopilot project onboard plan github \
+  --repo <owner>/<repo> \
+  --id my-agent \
+  --branch main \
+  --token-ref GITHUB_TOKEN_MY_AGENT \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --ci-required-check test \
+  --cd-workflow deploy-prod.yml \
+  --deploy-environment production \
+  --health-url https://my-agent.example.com/health \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, native CI/CD, deployment evidence, release decision, and blocker review" \
+  --json
+```
+
 Store or rotate the token in EvoPilot's server-side secret vault when the operator wants to avoid editing server environment variables:
 
 ```bash
@@ -45,6 +64,7 @@ Then verify source credentials:
 
 ```bash
 evopilot project preflight my-agent --json
+evopilot project onboard verify my-agent --template ga --json
 ```
 
 `READY` means source writeback can proceed. `READ_ONLY` or `BLOCKED` means the agent must stop and repair credentials before claiming PR, merge, or source-closure readiness.
@@ -52,6 +72,22 @@ evopilot project preflight my-agent --json
 ## 3. Register A GitLab Project
 
 Store or rotate the token first:
+
+```bash
+evopilot project onboard plan gitlab \
+  --base-url https://gitlab.example.com \
+  --project-id group/my-agent \
+  --id my-agent \
+  --branch main \
+  --token-ref GITLAB_TOKEN_MY_AGENT \
+  --ci-required-stage test \
+  --ci-required-job build \
+  --cd-required-stage deploy \
+  --deploy-environment production \
+  --ready-url https://my-agent.example.com/ready \
+  --template rc \
+  --json
+```
 
 ```bash
 evopilot secret set \

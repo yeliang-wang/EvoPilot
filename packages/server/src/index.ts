@@ -282,6 +282,42 @@ interface ProjectDevopsReadiness {
   checkedAt: string;
 }
 
+interface ProjectOnboardingChecklist {
+  schema: "evopilot-project-onboarding-checklist/v1";
+  mode: "plan" | "inspect";
+  tenantId: string;
+  workspaceId: string;
+  projectId?: string;
+  provider: ProjectRepositoryProvider | "unknown";
+  repository?: Omit<ProjectRepositoryRegistration, "credentials"> & {
+    credentialMode: "none" | "tokenRef" | "inline-token" | "password";
+    tokenRef?: string;
+    tokenRefResolved?: boolean;
+  };
+  status: "READY_TO_ONBOARD" | "READY_TO_RUN" | "WAITING_INPUT" | "BLOCKED";
+  steps: Array<{
+    id: "workspace" | "repository" | "secret" | "github-app" | "project" | "source-credentials" | "devops" | "target";
+    label: string;
+    status: "PASS" | "WARN" | "FAIL" | "SKIP";
+    required: boolean;
+    evidence: string[];
+    nextAction?: string;
+  }>;
+  sourceCredentials?: SourceCredentialReadiness;
+  devops?: ProjectDevopsReadiness;
+  missingInputs: string[];
+  blockers: string[];
+  commands: Array<{
+    id: string;
+    title: string;
+    command: string;
+    when: string;
+    requiresHuman?: boolean;
+  }>;
+  nextAction: "store-secret" | "install-github-app" | "register-project" | "configure-source-credentials" | "configure-devops" | "run-target" | "repair";
+  generatedAt: string;
+}
+
 interface LoopExternalBlocker {
   schema: "evopilot-external-blocker/v1";
   id: string;
@@ -2716,6 +2752,25 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!installation) return writeJson(response, 404, { error: "GITHUB_APP_INSTALLATION_NOT_FOUND" });
         if (!canAccessScopedResource(auth, installation.tenantId, installation.workspaceId)) return writeJson(response, 403, { error: "GITHUB_APP_INSTALLATION_FORBIDDEN" });
         return writeJson(response, 200, envelope(maskGitHubAppInstallation(installation)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/onboarding/project/checklist") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const tenantId = safeFileName(optionalTrimmedString(body.tenantId) ?? auth.tenantId);
+        const workspaceId = safeFileName(optionalTrimmedString(body.workspaceId) ?? auth.workspaceId);
+        if (!canAccessScopedResource(auth, tenantId, workspaceId)) return writeJson(response, 403, { error: "ONBOARDING_WORKSPACE_FORBIDDEN" });
+        const checklist = await buildProjectOnboardingChecklist({ store, auth, body, profileId: profile.id, mode: "plan" });
+        return writeJson(response, checklist.status === "BLOCKED" ? 409 : 200, envelope(checklist));
+      }
+      const projectOnboardingChecklistMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/onboarding-checklist$/);
+      if (request.method === "GET" && projectOnboardingChecklistMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectOnboardingChecklistMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const body = Object.fromEntries(url.searchParams.entries());
+        const checklist = await buildProjectOnboardingChecklist({ store, auth, body, profileId: profile.id, mode: "inspect", project });
+        return writeJson(response, checklist.status === "BLOCKED" ? 409 : 200, envelope(checklist));
       }
       if (request.method === "POST" && url.pathname === "/api/v1/workspaces") {
         if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -10067,6 +10122,395 @@ function githubAppInstallationChecks(store: FileStore, tenantId: string, workspa
 
 function maskGitHubAppInstallation(installation: GitHubAppInstallationRecord): GitHubAppInstallationRecord {
   return installation;
+}
+
+async function buildProjectOnboardingChecklist(args: {
+  store: FileStore;
+  auth: AuthContext;
+  body: Record<string, unknown>;
+  profileId: string;
+  mode: "plan" | "inspect";
+  project?: StoredProject;
+}): Promise<ProjectOnboardingChecklist> {
+  const generatedAt = new Date().toISOString();
+  const tenantId = safeFileName(optionalTrimmedString(args.body.tenantId) ?? args.project?.tenantId ?? args.auth.tenantId);
+  const workspaceId = safeFileName(optionalTrimmedString(args.body.workspaceId) ?? args.project?.workspaceId ?? args.auth.workspaceId);
+  const workspace = args.store.readWorkspace(workspaceId);
+  const repository = args.project?.repository ?? normalizeProjectRepository(args.body);
+  const provider = repository?.provider ?? "unknown";
+  const projectId = args.project?.id ?? optionalTrimmedString(args.body.id) ?? optionalTrimmedString(args.body.project) ?? onboardingDerivedProjectId(repository, args.body);
+  const projectName = args.project?.name ?? optionalTrimmedString(args.body.name) ?? projectId ?? "Project";
+  const template = optionalTrimmedString(args.body.template) ?? optionalTrimmedString(args.body.releaseTargetTemplate);
+  const objective = optionalTrimmedString(args.body.objective) ?? (projectId && template ? `Promote ${projectId} to ${template} with source closure, native CI/CD, deployment evidence, release decision, and blocker review` : undefined);
+  const steps: ProjectOnboardingChecklist["steps"] = [];
+  const addStep = (step: ProjectOnboardingChecklist["steps"][number]) => steps.push(step);
+
+  addStep({
+    id: "workspace",
+    label: "Tenant workspace scope",
+    status: workspace && workspace.tenantId === tenantId ? "PASS" : "FAIL",
+    required: true,
+    evidence: workspace ? [`tenantId=${tenantId}`, `workspaceId=${workspaceId}`, `workspaceStatus=${workspace.status}`] : [`workspaceId=${workspaceId}`, "workspace=missing"],
+    nextAction: workspace ? "continue" : "create-workspace"
+  });
+
+  let validation: ProjectValidation = args.project?.validation ?? { status: "FAILED", checkedAt: generatedAt, message: "repository=missing" };
+  if (!args.project && repository) {
+    validation = await validateProjectRepository(repository, args.store, { tenantId, workspaceId });
+  }
+  addStep({
+    id: "repository",
+    label: "Repository coordinates",
+    status: repository && validation.status === "VERIFIED" ? "PASS" : "FAIL",
+    required: true,
+    evidence: [
+      `provider=${provider}`,
+      repository ? onboardingRepositoryEvidence(repository) : "repository=missing",
+      `validation=${validation.status}`,
+      validation.message
+    ],
+    nextAction: repository && validation.status === "VERIFIED" ? "continue" : "repair-repository"
+  });
+
+  const tokenRef = repository?.credentials?.tokenRef;
+  const tokenResolved = tokenRef ? Boolean(resolveTokenRef(args.store, tokenRef, { tenantId, workspaceId })) : false;
+  const hasInlineSecret = Boolean(repository?.credentials?.token || repository?.credentials?.password);
+  const remoteRepository = provider === "github" || provider === "gitlab";
+  addStep({
+    id: "secret",
+    label: "Server-side source credential",
+    status: !remoteRepository ? "SKIP" : tokenRef ? tokenResolved ? "PASS" : "FAIL" : hasInlineSecret ? "WARN" : "FAIL",
+    required: remoteRepository,
+    evidence: !remoteRepository ? ["local-git does not require a server-side source token"]
+      : tokenRef ? [`tokenRef=${tokenRef}`, `tokenRefResolved=${tokenResolved}`]
+        : hasInlineSecret ? ["inlineCredentialConfigured=true", "prefer tokenRef backed by server env or EvoPilot secret vault"] : ["tokenRef=missing"],
+    nextAction: !remoteRepository ? "continue" : tokenRef && tokenResolved ? "continue" : "store-secret"
+  });
+
+  const matchingGitHubApp = provider === "github" && repository ? findMatchingGitHubAppInstallation(args.store, tenantId, workspaceId, repository, args.body) : undefined;
+  addStep({
+    id: "github-app",
+    label: "GitHub App installation",
+    status: provider !== "github" ? "SKIP" : matchingGitHubApp?.status === "READY" ? "PASS" : tokenResolved || hasInlineSecret ? "WARN" : "FAIL",
+    required: provider === "github" && !tokenResolved && !hasInlineSecret,
+    evidence: provider !== "github" ? ["provider is not GitHub"]
+      : matchingGitHubApp ? [`installation=${matchingGitHubApp.id}`, `status=${matchingGitHubApp.status}`, `repositories=${matchingGitHubApp.repositories.length}`]
+        : ["installation=missing", "GitHub App is optional when a scoped source tokenRef is ready"],
+    nextAction: provider === "github" && !matchingGitHubApp ? "install-github-app" : "continue"
+  });
+
+  const draftProject: StoredProject | undefined = args.project ?? (projectId && repository ? {
+    id: projectId,
+    name: projectName,
+    profileId: optionalTrimmedString(args.body.profileId) ?? args.profileId,
+    tenantId,
+    workspaceId,
+    repository,
+    validation,
+    createdAt: generatedAt,
+    updatedAt: generatedAt
+  } : undefined);
+  addStep({
+    id: "project",
+    label: args.project ? "Registered project" : "Project registration",
+    status: args.project ? "PASS" : draftProject && validation.status === "VERIFIED" ? "PASS" : "FAIL",
+    required: true,
+    evidence: args.project ? [`projectId=${args.project.id}`, "project=registered"] : draftProject ? [`projectId=${draftProject.id}`, "project=ready-to-register"] : ["projectId=missing"],
+    nextAction: args.project ? "continue" : draftProject && validation.status === "VERIFIED" ? "register-project" : "repair-project"
+  });
+
+  const sourceCredentials = draftProject ? await checkSourceCredentialReadiness(draftProject, args.store) : undefined;
+  addStep({
+    id: "source-credentials",
+    label: "Source writeback preflight",
+    status: sourceCredentials?.status === "READY" ? "PASS" : sourceCredentials?.status === "READ_ONLY" ? "FAIL" : sourceCredentials ? "FAIL" : "SKIP",
+    required: Boolean(draftProject),
+    evidence: sourceCredentials ? [`status=${sourceCredentials.status}`, ...sourceCredentials.blockers] : ["project draft unavailable"],
+    nextAction: sourceCredentials?.nextAction ?? "configure-source-credentials"
+  });
+
+  const draftDevops = args.project?.devops ?? (draftProject ? normalizeProjectDevops(args.body, draftProject) : undefined);
+  const projectWithDevops: StoredProject | undefined = draftProject ? { ...draftProject, devops: draftDevops } : undefined;
+  const devops = projectWithDevops && remoteRepository ? await checkProjectDevopsReadiness(projectWithDevops, args.store) : undefined;
+  addStep({
+    id: "devops",
+    label: "Repository-native DevOps",
+    status: !remoteRepository ? "SKIP" : devops?.status === "READY" ? "PASS" : devops?.status === "OBSERVABLE" ? "WARN" : "FAIL",
+    required: remoteRepository,
+    evidence: !remoteRepository ? ["local-git project does not use GitHub Actions or GitLab CI"] : devops ? [`status=${devops.status}`, ...devops.blockers] : ["devops=missing"],
+    nextAction: !remoteRepository ? "continue" : devops?.nextAction ?? "configure-devops"
+  });
+
+  addStep({
+    id: "target",
+    label: "Goal/Loop target wrapper",
+    status: template ? "PASS" : "WARN",
+    required: false,
+    evidence: template ? [`template=${template}`, objective ? `objective=${objective}` : "objective=default"] : ["template=missing", "project onboarding can stop before Goal/Loop execution"],
+    nextAction: template ? "run-target" : "choose-target-template"
+  });
+
+  const missingInputs = onboardingMissingInputs({ projectId, repository, provider, tokenRef, remoteRepository, draftDevops, template });
+  const blockers = steps
+    .filter((step) => step.required && step.status === "FAIL")
+    .flatMap((step) => step.evidence.map((item) => `${step.id}:${item}`));
+  const requiredWarnings = steps.filter((step) => step.required && step.status === "WARN");
+  const status: ProjectOnboardingChecklist["status"] = blockers.length > 0 ? "BLOCKED"
+    : requiredWarnings.length > 0 || missingInputs.length > 0 ? "WAITING_INPUT"
+      : args.project ? "READY_TO_RUN" : "READY_TO_ONBOARD";
+  const commands = buildProjectOnboardingCommands({
+    project: args.project,
+    projectId,
+    provider,
+    repository,
+    tokenRef,
+    tokenResolved,
+    sourceCredentials,
+    devops,
+    draftDevops,
+    template,
+    objective
+  });
+  const nextAction = onboardingNextAction(status, steps);
+
+  return {
+    schema: "evopilot-project-onboarding-checklist/v1",
+    mode: args.mode,
+    tenantId,
+    workspaceId,
+    projectId,
+    provider,
+    repository: repository ? maskOnboardingRepository(repository, args.store, { tenantId, workspaceId }) : undefined,
+    status,
+    steps,
+    sourceCredentials,
+    devops,
+    missingInputs,
+    blockers,
+    commands,
+    nextAction,
+    generatedAt
+  };
+}
+
+function onboardingDerivedProjectId(repository: ProjectRepositoryRegistration | undefined, body: Record<string, unknown>): string | undefined {
+  if (repository?.provider === "github") {
+    const id = [repository.owner, repository.repo].filter(Boolean).join("-");
+    return id ? safeFileName(id.toLowerCase()) : undefined;
+  }
+  if (repository?.provider === "gitlab") return safeFileName(String(repository.projectId ?? body.projectId ?? "").toLowerCase());
+  if (repository?.provider === "local-git" && repository.root) return safeFileName(path.basename(repository.root).toLowerCase());
+  return undefined;
+}
+
+function onboardingRepositoryEvidence(repository: ProjectRepositoryRegistration): string {
+  if (repository.provider === "github") return `repo=${[repository.owner, repository.repo].filter(Boolean).join("/") || "missing"}`;
+  if (repository.provider === "gitlab") return `projectId=${repository.projectId ?? "missing"}`;
+  if (repository.provider === "local-git") return `root=${repository.root ?? "missing"}`;
+  return "repository=unknown";
+}
+
+function maskOnboardingRepository(repository: ProjectRepositoryRegistration, store: FileStore, scope: { tenantId: string; workspaceId: string }): ProjectOnboardingChecklist["repository"] {
+  const { credentials, ...safe } = repository;
+  const credentialMode = credentials?.tokenRef ? "tokenRef"
+    : credentials?.token ? "inline-token"
+      : credentials?.password ? "password" : "none";
+  return {
+    ...safe,
+    credentialMode,
+    tokenRef: credentials?.tokenRef,
+    tokenRefResolved: credentials?.tokenRef ? Boolean(resolveTokenRef(store, credentials.tokenRef, scope)) : undefined
+  };
+}
+
+function findMatchingGitHubAppInstallation(store: FileStore, tenantId: string, workspaceId: string, repository: ProjectRepositoryRegistration, body: Record<string, unknown>): GitHubAppInstallationRecord | undefined {
+  const requestedId = optionalTrimmedString(body.githubAppInstallationId) ?? optionalTrimmedString(body.githubAppId) ?? optionalTrimmedString(body.installationId);
+  if (requestedId) {
+    const direct = store.readGitHubAppInstallation(requestedId);
+    if (direct && direct.tenantId === tenantId && direct.workspaceId === workspaceId) return direct;
+  }
+  const repoFullName = repository.owner && repository.repo ? `${repository.owner}/${repository.repo}` : undefined;
+  return store.listGitHubAppInstallations(tenantId, workspaceId)
+    .filter((installation) => installation.status !== "REVOKED")
+    .find((installation) => {
+      if (repoFullName && installation.repositories.includes(repoFullName)) return true;
+      if (repoFullName && installation.repositories.includes("*")) return true;
+      return Boolean(repository.owner && installation.account === repository.owner && installation.repositories.length === 0);
+    });
+}
+
+function onboardingMissingInputs(args: {
+  projectId?: string;
+  repository?: ProjectRepositoryRegistration;
+  provider: ProjectRepositoryProvider | "unknown";
+  tokenRef?: string;
+  remoteRepository: boolean;
+  draftDevops?: ProjectDevopsConfiguration;
+  template?: string;
+}): string[] {
+  const missing: string[] = [];
+  if (!args.projectId) missing.push("project-id");
+  if (!args.repository) missing.push("repository");
+  if (args.remoteRepository && !args.tokenRef && !args.repository?.credentials?.token && !args.repository?.credentials?.password) missing.push("server-side-token-ref");
+  if ((args.provider === "github" || args.provider === "gitlab") && !args.draftDevops) missing.push("repository-native-devops-contract");
+  if (!args.template) missing.push("target-template(optional-for-registration)");
+  return missing;
+}
+
+function buildProjectOnboardingCommands(args: {
+  project?: StoredProject;
+  projectId?: string;
+  provider: ProjectRepositoryProvider | "unknown";
+  repository?: ProjectRepositoryRegistration;
+  tokenRef?: string;
+  tokenResolved: boolean;
+  sourceCredentials?: SourceCredentialReadiness;
+  devops?: ProjectDevopsReadiness;
+  draftDevops?: ProjectDevopsConfiguration;
+  template?: string;
+  objective?: string;
+}): ProjectOnboardingChecklist["commands"] {
+  const commands: ProjectOnboardingChecklist["commands"] = [];
+  const remoteRepository = args.provider === "github" || args.provider === "gitlab";
+  const defaultTokenRef = args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId);
+  if (remoteRepository && defaultTokenRef && !args.tokenResolved) {
+    commands.push({
+      id: "store-source-token",
+      title: "Store writable source token once on the EvoPilot server",
+      command: `evopilot secret set --id ${cliArg(defaultTokenRef)} --kind source-token --from-env ${cliArg(defaultTokenRef)} --json`,
+      when: "Run once after the operator exports the token in the shell that invokes the CLI.",
+      requiresHuman: true
+    });
+  }
+  if (args.provider === "github") {
+    commands.push({
+      id: "optional-github-app",
+      title: "Register GitHub App installation metadata",
+      command: "evopilot github-app installation set --id <installation-record-id> --installation-id <github-installation-id> --account <org-or-user> --repository <owner/repo> --private-key-secret-ref <secret-ref> --webhook-secret-ref <secret-ref> --permission contents=write --permission pull_requests=write --json",
+      when: "Use when the enterprise onboarding path uses GitHub App governance metadata.",
+      requiresHuman: true
+    });
+  }
+  if (!args.project && args.provider !== "unknown" && args.projectId) {
+    commands.push({
+      id: "project-onboard",
+      title: "Register and preflight the project",
+      command: buildProjectOnboardCliCommand(args),
+      when: "Run after repository coordinates and tokenRef are ready."
+    });
+  }
+  if (args.project && args.sourceCredentials && args.sourceCredentials.status !== "READY") {
+    commands.push({
+      id: "repair-source-credentials",
+      title: "Repair source credentials",
+      command: `evopilot project credentials set ${cliArg(args.project.id)} --token-ref ${cliArg(defaultTokenRef ?? "<SOURCE_TOKEN_REF>")} --json`,
+      when: "Run when source credential preflight is READ_ONLY or BLOCKED."
+    });
+  }
+  if (args.project && remoteRepository && args.devops?.status !== "READY") {
+    commands.push({
+      id: "repair-devops",
+      title: "Configure repository-native DevOps",
+      command: buildProjectDevopsCliCommand(args.project.id, args.draftDevops, args.provider),
+      when: "Run when GitHub Actions or GitLab CI contract is missing or blocked."
+    });
+  }
+  if (args.projectId && args.template) {
+    commands.push({
+      id: "target-run",
+      title: "Run the Goal/Loop target strictly",
+      command: `evopilot target run --project ${cliArg(args.projectId)} --template ${cliArg(args.template)} --objective ${cliArg(args.objective ?? `Promote ${args.projectId} to ${args.template}`)} --until terminal --max-steps 20 --require-source-ready --require-devops-ready --json`,
+      when: "Run after checklist status is READY_TO_RUN or immediately after a strict project onboard wrapper completes."
+    });
+  }
+  return commands;
+}
+
+function defaultOnboardingTokenRef(provider: ProjectRepositoryProvider | "unknown", projectId?: string): string | undefined {
+  if (!projectId) return undefined;
+  const normalized = projectId.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (provider === "github") return `GITHUB_TOKEN_${normalized}`;
+  if (provider === "gitlab") return `GITLAB_TOKEN_${normalized}`;
+  return undefined;
+}
+
+function buildProjectOnboardCliCommand(args: {
+  projectId?: string;
+  provider: ProjectRepositoryProvider | "unknown";
+  repository?: ProjectRepositoryRegistration;
+  tokenRef?: string;
+  draftDevops?: ProjectDevopsConfiguration;
+  template?: string;
+  objective?: string;
+}): string {
+  const parts = ["evopilot", "project", "onboard", args.provider];
+  pushCliOption(parts, "id", args.projectId);
+  pushRepositoryCliOptions(parts, args.repository);
+  pushCliOption(parts, "token-ref", args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId));
+  pushDevopsCliOptions(parts, args.draftDevops);
+  pushCliOption(parts, "template", args.template);
+  pushCliOption(parts, "objective", args.objective);
+  parts.push("--require-source-ready", "--require-devops-ready", "--json");
+  return parts.join(" ");
+}
+
+function buildProjectDevopsCliCommand(projectId: string, devops: ProjectDevopsConfiguration | undefined, provider: ProjectRepositoryProvider | "unknown"): string {
+  const parts = ["evopilot", "project", "devops", "set", cliArg(projectId), "--provider", cliArg(devops?.provider ?? (provider === "gitlab" ? "gitlab-ci" : "github-actions"))];
+  pushDevopsCliOptions(parts, devops);
+  parts.push("--json");
+  return parts.join(" ");
+}
+
+function pushRepositoryCliOptions(parts: string[], repository: ProjectRepositoryRegistration | undefined): void {
+  if (!repository) return;
+  if (repository.provider === "github") {
+    if (repository.owner && repository.repo) pushCliOption(parts, "repo", `${repository.owner}/${repository.repo}`);
+    pushCliOption(parts, "base-url", repository.baseUrl);
+  } else if (repository.provider === "gitlab") {
+    pushCliOption(parts, "base-url", repository.baseUrl);
+    pushCliOption(parts, "project-id", repository.projectId);
+  } else if (repository.provider === "local-git") {
+    pushCliOption(parts, "root", repository.root);
+  }
+  pushCliOption(parts, "git-url", repository.gitUrl);
+  pushCliOption(parts, "branch", repository.defaultBranch);
+}
+
+function pushDevopsCliOptions(parts: string[], devops: ProjectDevopsConfiguration | undefined): void {
+  if (!devops) return;
+  pushCliOption(parts, "ci-workflow", devops.ci.workflow);
+  pushCliOption(parts, "ci-ref", devops.ci.ref);
+  for (const check of devops.ci.requiredChecks ?? []) pushCliOption(parts, "ci-required-check", check);
+  for (const stage of devops.ci.requiredStages ?? []) pushCliOption(parts, "ci-required-stage", stage);
+  for (const job of devops.ci.requiredJobs ?? []) pushCliOption(parts, "ci-required-job", job);
+  pushCliOption(parts, "cd-workflow", devops.cd?.workflow);
+  pushCliOption(parts, "deploy-environment", devops.cd?.environment);
+  for (const stage of devops.cd?.requiredStages ?? []) pushCliOption(parts, "cd-required-stage", stage);
+  for (const job of devops.cd?.requiredJobs ?? []) pushCliOption(parts, "cd-required-job", job);
+  pushCliOption(parts, "health-url", devops.cd?.healthUrl);
+  pushCliOption(parts, "ready-url", devops.cd?.readyUrl);
+}
+
+function pushCliOption(parts: string[], name: string, value?: string): void {
+  if (!value) return;
+  parts.push(`--${name}`, cliArg(value));
+}
+
+function cliArg(value: string): string {
+  if (/^[A-Za-z0-9._~:/@=,+-]+$/.test(value)) return value;
+  return `'${shellSingleQuote(value)}'`;
+}
+
+function onboardingNextAction(status: ProjectOnboardingChecklist["status"], steps: ProjectOnboardingChecklist["steps"]): ProjectOnboardingChecklist["nextAction"] {
+  if (status === "READY_TO_RUN") return "run-target";
+  const failed = steps.find((step) => step.required && step.status === "FAIL");
+  if (failed?.id === "secret" || failed?.id === "source-credentials") return "store-secret";
+  if (failed?.id === "github-app") return "install-github-app";
+  if (failed?.id === "project" || failed?.id === "repository" || failed?.id === "workspace") return "repair";
+  if (failed?.id === "devops") return "configure-devops";
+  const projectStep = steps.find((step) => step.id === "project");
+  if (projectStep?.nextAction === "register-project") return "register-project";
+  return status === "READY_TO_ONBOARD" ? "register-project" : "repair";
 }
 
 function workspaceUsage(store: FileStore, workspace: WorkspaceRecord): {

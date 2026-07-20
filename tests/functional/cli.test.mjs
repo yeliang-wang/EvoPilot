@@ -17,7 +17,9 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   assert.match(help, /evopilot config show/);
   assert.match(help, /evopilot auth token/);
   assert.match(help, /evopilot project list/);
+  assert.match(help, /evopilot project onboard plan/);
   assert.match(help, /evopilot project onboard/);
+  assert.match(help, /evopilot project onboard verify/);
   assert.match(help, /evopilot project devops set/);
   assert.match(help, /evopilot project devops preflight/);
   assert.match(help, /evopilot secret set/);
@@ -87,6 +89,54 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
     const secrets = await runCli(["secret", "list", "--config", configPath, "--json"]);
     assert.ok(secrets.some((secret) => secret.secretRef === "GITHUB_TOKEN_CLI_AGENT"));
 
+    const plan = await runCli([
+      "project", "onboard", "plan", "github",
+      "--id", "github-cli-agent",
+      "--base-url", github.baseUrl,
+      "--repo", "org/repo",
+      "--branch", "main",
+      "--token-ref", "GITHUB_TOKEN_CLI_AGENT",
+      "--ci-workflow", "ci.yml",
+      "--ci-required-check", "build",
+      "--ci-required-check", "test",
+      "--cd-workflow", "deploy-prod.yml",
+      "--deploy-environment", "production",
+      "--health-url", `${github.baseUrl}/health`,
+      "--template", "ga",
+      "--objective", "Promote github-cli-agent to GA stable",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(plan.schema, "evopilot-project-onboarding-checklist/v1");
+    assert.equal(plan.mode, "plan");
+    assert.equal(plan.status, "READY_TO_ONBOARD");
+    assert.equal(plan.nextAction, "register-project");
+    assert.ok(plan.requestId);
+    assert.ok(plan.steps.some((step) => step.id === "secret" && step.status === "PASS"));
+    assert.ok(plan.steps.some((step) => step.id === "source-credentials" && step.status === "PASS"));
+    assert.ok(plan.steps.some((step) => step.id === "devops" && step.status === "PASS"));
+    assert.ok(plan.commands.some((command) => command.id === "project-onboard" && command.command.includes("evopilot project onboard github")));
+    assert.ok(plan.commands.some((command) => command.id === "target-run" && command.command.includes("evopilot target run")));
+
+    const planText = await runCliText([
+      "project", "onboard", "plan", "github",
+      "--id", "github-cli-agent",
+      "--base-url", github.baseUrl,
+      "--repo", "org/repo",
+      "--branch", "main",
+      "--token-ref", "GITHUB_TOKEN_CLI_AGENT",
+      "--ci-workflow", "ci.yml",
+      "--ci-required-check", "build",
+      "--ci-required-check", "test",
+      "--template", "ga",
+      "--config", configPath
+    ]);
+    assert.match(planText, /EvoPilot Project Onboarding/);
+    assert.match(planText, /Workflow/);
+    assert.match(planText, /Next Action/);
+    assert.match(planText, /Suggested Commands/);
+    assert.match(planText, /Request\s+/);
+
     const project = await runCli([
       "project", "onboard", "github",
       "--id", "github-cli-agent",
@@ -109,6 +159,20 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
     assert.equal(project.sourceCredentials.status, "READY");
     assert.equal(project.devops.status, "READY");
     assert.ok(project.steps.some((step) => step.type === "project.source-credentials.preflight" && step.requestId));
+
+    const verify = await runCli([
+      "project", "onboard", "verify", "github-cli-agent",
+      "--template", "ga",
+      "--objective", "Promote github-cli-agent to GA stable",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(verify.schema, "evopilot-project-onboarding-checklist/v1");
+    assert.equal(verify.mode, "inspect");
+    assert.equal(verify.status, "READY_TO_RUN");
+    assert.equal(verify.nextAction, "run-target");
+    assert.ok(verify.steps.some((step) => step.id === "project" && step.status === "PASS"));
+    assert.ok(verify.commands.some((command) => command.id === "target-run" && command.command.includes("--require-source-ready")));
 
     const preflightText = await runCliText([
       "project", "devops", "preflight", "github-cli-agent",

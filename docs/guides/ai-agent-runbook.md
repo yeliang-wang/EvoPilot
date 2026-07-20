@@ -25,11 +25,41 @@ evopilot config show --json
 evopilot status --json
 ```
 
+For a first-time GitHub or GitLab project, ask EvoPilot for a checklist before mutating state:
+
+```bash
+evopilot project onboard plan github \
+  --repo owner/my-agent \
+  --id my-agent \
+  --branch main \
+  --token-ref GITHUB_WRITE_TOKEN_MY_AGENT \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --ci-required-check test \
+  --cd-workflow deploy-prod.yml \
+  --deploy-environment production \
+  --health-url https://my-agent.example.com/health \
+  --template ga \
+  --objective "Promote my-agent to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --json
+```
+
+Read the checklist contract:
+
+```text
+schema=evopilot-project-onboarding-checklist/v1
+status=READY_TO_ONBOARD | READY_TO_RUN | WAITING_INPUT | BLOCKED
+nextAction=store-secret | install-github-app | register-project | configure-source-credentials | configure-devops | run-target | repair
+```
+
+If `nextAction=store-secret`, use the suggested `secret set` command from the checklist only from a trusted shell where the token environment variable is available. If `nextAction=register-project`, continue with `project onboard`. If `nextAction=run-target`, continue with `target run`. If `status=BLOCKED`, stop and report `blockers`.
+
 For an already registered project, verify source credentials and native DevOps before invoking a one-command target:
 
 ```bash
 evopilot project preflight my-agent --json
 evopilot project devops preflight my-agent --json
+evopilot project onboard verify my-agent --template ga --json
 ```
 
 Run one project toward GA with one command:
@@ -98,7 +128,7 @@ evopilot target run \
 Use this section when an AI agent needs to operate a GitHub project from onboarding to a governed Loop Target. The short rule is:
 
 ```text
-Register or repair project -> preflight source credentials -> run target -> stop on blockers -> inspect release decision
+Plan onboarding -> store or repair credentials -> register project -> verify checklist -> run target -> stop on blockers -> inspect release decision
 ```
 
 The GitHub token is not passed in the daily `target run` command. A writable token must be available to the EvoPilot server process through a server-side environment variable or the same tenant/workspace EvoPilot secret vault, and the project stores only a `tokenRef`.
@@ -152,6 +182,20 @@ evopilot secret set \
   --json
 ```
 
+Before registration, generate the server-side checklist:
+
+```bash
+evopilot project onboard plan github \
+  --repo yeliang-wang/my-agent-fork \
+  --id my-agent \
+  --branch main \
+  --token-ref GITHUB_WRITE_TOKEN_MY_AGENT \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --template ga \
+  --json
+```
+
 ```bash
 evopilot project register \
   --id my-agent \
@@ -163,6 +207,7 @@ evopilot project register \
   --json
 
 evopilot project preflight my-agent --json
+evopilot project onboard verify my-agent --template ga --json
 ```
 
 Expected result before a real PR run:

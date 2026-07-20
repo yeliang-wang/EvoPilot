@@ -34,7 +34,20 @@ evopilot target run \
   --json
 ```
 
-For a new GitHub project, use the onboarding wrapper after the writable tokenRef exists on the EvoPilot server:
+For a new GitHub project, ask for a checklist before mutating state:
+
+```bash
+evopilot project onboard plan github \
+  --repo <owner>/<repo> \
+  --id <project-id> \
+  --token-ref GITHUB_TOKEN_<PROJECT> \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --template ga \
+  --json
+```
+
+Then use the onboarding wrapper after the writable tokenRef exists on the EvoPilot server:
 
 ```bash
 evopilot project onboard github \
@@ -48,6 +61,12 @@ evopilot project onboard github \
   --require-source-ready \
   --require-devops-ready \
   --json
+```
+
+After registration, verify persisted readiness:
+
+```bash
+evopilot project onboard verify <project-id> --template ga --json
 ```
 
 ## Documentation

@@ -4347,6 +4347,99 @@
         ]
       }
     },
+    "/api/v1/onboarding/project/checklist": {
+      "post": {
+        "summary": "生成项目首次接入 checklist",
+        "description": "无副作用计划接口。用于 CLI、Dashboard 和 AI Agent 在项目注册前检查 workspace、repository、server-side tokenRef、GitHub App、source writeback、GitHub Actions/GitLab CI、目标模板和下一步命令。响应 schema 为 evopilot-project-onboarding-checklist/v1。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "checklist 已生成，项目可继续注册或运行"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "权限不足或 tenant/workspace 不匹配"
+          },
+          "409": {
+            "description": "checklist BLOCKED，响应体包含 blockers 和 suggested commands"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/onboarding-checklist": {
+      "get": {
+        "summary": "复核已注册项目 onboarding checklist",
+        "description": "基于持久化项目、source credentials 和项目 GitHub Actions/GitLab CI 配置生成 evopilot-project-onboarding-checklist/v1。READY_TO_RUN 表示真实源码写回和仓库原生 DevOps 前置条件已满足。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "in": "query",
+            "required": false,
+            "description": "可选 release target template，例如 ga、rc、alpha",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "objective",
+            "in": "query",
+            "required": false,
+            "description": "可选目标描述，用于 suggested target run command",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "checklist 已生成"
+          },
+          "401": {
+            "description": "未授权"
+          },
+          "403": {
+            "description": "权限不足"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "checklist BLOCKED"
+          }
+        }
+      }
+    },
     "/api/v1/deliveries/{deliveryId}/code-upgrade": {
       "post": {
         "summary": "启动交付计划代码升级",

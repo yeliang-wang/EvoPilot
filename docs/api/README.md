@@ -148,6 +148,8 @@ POST /api/v1/github-app/installations
 GET /api/v1/github-app/installations/{installationId}
 GET /api/v1/github-app/installations/{installationId}/preflight
 POST /api/v1/github-app/installations/{installationId}/preflight
+POST /api/v1/onboarding/project/checklist
+GET /api/v1/projects/{projectId}/onboarding-checklist
 GET /api/v1/loop-store/readiness
 GET /api/v1/saas/observability
 ```
@@ -231,6 +233,17 @@ POST /api/v1/projects
 读取项目列表时不会回显 `password` 或 `token`，只返回 `credentialsConfigured`、`credentialMode`、`tokenRef` 和 `tokenRefResolved` 等非 secret 状态。
 
 公开 GitHub 仓库可以在无凭据时完成只读项目验证；但源码写回、PR/MR、merge 和一键自动驾驶 source-closure 必须配置可解析的 `token`、`password` 或 `tokenRef`。项目级源码写回凭据控制面用于区分 `READ_ONLY` 和 `READY`，Dashboard 的“配置凭据”表单可让用户绑定服务端 `tokenRef` 或填写 inline token，写回前还可调用 loop source-closure preflight，避免在真实写文件阶段才失败。
+
+首次接入项目时，CLI、Dashboard 或企业 AI Agent 应先调用 onboarding checklist，而不是直接写入半成品项目：
+
+```http
+POST /api/v1/onboarding/project/checklist
+GET /api/v1/projects/{projectId}/onboarding-checklist
+```
+
+`POST /api/v1/onboarding/project/checklist` 是无副作用计划接口，接收与项目注册相同的 `repository`、`tokenRef`、可选 `devops`、`template` 和 `objective` 字段，返回 `evopilot-project-onboarding-checklist/v1`。响应包含 `status`、`steps`、`sourceCredentials`、`devops`、`missingInputs`、`blockers`、`commands` 和 `nextAction`，用于告诉 WorkBuddy/Codex/Claude Code 下一条 CLI 命令应该是 `secret set`、`project onboard`、`project devops set`、`project onboard verify` 还是 `target run`。
+
+`GET /api/v1/projects/{projectId}/onboarding-checklist` 复核已注册项目，会基于持久化项目、source credentials 和 GitHub Actions/GitLab CI 配置生成同一 schema。只有 `READY_TO_RUN` 才表示项目已经具备真实源代码写回和仓库原生 DevOps 的前置条件；`BLOCKED` 或 `WAITING_INPUT` 不能被解释为 GA/RC/alpha 可执行完成。
 
 ```http
 POST /api/v1/projects/{projectId}/source-credentials

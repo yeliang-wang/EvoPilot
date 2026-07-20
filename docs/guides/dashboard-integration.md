@@ -47,7 +47,7 @@ The token and role determine which read and write actions are allowed. A Dashboa
 | Overview | `GET /api/v1/summary` |
 | SaaS control plane | `GET/POST /api/v1/tenants`, `GET/POST /api/v1/workspaces`, `GET /api/v1/workspaces/{workspaceId}/usage`, `GET/POST /api/v1/users`, `PATCH /api/v1/users/{userId}`, `POST /api/v1/users/{userId}/reset-password` |
 | Secrets and GitHub App | `GET/POST /api/v1/secrets`, `POST /api/v1/secrets/{secretId}/revoke`, `GET/POST /api/v1/github-app/installations` |
-| Projects | `GET /api/v1/projects`, `POST /api/v1/projects`, `POST /api/v1/projects/{projectId}/source-credentials`, `GET/POST /api/v1/projects/{projectId}/source-credentials/preflight` |
+| Projects | `GET /api/v1/projects`, `POST /api/v1/projects`, `POST /api/v1/onboarding/project/checklist`, `GET /api/v1/projects/{projectId}/onboarding-checklist`, `POST /api/v1/projects/{projectId}/source-credentials`, `GET/POST /api/v1/projects/{projectId}/source-credentials/preflight` |
 | Deploy connectors | `GET/POST /api/v1/connectors/deploy` |
 | Release targets | `GET /api/v1/release/targets`, `POST /api/v1/release/targets` |
 | Global goals | `GET /api/v1/goals`, `POST /api/v1/goals` |

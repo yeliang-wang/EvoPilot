@@ -23,11 +23,14 @@ Automation must use `--json` and parse JSON fields:
 
 ```bash
 evopilot status --json
+evopilot project onboard plan github --repo owner/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --ci-workflow ci.yml --ci-required-check build --template ga --json
 evopilot target run --project my-agent --template ga --objective "..." --json
 ```
 
 Do not parse human-readable CLI output. Human output may change to improve operator readability.
 When humans do read the console output, wrapper commands print the same core chain that Dashboard consumes: scope, project, release target, goal, workflow nodes, next action, evidence endpoints, recent steps, blockers, and `requestId` values for log lookup.
+
+`project onboard plan` and `project onboard verify` are the onboarding control surface for automation. Both print `evopilot-project-onboarding-checklist/v1`; the checklist contains machine-readable `steps`, `missingInputs`, `blockers`, `commands`, and `nextAction`. `plan` does not mutate project state. `verify` reads persisted project state and should return `READY_TO_RUN` before an agent claims that source writeback and repository-native DevOps are ready.
 
 ## Exit Codes
 
@@ -39,6 +42,8 @@ Typical behavior:
 - `2`: command reached a governed stop boundary, blocker, failed preflight, timeout, max-step limit, or API error.
 
 After a non-zero exit, inspect the JSON response before retrying.
+
+`project onboard plan` may exit non-zero when the checklist is `BLOCKED`; this is still a valid response for agents. Parse the JSON and follow `nextAction` or `commands` instead of retrying blindly.
 
 ## Idempotency
 
@@ -111,6 +116,19 @@ evopilot project preflight my-agent --json
 If the result is `READ_ONLY` or `BLOCKED`, stop and ask the operator to repair server-side credentials.
 
 For new projects, an agent can use the onboarding wrapper after the tokenRef exists:
+
+```bash
+evopilot project onboard plan github \
+  --repo owner/my-agent \
+  --id my-agent \
+  --token-ref GITHUB_TOKEN_MY_AGENT \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --template ga \
+  --json
+```
+
+If the checklist returns `nextAction=store-secret`, run `secret set` from a trusted environment first. If it returns `nextAction=register-project`, continue with the mutating wrapper:
 
 ```bash
 evopilot project onboard github \

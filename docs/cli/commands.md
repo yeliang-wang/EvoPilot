@@ -48,7 +48,9 @@ It also reads `/api/v1/version` and returns `cli.version`, `api.serverVersion`, 
 
 ```bash
 evopilot project register --id <id> --provider <local-git|github|gitlab> [options]
+evopilot project onboard plan <github|gitlab|local-git> [options]
 evopilot project onboard <github|gitlab|local-git> [options]
+evopilot project onboard verify <project-id> [options]
 evopilot project list
 evopilot project preflight <project-id>
 evopilot project credentials set <project-id> [options]
@@ -86,7 +88,28 @@ Credential options:
 --clear-token-ref
 ```
 
-`project onboard` is the wrapper for a new project. It registers the repository, runs source credential preflight, optionally configures repository-native DevOps, runs DevOps preflight, and can continue into `target run` when `--template` is supplied.
+`project onboard plan` is a non-mutating front-door checklist. It calls `POST /api/v1/onboarding/project/checklist` and returns `evopilot-project-onboarding-checklist/v1` with `status`, `steps`, `sourceCredentials`, `devops`, `missingInputs`, `blockers`, `commands`, `nextAction`, and `requestId`.
+
+Use it before first project registration:
+
+```bash
+evopilot project onboard plan github \
+  --repo owner/my-agent \
+  --id my-agent \
+  --token-ref GITHUB_TOKEN_MY_AGENT \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --template ga \
+  --json
+```
+
+`project onboard verify` replays the same checklist against a persisted project through `GET /api/v1/projects/{projectId}/onboarding-checklist`.
+
+```bash
+evopilot project onboard verify my-agent --template ga --json
+```
+
+`project onboard` is the mutating wrapper for a new project. It registers the repository, runs source credential preflight, optionally configures repository-native DevOps, runs DevOps preflight, and can continue into `target run` when `--template` is supplied.
 
 By default, `project onboard` returns a white-box result and next action after registration and preflight. Add `--require-source-ready --require-devops-ready` for strict end-to-end automation that must stop before Goal/Loop execution when source writeback or repository-native DevOps is not ready.
 

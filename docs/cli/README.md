@@ -98,6 +98,43 @@ evopilot target run \
 
 This prints a server-governed chain covering project, release target, GlobalGoal, GoalTarget, LoopRun, source closure, deploy, release decision, evidence links, blockers, and next action.
 
+## First Project Checklist
+
+For a new project, start with a non-mutating onboarding checklist. This is the recommended entrypoint for WorkBuddy, Codex, Claude Code, and CI agents because it returns `schema`, `status`, `nextAction`, `missingInputs`, `blockers`, and suggested commands before anything is registered:
+
+```bash
+evopilot project onboard plan github \
+  --repo <owner>/<repo> \
+  --id <project-id> \
+  --branch main \
+  --token-ref GITHUB_TOKEN_<PROJECT> \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --ci-required-check test \
+  --cd-workflow deploy-prod.yml \
+  --deploy-environment production \
+  --health-url https://<app>/health \
+  --template ga \
+  --objective "Promote <project-id> to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --json
+```
+
+If `nextAction` is `store-secret`, store the token once on the EvoPilot server or in the current tenant/workspace secret vault:
+
+```bash
+evopilot secret set \
+  --id GITHUB_TOKEN_<PROJECT> \
+  --kind source-token \
+  --from-env GITHUB_TOKEN_<PROJECT> \
+  --json
+```
+
+After registration, verify the same checklist against persisted project state:
+
+```bash
+evopilot project onboard verify <project-id> --template ga --json
+```
+
 For a new GitHub project, onboard the project, bind server-side source credentials, configure GitHub Actions, preflight both boundaries, and run GA in one wrapper:
 
 ```bash

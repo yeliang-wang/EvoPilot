@@ -54,7 +54,22 @@ npm run cli -- target run \
   --json
 ```
 
-For a new GitHub or GitLab project, use `project onboard` first or provide `--template` to continue directly into the target wrapper. See [CLI Workflows](cli/workflows.md).
+For a new GitHub or GitLab project, ask for the onboarding checklist before mutating state:
+
+```bash
+npm run cli -- project onboard plan github \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --repo owner/my-agent \
+  --id my-agent \
+  --token-ref GITHUB_TOKEN_MY_AGENT \
+  --ci-workflow ci.yml \
+  --ci-required-check build \
+  --template ga \
+  --json
+```
+
+Then use `project onboard` after the server can resolve the tokenRef, or provide `--template` to continue directly into the target wrapper. See [CLI Workflows](cli/workflows.md).
 
 See [CLI](cli/README.md) for setup, [CLI Workflows](cli/workflows.md) for guided scenarios, and [CLI Commands](cli/commands.md) for the full command list.
 
