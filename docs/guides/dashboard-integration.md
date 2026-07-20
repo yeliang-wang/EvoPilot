@@ -23,8 +23,9 @@ Use these files when building or validating a Dashboard integration:
 | `docs/api/README.md` | Human-readable API behavior, governance rules, examples, and product semantics. |
 | `docs/guides/dashboard-integration.md` | Dashboard boundary, required operating surface, deployment shape, and smoke checks. |
 | `../evopilot-dashboard/README.md` | Standalone Dashboard run/deploy instructions. |
+| `../evopilot-dashboard/docs/README.md` | Dashboard user, admin, workflow, and AI-agent browser operation docs. |
 
-The standalone Dashboard repository is an API client. If a workflow label, tooltip, or generated client references an endpoint not present in `docs/api/openapi.json`, treat that as a documentation contract bug and fix the docs or the Dashboard label before release.
+The standalone Dashboard repository is an API client. If a workflow label, tooltip, or generated client references an endpoint not present in `docs/api/openapi.json`, treat that as a documentation contract bug and fix the docs or the Dashboard label before release. Page-level operating instructions belong in the Dashboard repository; API semantics, OpenAPI, CLI, and backend release governance remain in this repository.
 
 ## Authentication
 

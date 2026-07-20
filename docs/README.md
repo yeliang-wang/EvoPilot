@@ -5,7 +5,7 @@ EvoPilot documentation is organized by reader task. Start from the section that 
 ## New Users
 
 - [Quick Start](quickstart.md) - install, run locally, and verify the API.
-- [User Guide](guides/user-guide.md) - operate projects, goals, loops, approvals, releases, and Dashboard workflows.
+- [Control Plane User Guide](guides/user-guide.md) - operate projects, credentials, goals, loops, releases, and audit through API/CLI semantics.
 
 ## AI Agents And CLI Automation
 
@@ -20,6 +20,7 @@ EvoPilot documentation is organized by reader task. Start from the section that 
 - [API Reference](api/README.md) - HTTP API behavior, governance semantics, and examples.
 - [OpenAPI Schema](api/openapi.json) - machine-readable API contract.
 - [Dashboard Integration](guides/dashboard-integration.md) - contract for standalone Dashboard clients.
+- Dashboard UI operation docs live in `yeliang-wang/evopilot-dashboard` under `docs/`.
 - [Evidence Ingestion](guides/evidence-ingestion.md) - runtime, trace, evaluation, release, and feedback evidence.
 - [Source To GA](guides/source-to-ga.md) - example project flow from source evidence to release decision.
 

@@ -55,6 +55,8 @@ curl -fsS http://127.0.0.1:8080/
 
 如果宿主机 Nginx 负责公网 80/443 入口，使用 Dashboard 仓库的 `deploy/nginx/evopilot-dashboard.conf.example` 作为路由模板：`/` 代理到 Dashboard，`/api/*`、`/health`、`/ready` 代理到 EvoPilot API。
 
+Dashboard 页面操作、数字人仿真和 UI 排障文档位于 Dashboard 仓库 `docs/`；本仓只保留 API Server、CLI、运行时和后端部署文档。
+
 ## Docker
 
 ```bash

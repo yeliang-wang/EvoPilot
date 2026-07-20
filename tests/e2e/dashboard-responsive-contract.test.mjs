@@ -105,12 +105,31 @@ test("dashboard integration is documented as a standalone API client contract", 
   assert.match(integration, /GET \/api\/v1\/release\/decisions/);
   assert.match(integration, /GET \/api\/v1\/goals\/\{goalId\}\/run-status/);
   assert.match(integration, /evopilot-dashboard/);
+  assert.match(integration, /\.\.\/evopilot-dashboard\/docs\/README\.md/);
   assert.match(integration, /deploy\/nginx\/evopilot-dashboard\.conf\.example/);
   assert.match(deployment, /Dashboard 已拆分到独立仓库/);
+  assert.match(deployment, /Dashboard 仓库 `docs\/`/);
   assert.match(deployment, /compose\.production\.yaml/);
   assert.match(deployment, /evopilot-server:19876/);
   assert.match(readme, /yeliang-wang\/evopilot-dashboard/);
   assert.doesNotMatch(readme, /apps\/dashboard\/\s+Deprecated/);
+});
+
+test("dashboard page-operation docs are owned by the standalone dashboard repository when present", () => {
+  const dashboardDocs = path.resolve("..", "evopilot-dashboard", "docs", "README.md");
+  if (!fs.existsSync(dashboardDocs)) return;
+
+  const docsIndex = fs.readFileSync("docs/README.md", "utf8");
+  const userGuide = fs.readFileSync("docs/guides/user-guide.md", "utf8");
+  const dashboardDocsIndex = fs.readFileSync(dashboardDocs, "utf8");
+  const dashboardAiDocs = fs.readFileSync(path.resolve("..", "evopilot-dashboard", "docs", "ai-agents", "README.md"), "utf8");
+
+  assert.match(docsIndex, /Dashboard UI operation docs live in `yeliang-wang\/evopilot-dashboard`/);
+  assert.match(userGuide, /Dashboard operation docs/);
+  assert.match(userGuide, /Control Plane Model/);
+  assert.doesNotMatch(userGuide, /进入 Dashboard 的“接入项目”/);
+  assert.match(dashboardDocsIndex, /Dashboard docs describe UI operations/);
+  assert.match(dashboardAiDocs, /WorkBuddy/);
 });
 
 test("openapi covers the standalone dashboard operating surface", () => {

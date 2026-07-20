@@ -26,6 +26,8 @@
 
 ## Dashboard
 
+Dashboard 页面级操作和数字人排障入口在 `yeliang-wang/evopilot-dashboard/docs/operations/troubleshooting.md`。本节只覆盖 EvoPilot API 与 Dashboard 集成边界。
+
 | Symptom | Likely Cause | Action |
 |---|---|---|
 | Dashboard loads but API data is empty | API base URL or proxy is wrong | Check `public/config.js`, Vite proxy, or Nginx `/api` proxy. |

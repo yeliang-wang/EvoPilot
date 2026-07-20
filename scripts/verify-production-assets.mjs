@@ -207,6 +207,14 @@ assert.match(dashboardIntegration, /must not call the EvoPilot CLI/);
 assert.match(dashboardIntegration, /GET \/api\/v1\/release\/decisions/);
 assert.match(dashboardIntegration, /onboarding\/project\/checklist/);
 assert.match(dashboardIntegration, /evopilot-dashboard/);
+assert.match(dashboardIntegration, /\.\.\/evopilot-dashboard\/docs\/README\.md/);
+
+const controlPlaneUserGuide = fs.readFileSync("docs/guides/user-guide.md", "utf8");
+assert.match(controlPlaneUserGuide, /EvoPilot owns backend state/);
+assert.match(controlPlaneUserGuide, /Dashboard operation docs/);
+assert.match(controlPlaneUserGuide, /`EVOPILOT_API_TOKEN` is an EvoPilot API bearer token/);
+assert.match(controlPlaneUserGuide, /Do not infer DevOps ownership from repository URL/);
+assert.doesNotMatch(controlPlaneUserGuide, /进入 Dashboard 的“接入项目”/);
 
 const lock = JSON.parse(fs.readFileSync("runtimes/runtime-lock.json", "utf8"));
 assert.equal(lock.schemaVersion, 1);

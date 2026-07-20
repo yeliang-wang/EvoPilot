@@ -93,7 +93,7 @@ The dashboard is the primary product surface for operators and tenant users, but
 | Tenant admin | Manage workspace users, bind projects, configure credentials, run target loops, approve source/release actions. |
 | Tenant user | Inspect projects, evidence, loop progress, approvals assigned to them, release decisions, and help manual steps. |
 
-The full role-based and scenario-based operating guide is in [docs/guides/user-guide.md](docs/guides/user-guide.md).
+The full browser operation guide lives in the standalone Dashboard repository under `docs/`. EvoPilot keeps the API/CLI/control-plane guide in [docs/guides/user-guide.md](docs/guides/user-guide.md).
 
 ## Architecture
 
