@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { apiErrorFromResponse, EvoPilotApiError, EvoPilotClient, type EvoPilotResponse } from "@evopilot/client";
+import { apiErrorFromResponse, EvoPilotApiError, EvoPilotClient, type EvoPilotRequestOptions, type EvoPilotResponse } from "@evopilot/client";
 
 interface CliConfig {
   server?: string;
@@ -24,6 +24,54 @@ interface RuntimeContext {
   config: CliConfig;
   client: EvoPilotClient;
   json: boolean;
+  cli: CliRuntimeInfo;
+  llmUsage: CliLlmUsageTracker;
+}
+
+interface CliRuntimeInfo {
+  schema: "evopilot-cli-runtime/v1";
+  name: "@evopilot/cli";
+  version: string;
+  command: string;
+  surface: string;
+  platform: NodeJS.Platform;
+  pid: number;
+  tty: boolean;
+}
+
+interface CliLlmUsageTracker {
+  schema: "evopilot-cli-llm-usage-tracker/v1";
+  responses: CliLlmUsageStep[];
+  latest?: LlmUsageMeta;
+}
+
+interface CliLlmUsageStep {
+  label: string;
+  requestId?: string;
+  provider?: string;
+  model?: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  creditsConsumed: number;
+  creditUnit: "token";
+  cumulativeTotalTokens: number;
+}
+
+interface LlmUsageMeta {
+  schema?: string;
+  configured?: boolean;
+  provider?: string;
+  model?: string;
+  version?: string;
+  calls?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  creditsConsumed?: number;
+  creditUnit?: "token";
+  latest?: Record<string, unknown>;
 }
 
 const DEFAULT_SERVER = "http://127.0.0.1:19876";
@@ -46,12 +94,18 @@ async function main(argv: string[]): Promise<number> {
   const tenantId = stringOption(args, "tenant") ?? stringOption(args, "tenant-id") ?? process.env.EVOPILOT_TENANT ?? config.tenantId;
   const workspaceId = stringOption(args, "workspace") ?? stringOption(args, "workspace-id") ?? process.env.EVOPILOT_WORKSPACE ?? config.workspaceId;
   const actor = stringOption(args, "actor") ?? process.env.EVOPILOT_ACTOR ?? config.actor;
+  const cli = cliRuntimeInfo(args);
   const ctx: RuntimeContext = {
     args,
     configPath,
     config,
-    client: new EvoPilotClient({ serverUrl: server, token, tenantId, workspaceId, actor }),
-    json: hasFlag(args, "json")
+    client: new EvoPilotClient({ serverUrl: server, token, tenantId, workspaceId, actor, headers: cliRequestHeaders(cli) }),
+    json: hasFlag(args, "json"),
+    cli,
+    llmUsage: {
+      schema: "evopilot-cli-llm-usage-tracker/v1",
+      responses: []
+    }
   };
 
   const [group, action, maybeId] = args.positionals;
@@ -260,25 +314,31 @@ function configShow(ctx: RuntimeContext): number {
 
 async function status(ctx: RuntimeContext): Promise<number> {
   const health = await ctx.client.get("/health");
+  recordResponseLlmUsage(ctx, "status.health", health);
   const ready = await ctx.client.get("/ready");
+  recordResponseLlmUsage(ctx, "status.ready", ready);
   let version: EvoPilotResponse | undefined;
   try {
     version = await ctx.client.get("/api/v1/version");
+    recordResponseLlmUsage(ctx, "status.version", version);
   } catch {
     version = undefined;
   }
   let summary: EvoPilotResponse | undefined;
   if (ctx.client.token) {
     summary = await ctx.client.get("/api/v1/summary");
+    recordResponseLlmUsage(ctx, "status.summary", summary);
   }
   const data = {
     schema: "evopilot-cli-status/v1",
     server: ctx.client.serverUrl.replace(/\/$/, ""),
     cli: { name: "@evopilot/cli", version: readCliVersion() },
+    client: ctx.cli,
     api: version?.ok ? version.data ?? version.body : undefined,
     health: health.body,
     ready: ready.body,
     summary: summary?.ok ? summary.data : undefined,
+    llmUsage: cliLlmUsageReport(ctx),
     requestIds: {
       health: health.requestId,
       ready: ready.requestId,
@@ -286,7 +346,8 @@ async function status(ctx: RuntimeContext): Promise<number> {
       summary: summary?.requestId
     }
   };
-  printOutput(ctx, data, `health=${field(data.health, "status") ?? health.status} ready=${field(data.ready, "status") ?? ready.status}`);
+  const llmSummary = field(data.llmUsage, "summary");
+  printOutput(ctx, data, `health=${field(data.health, "status") ?? health.status} ready=${field(data.ready, "status") ?? ready.status} llm=${field(llmSummary, "provider") ?? "-"}:${field(llmSummary, "model") ?? "-"} tokens=${field(llmSummary, "totalTokens") ?? 0}`);
   return health.ok && ready.ok && (!summary || summary.ok) ? 0 : 2;
 }
 
@@ -309,20 +370,20 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
   const steps: Array<Record<string, unknown>> = [];
   const register = await ctx.client.post("/api/v1/projects", projectRegistrationBody(ctx.args, projectId, provider), derivedRequestOptions(ctx, "project-onboard-register"));
   const project = register.data ?? register.body;
-  steps.push({
+  steps.push(attachStepLlmUsage(ctx, {
     type: "project.register",
     projectId,
     httpStatus: register.status,
     requestId: register.requestId,
     status: nestedField(project, ["validation", "status"]) ?? (register.ok ? "VERIFIED" : "FAILED")
-  });
+  }, "project-onboard-register", register));
   if (!register.ok) {
     return finishProjectOnboard(ctx, projectId, project, undefined, undefined, steps, 2);
   }
 
   const sourcePreflight = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/source-credentials/preflight`, {}, derivedRequestOptions(ctx, "project-onboard-source-preflight"));
   const sourceReadiness = sourcePreflight.data ?? sourcePreflight.body;
-  steps.push({
+  steps.push(attachStepLlmUsage(ctx, {
     type: "project.source-credentials.preflight",
     projectId,
     httpStatus: sourcePreflight.status,
@@ -330,7 +391,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     status: field(sourceReadiness, "status"),
     nextAction: field(sourceReadiness, "nextAction"),
     blockers: field(sourceReadiness, "blockers")
-  });
+  }, "project-onboard-source-preflight", sourcePreflight));
   if (hasFlag(ctx.args, "require-source-ready") && field(sourceReadiness, "status") !== "READY") {
     return finishProjectOnboard(ctx, projectId, project, sourceReadiness, undefined, steps, 2);
   }
@@ -341,7 +402,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     if (!devopsProvider) throw usage("Project DevOps can only be configured automatically for github or gitlab projects.");
     const devops = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/devops`, buildProjectDevopsBody(ctx.args, devopsProvider), derivedRequestOptions(ctx, "project-onboard-devops-set"));
     devopsResult = devops.data ?? devops.body;
-    steps.push({
+    steps.push(attachStepLlmUsage(ctx, {
       type: "project.devops.set",
       projectId,
       httpStatus: devops.status,
@@ -350,7 +411,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
       status: nestedField(devopsResult, ["readiness", "status"]) ?? field(devopsResult, "status"),
       nextAction: nestedField(devopsResult, ["readiness", "nextAction"]) ?? field(devopsResult, "nextAction"),
       blockers: nestedField(devopsResult, ["readiness", "blockers"]) ?? field(devopsResult, "blockers")
-    });
+    }, "project-onboard-devops-set", devops));
     if (!devops.ok && hasFlag(ctx.args, "require-devops-ready")) {
       return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsResult, steps, 2);
     }
@@ -374,7 +435,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
   } else {
     const devopsPreflight = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/devops/preflight`, {}, derivedRequestOptions(ctx, "project-onboard-devops-preflight"));
     devopsReadiness = devopsPreflight.data ?? devopsPreflight.body;
-    steps.push({
+    steps.push(attachStepLlmUsage(ctx, {
       type: "project.devops.preflight",
       projectId,
       httpStatus: devopsPreflight.status,
@@ -383,7 +444,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
       status: field(devopsReadiness, "status"),
       nextAction: field(devopsReadiness, "nextAction"),
       blockers: field(devopsReadiness, "blockers")
-    });
+    }, "project-onboard-devops-preflight", devopsPreflight));
     if (hasFlag(ctx.args, "require-devops-ready") && field(devopsReadiness, "status") !== "READY") {
       return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, steps, 2);
     }
@@ -673,6 +734,7 @@ function finishProjectOnboard(ctx: RuntimeContext, projectId: string, project: u
       devopsStatus: field(devops, "status") ?? nestedField(devops, ["readiness", "status"]) ?? "UNKNOWN",
       nextAction: field(devops, "nextAction") ?? field(sourceCredentials, "nextAction") ?? "target-run"
     },
+    llmUsage: cliLlmUsageReport(ctx),
     generatedAt: new Date().toISOString()
   };
   if (ctx.json) {
@@ -690,6 +752,9 @@ function finishProjectOnboard(ctx: RuntimeContext, projectId: string, project: u
     "",
     "Workflow",
     ...formatSteps(steps),
+    "",
+    "LLM Usage",
+    ...formatLlmUsage(undefined, steps),
     "",
     "Next Action",
     String(result.result.nextAction),
@@ -1121,7 +1186,7 @@ async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
     }, derivedRequestOptions(ctx, "loop-run-create"));
     if (!createResponse.ok) throw apiErrorFromResponse(createResponse);
     loopId = String(field(createResponse.data, "id") ?? "");
-    steps.push({ type: "loop.created", loopId, status: field(createResponse.data, "status") });
+    steps.push(attachStepLlmUsage(ctx, { type: "loop.created", loopId, status: field(createResponse.data, "status") }, "loop-run-create", createResponse));
   }
   const maxIterations = numberOption(ctx.args, "max-iterations") ?? numberOption(ctx.args, "max-steps") ?? 10;
   const quiet = hasFlag(ctx.args, "quiet");
@@ -1137,7 +1202,7 @@ async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
       }, derivedRequestOptions(ctx, `loop-run-approve-${index + 1}`));
       if (!approved.ok) throw apiErrorFromResponse(approved);
       loop = approved.data;
-      steps.push({ type: "loop.approved", loopId, status: field(loop, "status"), iteration: field(loop, "currentIteration") });
+      steps.push(attachStepLlmUsage(ctx, { type: "loop.approved", loopId, status: field(loop, "status"), iteration: field(loop, "currentIteration") }, `loop-run-approve-${index + 1}`, approved));
       printLoopRunStatus(ctx, "loop run", loop, steps, quiet);
     }
     const nextStatus = String(field(loop, "status") ?? "");
@@ -1149,7 +1214,7 @@ async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
     }, derivedRequestOptions(ctx, `loop-run-${action}-${index + 1}`));
     if (!response.ok) throw apiErrorFromResponse(response);
     loop = response.data;
-    steps.push({ type: `loop.${action}`, loopId, status: field(loop, "status"), iteration: field(loop, "currentIteration") });
+    steps.push(attachStepLlmUsage(ctx, { type: `loop.${action}`, loopId, status: field(loop, "status"), iteration: field(loop, "currentIteration") }, `loop-run-${action}-${index + 1}`, response));
     printLoopRunStatus(ctx, "loop run", loop, steps, quiet);
   }
   if (runIterations >= maxIterations && shouldContinueLoopRun(loop, ctx.args, until)) {
@@ -1165,10 +1230,11 @@ async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
     loop,
     steps,
     result: loopRunResult(loop),
+    llmUsage: cliLlmUsageReport(ctx, nestedField(loop, ["trace", "llmUsage"])),
     generatedAt: new Date().toISOString()
   };
   if (ctx.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  else if (quiet) process.stdout.write(formatLoopRunStatus("loop run", loop, steps));
+  else if (quiet) process.stdout.write(formatLoopRunStatus("loop run", loop, steps, ctx.cli));
   return loopRunExitCode(loop);
 }
 
@@ -1436,7 +1502,7 @@ async function tryProjectSourceCredentialPreflight(ctx: RuntimeContext, projectI
   try {
     const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/source-credentials/preflight`, {}, derivedRequestOptions(ctx, "target-run-source-preflight"));
     const readiness = isRecord(response.data) ? response.data : undefined;
-    return {
+    return attachStepLlmUsage(ctx, {
       type: "project.source-credentials.preflight",
       projectId,
       httpStatus: response.status,
@@ -1445,7 +1511,7 @@ async function tryProjectSourceCredentialPreflight(ctx: RuntimeContext, projectI
       nextAction: field(readiness, "nextAction"),
       provider: field(readiness, "provider"),
       blockers: field(readiness, "blockers")
-    };
+    }, "target-run-source-preflight", response);
   } catch (error) {
     return {
       type: "project.source-credentials.preflight",
@@ -1460,7 +1526,7 @@ async function tryProjectDevopsPreflight(ctx: RuntimeContext, projectId: string)
   try {
     const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/devops/preflight`, {}, derivedRequestOptions(ctx, "target-run-devops-preflight"));
     const readiness = isRecord(response.data) ? response.data : undefined;
-    return {
+    return attachStepLlmUsage(ctx, {
       type: "project.devops.preflight",
       projectId,
       httpStatus: response.status,
@@ -1474,7 +1540,7 @@ async function tryProjectDevopsPreflight(ctx: RuntimeContext, projectId: string)
       credentialRef: field(readiness, "credentialRef"),
       claimBoundary: field(readiness, "claimBoundary"),
       blockers: field(readiness, "blockers")
-    };
+    }, "target-run-devops-preflight", response);
   } catch (error) {
     return {
       type: "project.devops.preflight",
@@ -1526,7 +1592,7 @@ async function runGoalWrapper(ctx: RuntimeContext, input: {
       force: hasFlag(ctx.args, "force-plan")
     }, derivedRequestOptions(ctx, "goal-run-plan"));
     if (!planned.ok) throw apiErrorFromResponse(planned);
-    steps.push({ type: "goal.plan-generated", goalId, requestId: planned.requestId, targetCount: nestedField(planned.data, ["plan", "targetCount"]) });
+    steps.push(attachStepLlmUsage(ctx, { type: "goal.plan-generated", goalId, requestId: planned.requestId, targetCount: nestedField(planned.data, ["plan", "targetCount"]) }, "goal-run-plan", planned));
     status = await readGoalRunStatus(ctx, goalId);
     printGoalRunStatus(ctx, input.command, status, steps, quiet);
   }
@@ -1543,7 +1609,7 @@ async function runGoalWrapper(ctx: RuntimeContext, input: {
     }
     const approved = await ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/approve-plan`, {}, derivedRequestOptions(ctx, "goal-run-approve-plan"));
     if (!approved.ok) throw apiErrorFromResponse(approved);
-    steps.push({ type: "goal.plan-approved", goalId, requestId: approved.requestId, targetCount: nestedField(approved.data, ["plan", "targetCount"]) });
+    steps.push(attachStepLlmUsage(ctx, { type: "goal.plan-approved", goalId, requestId: approved.requestId, targetCount: nestedField(approved.data, ["plan", "targetCount"]) }, "goal-run-approve-plan", approved));
     status = await readGoalRunStatus(ctx, goalId);
     printGoalRunStatus(ctx, input.command, status, steps, quiet);
   }
@@ -1557,7 +1623,7 @@ async function runGoalWrapper(ctx: RuntimeContext, input: {
       forceDecision: stringOption(ctx.args, "force-decision")
     }, derivedRequestOptions(ctx, `goal-run-advance-${advanceCount}`));
     if (!response.ok && !isRecord(response.data)) throw apiErrorFromResponse(response);
-    steps.push({
+    steps.push(attachStepLlmUsage(ctx, {
       type: "goal.advanced",
       goalId,
       httpStatus: response.status,
@@ -1566,7 +1632,7 @@ async function runGoalWrapper(ctx: RuntimeContext, input: {
       nextAction: field(response.data, "nextAction"),
       targetId: nestedField(response.data, ["target", "id"]),
       loopId: nestedField(response.data, ["loop", "id"])
-    });
+    }, `goal-run-advance-${advanceCount}`, response));
     status = await readGoalRunStatus(ctx, goalId);
     printGoalRunStatus(ctx, input.command, status, steps, quiet);
   }
@@ -1589,25 +1655,29 @@ async function finishGoalRun(ctx: RuntimeContext, command: string, status: unkno
     status,
     steps,
     result: goalRunResult(status, exitCode),
+    llmUsage: cliLlmUsageReport(ctx, field(status, "llmUsage")),
     generatedAt: new Date().toISOString()
   };
   if (ctx.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  else if (quiet) process.stdout.write(formatGoalRunStatus(command, status, steps));
+  else if (quiet) process.stdout.write(formatGoalRunStatus(command, status, steps, ctx.cli));
   return exitCode;
 }
 
 async function readGoalRunStatus(ctx: RuntimeContext, goalId: string): Promise<unknown> {
   const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/run-status`));
+  recordResponseLlmUsage(ctx, "goal-run-status", response);
   return response.data;
 }
 
 async function readLoop(ctx: RuntimeContext, loopId: string): Promise<unknown> {
   const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/loops/${encodeURIComponent(loopId)}`));
+  recordResponseLlmUsage(ctx, "loop-read", response);
   return response.data;
 }
 
 async function readReleaseTarget(ctx: RuntimeContext, targetId: string): Promise<unknown | undefined> {
   const response = await ctx.client.get(`/api/v1/release/targets/${encodeURIComponent(targetId)}`);
+  recordResponseLlmUsage(ctx, "release-target-read", response);
   if (response.status === 404) return undefined;
   if (!response.ok) throw apiErrorFromResponse(response);
   return response.data;
@@ -1627,6 +1697,7 @@ async function createProjectReleaseTarget(ctx: RuntimeContext, projectId: string
     projectId,
     templateId
   }, derivedRequestOptions(ctx, "target-run-create-target"));
+  recordResponseLlmUsage(ctx, "target-run-create-target", response);
   if (!response.ok) throw apiErrorFromResponse(response);
   return response.data;
 }
@@ -1638,6 +1709,7 @@ async function createGoalForRun(ctx: RuntimeContext, projectId: string, targetId
     releaseTargetId: targetId,
     objective
   }, derivedRequestOptions(ctx, "goal-run-create-goal"));
+  recordResponseLlmUsage(ctx, "goal-run-create-goal", response);
   if (!response.ok) throw apiErrorFromResponse(response);
   return response.data;
 }
@@ -1656,9 +1728,12 @@ async function findReusableGoal(ctx: RuntimeContext, projectId: string, targetId
     : undefined;
 }
 
-function derivedRequestOptions(ctx: RuntimeContext, suffix: string): { idempotencyKey?: string } {
+function derivedRequestOptions(ctx: RuntimeContext, suffix: string): EvoPilotRequestOptions {
   const base = stringOption(ctx.args, "idempotency-key");
-  return { idempotencyKey: base ? `${base}:${suffix}` : undefined };
+  return {
+    idempotencyKey: base ? `${base}:${suffix}` : undefined,
+    headers: { "x-evopilot-cli-step": suffix }
+  };
 }
 
 function wrapperTimeoutMs(args: ParsedArgs): number | undefined {
@@ -1762,18 +1837,19 @@ function loopRunResult(loop: unknown): Record<string, unknown> {
 
 function printGoalRunStatus(ctx: RuntimeContext, command: string, status: unknown, steps: Array<Record<string, unknown>>, quiet: boolean): void {
   if (ctx.json || quiet) return;
-  process.stdout.write(formatGoalRunStatus(command, status, steps));
+  process.stdout.write(formatGoalRunStatus(command, status, steps, ctx.cli));
 }
 
 function printLoopRunStatus(ctx: RuntimeContext, command: string, loop: unknown, steps: Array<Record<string, unknown>>, quiet: boolean): void {
   if (ctx.json || quiet) return;
-  process.stdout.write(formatLoopRunStatus(command, loop, steps));
+  process.stdout.write(formatLoopRunStatus(command, loop, steps, ctx.cli));
 }
 
-function formatGoalRunStatus(command: string, status: unknown, steps: Array<Record<string, unknown>>): string {
+function formatGoalRunStatus(command: string, status: unknown, steps: Array<Record<string, unknown>>, cli?: CliRuntimeInfo): string {
   const lines = [
     "EvoPilot Goal Run",
     `Command    ${command}`,
+    `Client     ${cli?.surface ?? "-"} (${cli?.name ?? "@evopilot/cli"} ${cli?.version ?? "-"})`,
     `Scope      ${nestedField(status, ["scope", "tenantId"]) ?? "-"} / ${nestedField(status, ["scope", "workspaceId"]) ?? "-"}`,
     `Project    ${nestedField(status, ["goal", "projectId"]) ?? "-"}`,
     `Target     ${nestedField(status, ["goal", "releaseTargetId"]) ?? "-"}`,
@@ -1783,6 +1859,9 @@ function formatGoalRunStatus(command: string, status: unknown, steps: Array<Reco
     "",
     "Workflow",
     ...formatChain(field(status, "chain")),
+    "",
+    "LLM Usage",
+    ...formatLlmUsage(field(status, "llmUsage"), steps),
     "",
     "Next Action",
     `${field(status, "nextAction") ?? "unknown"}${field(status, "blockers") ? ` / blockers=${arrayLength(field(status, "blockers"))}` : ""}`,
@@ -1803,10 +1882,11 @@ function formatGoalRunStatus(command: string, status: unknown, steps: Array<Reco
   return `${lines.join("\n")}\n`;
 }
 
-function formatLoopRunStatus(command: string, loop: unknown, steps: Array<Record<string, unknown>>): string {
+function formatLoopRunStatus(command: string, loop: unknown, steps: Array<Record<string, unknown>>, cli?: CliRuntimeInfo): string {
   const lines = [
     "EvoPilot Loop Run",
     `Command    ${command}`,
+    `Client     ${cli?.surface ?? "-"} (${cli?.name ?? "@evopilot/cli"} ${cli?.version ?? "-"})`,
     `Project    ${field(loop, "projectId") ?? "-"}`,
     `Target     ${nestedField(loop, ["context", "releaseTargetId"]) ?? "-"}`,
     `Loop       ${field(loop, "id") ?? "-"}`,
@@ -1815,6 +1895,9 @@ function formatLoopRunStatus(command: string, loop: unknown, steps: Array<Record
     "",
     "Workflow",
     `[${field(loop, "projectId") ? "OK" : "PENDING"}] Project -> [${nestedField(loop, ["context", "releaseTargetId"]) ? "OK" : "PENDING"}] Target -> [${field(loop, "status") ?? "PENDING"}] LoopRun -> [${nestedField(loop, ["sourceClosure", "closureState"]) ?? "PENDING"}] Source Closure`,
+    "",
+    "LLM Usage",
+    ...formatLlmUsage(nestedField(loop, ["trace", "llmUsage"]), steps),
     "",
     "Next Action",
     loopNextAction(loop),
@@ -1995,7 +2078,39 @@ function formatChain(value: unknown): string[] {
 
 function formatSteps(steps: Array<Record<string, unknown>>): string[] {
   if (steps.length === 0) return ["- none"];
-  return steps.slice(-8).map((step) => `- ${step.type ?? "step"}${step.status ? ` status=${step.status}` : ""}${step.httpStatus ? ` http=${step.httpStatus}` : ""}${step.provider ? ` provider=${step.provider}` : ""}${step.executionMode ? ` mode=${step.executionMode}` : ""}${step.devopsOwner ? ` devopsOwner=${step.devopsOwner}` : ""}${step.workflowRepository ? ` workflowRepo=${step.workflowRepository}` : ""}${step.claimBoundary ? ` claim=${step.claimBoundary}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.projectId ? ` project=${step.projectId}` : ""}${step.targetId ? ` target=${step.targetId}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}${step.requestId ? ` request=${step.requestId}` : ""}${Array.isArray(step.blockers) && step.blockers.length > 0 ? ` blockers=${step.blockers.length}` : ""}`);
+  return steps.slice(-8).map((step) => `- ${step.type ?? "step"}${step.status ? ` status=${step.status}` : ""}${step.httpStatus ? ` http=${step.httpStatus}` : ""}${step.provider ? ` provider=${step.provider}` : ""}${step.executionMode ? ` mode=${step.executionMode}` : ""}${step.devopsOwner ? ` devopsOwner=${step.devopsOwner}` : ""}${step.workflowRepository ? ` workflowRepo=${step.workflowRepository}` : ""}${step.claimBoundary ? ` claim=${step.claimBoundary}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.projectId ? ` project=${step.projectId}` : ""}${step.targetId ? ` target=${step.targetId}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}${step.requestId ? ` request=${step.requestId}` : ""}${formatInlineStepLlmUsage(field(step, "llmUsage"))}${Array.isArray(step.blockers) && step.blockers.length > 0 ? ` blockers=${step.blockers.length}` : ""}`);
+}
+
+function formatInlineStepLlmUsage(value: unknown): string {
+  if (!isRecord(value)) return "";
+  return ` llm=${field(value, "provider") ?? "-"}:${field(value, "model") ?? "-"} tokens=${field(value, "totalTokens") ?? 0} cumulative=${field(value, "cumulativeTotalTokens") ?? 0}`;
+}
+
+function formatLlmUsage(summary: unknown, cliSteps: Array<Record<string, unknown>> = []): string[] {
+  const stepSummary = isRecord(summary) ? summary : undefined;
+  const cliUsageSteps = cliSteps
+    .map((step) => field(step, "llmUsage"))
+    .filter((item): item is Record<string, unknown> => isRecord(item));
+  const serverSteps = Array.isArray(field(stepSummary, "steps")) ? field(stepSummary, "steps") as unknown[] : [];
+  const provider = field(stepSummary, "provider") ?? cliUsageSteps.find((step) => field(step, "provider"))?.provider ?? "-";
+  const model = field(stepSummary, "model") ?? cliUsageSteps.find((step) => field(step, "model"))?.model ?? "-";
+  const totalTokens = usageValue(field(stepSummary, "totalTokens")) || cliUsageSteps.reduce((sum, step) => sum + usageValue(field(step, "totalTokens")), 0);
+  const inputTokens = usageValue(field(stepSummary, "inputTokens")) || cliUsageSteps.reduce((sum, step) => sum + usageValue(field(step, "inputTokens")), 0);
+  const outputTokens = usageValue(field(stepSummary, "outputTokens")) || cliUsageSteps.reduce((sum, step) => sum + usageValue(field(step, "outputTokens")), 0);
+  const creditsConsumed = usageValue(field(stepSummary, "creditsConsumed")) || cliUsageSteps.reduce((sum, step) => sum + usageValue(field(step, "creditsConsumed")), 0);
+  const calls = usageValue(field(stepSummary, "calls")) || cliUsageSteps.reduce((sum, step) => sum + usageValue(field(step, "calls")), 0);
+  const lines = [
+    `Provider   ${provider}`,
+    `Model      ${model}`,
+    `Tokens     total=${totalTokens} input=${inputTokens} output=${outputTokens} credits=${creditsConsumed} calls=${calls}`
+  ];
+  const usageSteps = serverSteps.length > 0 ? serverSteps : cliUsageSteps;
+  if (usageSteps.length === 0) return [...lines, "Step Usage", "- no LLM step recorded in this command"];
+  return [
+    ...lines,
+    "Step Usage",
+    ...usageSteps.slice(-8).map((step) => `- ${field(step, "loopId") ?? field(step, "label") ?? "step"}${field(step, "iteration") ? ` iter=${field(step, "iteration")}` : ""}${field(step, "nodeId") ? ` node=${field(step, "nodeId")}` : ""} provider=${field(step, "provider") ?? "-"} model=${field(step, "model") ?? "-"} tokens=${field(step, "totalTokens") ?? 0} input=${field(step, "inputTokens") ?? 0} output=${field(step, "outputTokens") ?? 0} request=${field(step, "llmRequestId") ?? field(step, "requestId") ?? "-"}`)
+  ];
 }
 
 function loopNextAction(loop: unknown): string {
@@ -2047,8 +2162,53 @@ function addOption(options: Record<string, string | boolean | string[]>, key: st
   }
 }
 
-function requestOptions(ctx: RuntimeContext): { idempotencyKey?: string } {
-  return { idempotencyKey: stringOption(ctx.args, "idempotency-key") };
+function requestOptions(ctx: RuntimeContext): EvoPilotRequestOptions {
+  return {
+    idempotencyKey: stringOption(ctx.args, "idempotency-key"),
+    headers: { "x-evopilot-cli-step": ctx.cli.command || "atomic-command" }
+  };
+}
+
+function cliRuntimeInfo(args: ParsedArgs): CliRuntimeInfo {
+  const version = readCliVersion();
+  const command = args.positionals.join(" ") || (hasFlag(args, "version") ? "version" : "help");
+  return {
+    schema: "evopilot-cli-runtime/v1",
+    name: "@evopilot/cli",
+    version,
+    command,
+    surface: detectCliSurface(args),
+    platform: process.platform,
+    pid: process.pid,
+    tty: Boolean(process.stdout.isTTY)
+  };
+}
+
+function detectCliSurface(args: ParsedArgs): string {
+  const explicit = stringOption(args, "client") ?? stringOption(args, "client-surface") ?? process.env.EVOPILOT_CLI_CLIENT ?? process.env.EVOPILOT_CLIENT_SURFACE;
+  if (explicit) return safeHeaderValue(explicit);
+  if (process.env.WORKBUDDY || process.env.WORKBUDDY_SESSION_ID || process.env.WORKBUDDY_WORKSPACE_ID) return "workbuddy";
+  if (process.env.CI) return "ci";
+  if (process.platform === "darwin" && process.stdout.isTTY) return "mac-terminal";
+  if (process.stdout.isTTY) return "terminal";
+  return "agent-or-script";
+}
+
+function cliRequestHeaders(cli: CliRuntimeInfo): Record<string, string> {
+  return {
+    "user-agent": `${cli.name}/${cli.version} (${cli.surface})`,
+    "x-evopilot-client": cli.name,
+    "x-evopilot-client-surface": cli.surface,
+    "x-evopilot-cli-command": cli.command,
+    "x-evopilot-cli-version": cli.version,
+    "x-evopilot-cli-platform": cli.platform,
+    "x-evopilot-cli-pid": String(cli.pid),
+    "x-evopilot-cli-tty": String(cli.tty)
+  };
+}
+
+function safeHeaderValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
 }
 
 function requiredOption(args: ParsedArgs, name: string): string {
@@ -2165,6 +2325,104 @@ function secretValueFromArgs(args: ParsedArgs): string {
     throw usage(`Environment variable ${envName} is not set.`);
   }
   throw usage("secret set requires --value, --value-file, or --from-env.");
+}
+
+function attachStepLlmUsage(ctx: RuntimeContext, step: Record<string, unknown>, label: string, response: EvoPilotResponse): Record<string, unknown> {
+  const usage = recordResponseLlmUsage(ctx, label, response);
+  return usage ? { ...step, llmUsage: usage } : step;
+}
+
+function recordResponseLlmUsage(ctx: RuntimeContext, label: string, response: EvoPilotResponse): CliLlmUsageStep | undefined {
+  const current = responseLlmMeta(response);
+  if (!current) return undefined;
+  const previous = ctx.llmUsage.latest;
+  const usage: CliLlmUsageStep = {
+    label,
+    requestId: response.requestId,
+    provider: current.provider ?? stringField(current.latest, "provider"),
+    model: current.model ?? stringField(current.latest, "model"),
+    calls: usageDelta(current.calls, previous?.calls),
+    inputTokens: usageDelta(current.inputTokens, previous?.inputTokens),
+    outputTokens: usageDelta(current.outputTokens, previous?.outputTokens),
+    totalTokens: usageDelta(current.totalTokens, previous?.totalTokens),
+    creditsConsumed: usageDelta(current.creditsConsumed, previous?.creditsConsumed ?? previous?.totalTokens),
+    creditUnit: "token",
+    cumulativeTotalTokens: usageValue(current.totalTokens)
+  };
+  ctx.llmUsage.latest = current;
+  ctx.llmUsage.responses.push(usage);
+  return usage;
+}
+
+function responseLlmMeta(response: EvoPilotResponse | undefined): LlmUsageMeta | undefined {
+  const meta = field(response?.body, "meta");
+  const llm = field(meta, "llm");
+  return isRecord(llm) ? llm as LlmUsageMeta : undefined;
+}
+
+function cliLlmUsageReport(ctx: RuntimeContext, serverSummary?: unknown): Record<string, unknown> {
+  const server = isRecord(serverSummary) ? serverSummary : undefined;
+  const observed = summarizeObservedCliUsage(ctx.llmUsage.responses);
+  const latest = ctx.llmUsage.latest;
+  const summary = {
+    provider: field(server, "provider") ?? observed.provider ?? latest?.provider,
+    model: field(server, "model") ?? observed.model ?? latest?.model,
+    calls: Math.max(usageValue(field(server, "calls")), usageValue(observed.calls)),
+    inputTokens: Math.max(usageValue(field(server, "inputTokens")), usageValue(observed.inputTokens)),
+    outputTokens: Math.max(usageValue(field(server, "outputTokens")), usageValue(observed.outputTokens)),
+    totalTokens: Math.max(usageValue(field(server, "totalTokens")), usageValue(observed.totalTokens)),
+    creditsConsumed: Math.max(usageValue(field(server, "creditsConsumed")), usageValue(observed.creditsConsumed)),
+    creditUnit: "token",
+    costUsd: usageValue(field(server, "costUsd"))
+  };
+  return {
+    schema: "evopilot-cli-llm-usage/v1",
+    client: ctx.cli,
+    summary,
+    process: {
+      responses: ctx.llmUsage.responses,
+      cumulative: latest ? {
+        provider: latest.provider,
+        model: latest.model,
+        calls: usageValue(latest.calls),
+        inputTokens: usageValue(latest.inputTokens),
+        outputTokens: usageValue(latest.outputTokens),
+        totalTokens: usageValue(latest.totalTokens),
+        creditsConsumed: usageValue(latest.creditsConsumed),
+        creditUnit: latest.creditUnit ?? "token",
+        latest: latest.latest
+      } : undefined
+    },
+    server
+  };
+}
+
+function summarizeObservedCliUsage(steps: CliLlmUsageStep[]): Record<string, string | number | undefined> {
+  const providers = uniqueStrings(steps.map((step) => step.provider).filter((value): value is string => Boolean(value)));
+  const models = uniqueStrings(steps.map((step) => step.model).filter((value): value is string => Boolean(value)));
+  return {
+    provider: providers.length === 1 ? providers[0] : providers.length > 1 ? "mixed" : undefined,
+    model: models.length === 1 ? models[0] : models.length > 1 ? "mixed" : undefined,
+    calls: steps.reduce((sum, step) => sum + step.calls, 0),
+    inputTokens: steps.reduce((sum, step) => sum + step.inputTokens, 0),
+    outputTokens: steps.reduce((sum, step) => sum + step.outputTokens, 0),
+    totalTokens: steps.reduce((sum, step) => sum + step.totalTokens, 0),
+    creditsConsumed: steps.reduce((sum, step) => sum + step.creditsConsumed, 0)
+  };
+}
+
+function usageDelta(current: unknown, previous: unknown): number {
+  if (previous === undefined) return 0;
+  return Math.max(0, usageValue(current) - usageValue(previous));
+}
+
+function usageValue(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort();
 }
 
 function printOutput(ctx: RuntimeContext, data: unknown, text: string): void {
@@ -2335,6 +2593,7 @@ Global options:
   --tenant <id>               Tenant scope header
   --workspace <id>            Workspace scope header
   --actor <id>                Actor scope header
+  --client <surface>          Client surface for logs, for example mac-terminal or workbuddy
   --idempotency-key <key>     Idempotency key for mutating commands
   --timeout <duration>        Wrapper stop boundary, for example 30s, 10m, or 2h
   --until <policy>            Wrapper stop policy: terminal or blocked-or-complete

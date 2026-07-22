@@ -40,6 +40,18 @@
 
 `creditsConsumed` 当前按 `1 token = 1 LLM credit` 计量，`creditUnit` 固定为 `token`。如果 `calls=0` 或 `totalTokens=0`，只能证明 LLM 已配置，不能证明当前场景真的调用了 LLM。具体执行点还会在 `llmTrace`、Loop executor step output/evidence、code-upgrader session 中记录 `provider`、`model/version`、`usage` 和 `creditsConsumed`。
 
+Goal/Loop 运行接口还会返回业务级 LLM usage summary：
+
+```text
+GET /api/v1/goals/{goalId}/run-status -> data.llmUsage
+GET /api/v1/loops/{loopId} -> data.trace.llmUsage
+GET /api/v1/loops/{loopId}/trace-tree -> executor-step 节点中的 token/cost
+```
+
+`llmUsage` 的 schema 是 `evopilot-llm-usage-summary/v1`，包含 `provider`、`model`、`calls`、`inputTokens`、`outputTokens`、`totalTokens`、`creditsConsumed`、`costUsd` 和 `steps[]`。`steps[]` 是 Loop executor 级明细，包含 `loopId`、`iteration`、`nodeId`、`type`、`status`、`provider`、`model`、`totalTokens`、`inputTokens`、`outputTokens` 和 `llmRequestId`。CLI wrapper 的 `llmUsage.summary` 使用该结构作为事实来源。
+
+CLI、WorkBuddy 或 CI 调用 API 时可发送 `x-evopilot-client`、`x-evopilot-client-surface`、`x-evopilot-cli-command`、`x-evopilot-cli-step` 和 `x-evopilot-cli-version`。EvoPilot 结构化 HTTP 日志会在 `metadata.client` 中记录调用来源，并在 `metadata.llmUsage.request` 中记录本请求的 LLM token delta；通过响应 `requestId` 可以把 CLI step 与生产日志对齐。
+
 ## 健康检查
 
 ```http

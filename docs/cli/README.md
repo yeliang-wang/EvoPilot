@@ -35,6 +35,7 @@ export EVOPILOT_API_TOKEN="<operator-or-admin-token>"
 export EVOPILOT_TENANT="tenant-production"
 export EVOPILOT_WORKSPACE="workspace-agent-products"
 export EVOPILOT_ACTOR="workbuddy"
+export EVOPILOT_CLI_CLIENT="workbuddy"
 ```
 
 `EVOPILOT_BASE_URL` is also accepted as a server URL fallback. Command-line flags override environment variables and saved config:
@@ -76,9 +77,35 @@ Expected result:
 - `api.schema` is `evopilot-version/v1`.
 - `api.apiContractVersion` is `v1`.
 - `summary` is present when the token is valid for the requested tenant/workspace.
+- `llmUsage.summary.provider` and `llmUsage.summary.model` identify the LLM visible to the CLI.
+- `llmUsage.summary.totalTokens`, `inputTokens`, `outputTokens`, and `creditsConsumed` show token usage.
 - Exit code is `0`.
 
 If `summary` is missing, the CLI reached public health endpoints but not an authenticated control-plane session.
+
+## LLM And Token Visibility
+
+Every wrapper command must expose LLM usage to both humans and AI agents. Use `--client workbuddy` or `EVOPILOT_CLI_CLIENT=workbuddy` when the command is invoked from WorkBuddy; macOS terminal sessions are labeled `mac-terminal` automatically when TTY detection is available.
+
+For JSON output, agents must read:
+
+```text
+llmUsage.client.surface
+llmUsage.summary.provider
+llmUsage.summary.model
+llmUsage.summary.totalTokens
+llmUsage.summary.inputTokens
+llmUsage.summary.outputTokens
+llmUsage.summary.creditsConsumed
+llmUsage.process.responses[]
+llmUsage.server.steps[]
+```
+
+`llmUsage.summary` is the command-level total. `llmUsage.process.responses[]` is the CLI-observed HTTP chain with `requestId` values. `llmUsage.server.steps[]` is the server-side Loop executor step list, including `loopId`, `iteration`, `nodeId`, `provider`, `model`, `inputTokens`, `outputTokens`, `totalTokens`, and `llmRequestId`.
+
+Human-readable `target run`, `goal run`, `loop run`, and `project onboard` output includes an `LLM Usage` section plus inline token counts in recent `Steps`. Server HTTP logs include the same client surface and request-level LLM token delta under `metadata.client` and `metadata.llmUsage`.
+
+Production metrics are enabled by default. When the API server has `EVOPILOT_DATA_ROOT`, LLM metrics are written to `EVOPILOT_DATA_ROOT/llm-metrics.jsonl` unless `EVOPILOT_LLM_METRICS_PATH` overrides it. Token counts are observability data and remain visible in logs; API tokens, GitHub/GitLab tokens, passwords, API keys, and credential refs remain redacted.
 
 ## Fast Path
 
@@ -93,10 +120,11 @@ evopilot target run \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --client workbuddy \
   --json
 ```
 
-This prints a server-governed chain covering project, release target, GlobalGoal, GoalTarget, LoopRun, source closure, deploy, release decision, evidence links, blockers, and next action.
+This prints a server-governed chain covering project, release target, GlobalGoal, GoalTarget, LoopRun, source closure, deploy, release decision, evidence links, blockers, next action, LLM provider/model, command-level token totals, and step-level token usage.
 
 ## First Project Checklist
 

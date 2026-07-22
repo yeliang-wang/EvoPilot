@@ -10,6 +10,7 @@ The CLI uses EvoPilot HTTP APIs. Global flags can be used with any command:
 --tenant <id>               Tenant scope header
 --workspace <id>            Workspace scope header
 --actor <id>                Actor scope header
+--client <surface>          Client surface for logs, for example mac-terminal or workbuddy
 --idempotency-key <key>     Idempotency key for mutating commands
 --timeout <duration>        Wrapper stop boundary, for example 30s, 10m, or 2h
 --until <policy>            Wrapper stop policy: terminal or blocked-or-complete
@@ -49,6 +50,8 @@ evopilot status --json
 
 Checks `/health`, `/ready`, and authenticated `/api/v1/summary` when a token is configured.
 It also reads `/api/v1/version` and returns `cli.version`, `api.serverVersion`, `api.apiContractVersion`, and `api.minimumCliVersion` when the server supports the version endpoint.
+
+`status --json` also returns `client` and `llmUsage`. Automation should read `llmUsage.summary.provider`, `llmUsage.summary.model`, and token fields before starting a cost-sensitive run.
 
 ## Project
 
@@ -264,6 +267,23 @@ evopilot target decision <target-id> [--project <project-id>]
 
 `target run` is the one-command wrapper for a project release target.
 Use `--require-source-ready --require-devops-ready` when the run must fail before Goal/Loop execution if PR/merge or repository-native DevOps is not ready.
+
+`target run`, `goal run`, `loop run`, and `project onboard` wrapper output includes command-level and step-level LLM visibility:
+
+```text
+llmUsage.client.surface
+llmUsage.summary.provider
+llmUsage.summary.model
+llmUsage.summary.totalTokens
+llmUsage.summary.inputTokens
+llmUsage.summary.outputTokens
+llmUsage.summary.creditsConsumed
+llmUsage.process.responses[].requestId
+llmUsage.server.steps[].nodeId
+llmUsage.server.steps[].totalTokens
+```
+
+Use `--client workbuddy` or `EVOPILOT_CLI_CLIENT=workbuddy` when WorkBuddy invokes the CLI. EvoPilot HTTP logs store the same caller under `metadata.client.surface` and request token deltas under `metadata.llmUsage.request.totalTokens`.
 
 ## Goal
 

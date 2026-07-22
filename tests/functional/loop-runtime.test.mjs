@@ -1277,6 +1277,13 @@ test("production loop llm executor calls real llm client and records usage", asy
     assert.equal(llmStep.output.costUsd, 0.003);
     assert.equal(started.body.data.trace.totalTokens, undefined);
     assert.deepEqual(started.body.data.trace.cost, { estimatedUsd: 0.003, totalTokens: 1500 });
+    assert.equal(started.body.data.trace.llmUsage.schema, "evopilot-llm-usage-summary/v1");
+    assert.equal(started.body.data.trace.llmUsage.provider, "zhipu");
+    assert.equal(started.body.data.trace.llmUsage.model, "glm-5.1");
+    assert.equal(started.body.data.trace.llmUsage.totalTokens, 1500);
+    assert.equal(started.body.data.trace.llmUsage.inputTokens, 1000);
+    assert.equal(started.body.data.trace.llmUsage.outputTokens, 500);
+    assert.ok(started.body.data.trace.llmUsage.steps.some((step) => step.nodeId === llmStep.nodeId && step.totalTokens === 1500));
     assert.ok(started.body.data.evidenceSets[0].evidence.some((item) => item === "llm.executionMode=provider"));
     assert.ok(started.body.data.evidenceSets[0].evidence.some((item) => item === "llm.provider=zhipu"));
   } finally {

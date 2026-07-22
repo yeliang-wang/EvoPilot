@@ -123,6 +123,10 @@ test("server emits production-grade structured logs with request ids and redacti
   assert.equal(summaryLog.tenantId, "tenant-production");
   assert.equal(summaryLog.workspaceId, "workspace-agent-products");
   assert.equal(summaryLog.role, "admin");
+  assert.equal(summaryLog.metadata.llmUsage.request.inputTokens, 0);
+  assert.equal(summaryLog.metadata.llmUsage.request.outputTokens, 0);
+  assert.equal(summaryLog.metadata.llmUsage.request.totalTokens, 0);
+  assert.equal(summaryLog.metadata.llmUsage.cumulative.totalTokens, 0);
   const rejectedLog = records.find((record) => record.event === "http.request.rejected" && record.requestId === "req-unauthorized-log");
   assert.equal(rejectedLog.statusCode, 401);
   assert.equal(rejectedLog.outcome, "rejected");
@@ -144,6 +148,9 @@ test("server emits production-grade structured logs with request ids and redacti
   const allLogs = stdout.join("\n");
   assert.doesNotMatch(allLogs, /secret-token/);
   assert.doesNotMatch(allLogs, /should-not-leak/);
+  assert.doesNotMatch(allLogs, /"totalTokens":"\[REDACTED\]"/);
+  assert.doesNotMatch(allLogs, /"inputTokens":"\[REDACTED\]"/);
+  assert.doesNotMatch(allLogs, /"outputTokens":"\[REDACTED\]"/);
   assert.match(allLogs, /\[REDACTED\]/);
 });
 

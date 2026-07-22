@@ -12,6 +12,7 @@ export EVOPILOT_API_TOKEN="<operator-or-admin-token>"
 export EVOPILOT_TENANT="tenant-production"
 export EVOPILOT_WORKSPACE="workspace-agent-products"
 export EVOPILOT_ACTOR="workbuddy"
+export EVOPILOT_CLI_CLIENT="workbuddy"
 export EVOPILOT_CONFIG="$PWD/.evopilot-agent-config.json"
 ```
 
@@ -24,11 +25,29 @@ Automation must use `--json` and parse JSON fields:
 ```bash
 evopilot status --json
 evopilot project onboard plan github --repo owner/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner owner --ci-workflow ci.yml --ci-required-check build --template ga --json
-evopilot target run --project my-agent --template ga --objective "..." --json
+evopilot target run --project my-agent --template ga --objective "..." --client workbuddy --json
 ```
 
 Do not parse human-readable CLI output. Human output may change to improve operator readability.
 When humans do read the console output, wrapper commands print the same core chain that Dashboard consumes: scope, project, release target, goal, workflow nodes, next action, evidence endpoints, recent steps, blockers, and `requestId` values for log lookup.
+
+Automation must also parse LLM/token visibility from wrapper commands:
+
+```text
+llmUsage.client.surface
+llmUsage.summary.provider
+llmUsage.summary.model
+llmUsage.summary.totalTokens
+llmUsage.summary.inputTokens
+llmUsage.summary.outputTokens
+llmUsage.summary.creditsConsumed
+llmUsage.process.responses[].requestId
+llmUsage.server.steps[].loopId
+llmUsage.server.steps[].nodeId
+llmUsage.server.steps[].totalTokens
+```
+
+`llmUsage.summary` is the command-level total. `llmUsage.process.responses[]` is the CLI-observed HTTP chain. `llmUsage.server.steps[]` is the server-side Loop executor usage. If a cost-sensitive automation run cannot find `provider`, `model`, or token totals, it must treat the run as incomplete evidence and report the missing fields.
 
 `project onboard plan` and `project onboard verify` are the onboarding control surface for automation. Both print `evopilot-project-onboarding-checklist/v1`; the checklist contains machine-readable `steps`, `missingInputs`, `blockers`, `commands`, and `nextAction`. `plan` does not mutate project state. `verify` reads persisted project state and should return `READY_TO_RUN` before an agent claims that source writeback and repository-native DevOps are ready.
 
@@ -253,5 +272,7 @@ When reporting a failed automation run, include:
 - loop, release run, and release decision IDs
 - relevant audit IDs
 - production log `requestId` or `correlation` fields when available
+- `llmUsage.summary` and any non-zero `llmUsage.server.steps[]`
+- the CLI client surface, for example `workbuddy`, `mac-terminal`, `ci`, or `agent-or-script`
 
 Do not include raw tokens, passwords, deploy secrets, or unredacted `Authorization` headers.

@@ -97,7 +97,7 @@ EVOPILOT_LOOP_STORE_DSN=postgres://evopilot:<password>@evopilot-postgres:5432/ev
 - 触发真实 LLM 场景后，`meta.llm.calls > 0`、`meta.llm.totalTokens > 0`、`meta.llm.creditsConsumed > 0`。
 - Loop executor step、rule compile、opportunity draft 或 code-upgrader session 中存在具体 `llmTrace`，不能只凭健康检查判断 LLM 有效。
 
-如果 `EVOPILOT_LLM_METRICS_PATH` 是相对路径，EvoPilot 会把它解析到 `EVOPILOT_DATA_ROOT` 下，便于 server、worker 和 code-upgrader 共享同一份 LLM metrics。
+LLM metrics 默认启用。未设置 `EVOPILOT_LLM_METRICS_PATH` 时，只要存在 `EVOPILOT_DATA_ROOT`，EvoPilot 会默认写入 `EVOPILOT_DATA_ROOT/llm-metrics.jsonl`。如果显式设置 `EVOPILOT_LLM_METRICS_PATH` 且它是相对路径，EvoPilot 会把它解析到 `EVOPILOT_DATA_ROOT` 下，便于 server、worker 和 code-upgrader 共享同一份 LLM metrics。
 
 文件态业务数据迁移、Postgres business store 备份和恢复见 [SaaS 生产发布包](../reference/release-package.md)。生产发布前至少执行：
 

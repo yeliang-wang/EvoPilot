@@ -1144,6 +1144,7 @@ interface GoalRunStatus {
   latestLoop?: LoopRun;
   releaseDecision?: ReleaseDecision;
   finalReport?: GoalCompletionReport;
+  llmUsage: LlmUsageSummary;
   chain: Array<{
     id: string;
     label: string;
@@ -1537,10 +1538,47 @@ interface LoopTraceSummary {
     estimatedUsd: number;
     totalTokens: number;
   };
+  llmUsage: LlmUsageSummary;
   failureSignatures: Array<{
     signature: string;
     count: number;
   }>;
+  updatedAt: string;
+}
+
+interface LlmUsageStepSummary {
+  loopId: string;
+  iteration: number;
+  nodeId: string;
+  type: ExecutorNodeType;
+  status: ExecutorStepResult["status"];
+  provider?: string;
+  model?: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  creditsConsumed: number;
+  creditUnit: "token";
+  costUsd: number;
+  llmRequestId?: string;
+  completedAt?: string;
+}
+
+interface LlmUsageSummary {
+  schema: "evopilot-llm-usage-summary/v1";
+  scope: string;
+  provider?: string;
+  model?: string;
+  providers: string[];
+  models: string[];
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  creditsConsumed: number;
+  creditUnit: "token";
+  costUsd: number;
+  steps: LlmUsageStepSummary[];
   updatedAt: string;
 }
 
@@ -2099,6 +2137,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
     const requestId = requestHeader(request, "x-request-id") || randomUUID();
     const traceId = requestHeader(request, "traceparent")?.split("-")[1] || requestHeader(request, "x-trace-id");
     const parentRequestId = requestHeader(request, "x-parent-request-id");
+    const llmUsageBeforeRequest = currentLlmResponseUsageMeta();
     let requestAuth: AuthContext | undefined;
     let requestErrorCode: string | undefined;
     response.setHeader("x-request-id", requestId);
@@ -2124,7 +2163,9 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         diagnosis: diagnosisForHttpStatus(statusCode, requestErrorCode),
         metadata: {
           query: redactUrlSearch(url.searchParams),
-          userAgent: requestHeader(request, "user-agent")
+          userAgent: requestHeader(request, "user-agent"),
+          client: requestClientMetadata(request),
+          llmUsage: llmResponseUsageDelta(llmUsageBeforeRequest, currentLlmResponseUsageMeta())
         }
       });
     });
@@ -6668,6 +6709,9 @@ class FileStore {
     const evidenceMatrix = this.goalEvidenceMatrix(goalId);
     if (!graph || !evidenceMatrix) return undefined;
     const latestLoop = snapshot.activeTarget?.loopId ? this.readLoop(snapshot.activeTarget.loopId) : undefined;
+    const goalLoops = snapshot.goal.plan.targets
+      .map((target) => target.loopId ? this.readLoop(target.loopId) : undefined)
+      .filter((loop): loop is LoopRun => Boolean(loop));
     return {
       schema: "evopilot-goal-run-status/v1",
       scope: {
@@ -6685,6 +6729,7 @@ class FileStore {
       latestLoop,
       releaseDecision: snapshot.releaseDecision,
       finalReport: snapshot.goal.finalReport,
+      llmUsage: buildGoalLlmUsageSummary(snapshot.goal, goalLoops),
       chain: buildGoalRunStatusChain(this, snapshot, latestLoop),
       blockers: snapshot.blockers,
       updatedAt: new Date().toISOString()
@@ -10971,6 +11016,7 @@ function emptyLoopTraceSummary(loopId: string, now: string): LoopTraceSummary {
       estimatedUsd: 0,
       totalTokens: 0
     },
+    llmUsage: emptyLlmUsageSummary(`loop:${loopId}`, now),
     failureSignatures: [],
     updatedAt: now
   };
@@ -11002,9 +11048,121 @@ function buildLoopTraceSummary(loop: LoopRun): LoopTraceSummary {
       estimatedUsd: Number(costFromSteps.toFixed(6)),
       totalTokens
     },
+    llmUsage: buildLoopLlmUsageSummary(loop),
     failureSignatures: [...failureCounts.entries()].map(([signature, count]) => ({ signature, count })).sort((left, right) => right.count - left.count),
     updatedAt: loop.updatedAt
   };
+}
+
+function emptyLlmUsageSummary(scope: string, updatedAt = new Date().toISOString()): LlmUsageSummary {
+  return {
+    schema: "evopilot-llm-usage-summary/v1",
+    scope,
+    providers: [],
+    models: [],
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    creditsConsumed: 0,
+    creditUnit: "token",
+    costUsd: 0,
+    steps: [],
+    updatedAt
+  };
+}
+
+function buildLoopLlmUsageSummary(loop: LoopRun): LlmUsageSummary {
+  return buildLlmUsageSummary(
+    `loop:${loop.id}`,
+    loop.iterations.flatMap((iteration) =>
+      iteration.executorSteps
+        .map((step) => summarizeExecutorStepLlmUsage(loop.id, iteration.index, step))
+        .filter((step): step is LlmUsageStepSummary => Boolean(step))
+    ),
+    loop.updatedAt
+  );
+}
+
+function buildGoalLlmUsageSummary(goal: GlobalGoal, loops: LoopRun[]): LlmUsageSummary {
+  return buildLlmUsageSummary(
+    `goal:${goal.id}`,
+    loops.flatMap((loop) => buildLoopLlmUsageSummary(loop).steps),
+    goal.updatedAt
+  );
+}
+
+function buildLlmUsageSummary(scope: string, steps: LlmUsageStepSummary[], updatedAt = new Date().toISOString()): LlmUsageSummary {
+  const providers = uniqueSorted(steps.map((step) => step.provider).filter((value): value is string => Boolean(value)));
+  const models = uniqueSorted(steps.map((step) => step.model).filter((value): value is string => Boolean(value)));
+  const total = steps.reduce((acc, step) => {
+    acc.inputTokens += step.inputTokens;
+    acc.outputTokens += step.outputTokens;
+    acc.totalTokens += step.totalTokens;
+    acc.creditsConsumed += step.creditsConsumed;
+    acc.costUsd += step.costUsd;
+    return acc;
+  }, { inputTokens: 0, outputTokens: 0, totalTokens: 0, creditsConsumed: 0, costUsd: 0 });
+  return {
+    schema: "evopilot-llm-usage-summary/v1",
+    scope,
+    provider: providers.length === 1 ? providers[0] : providers.length > 1 ? "mixed" : undefined,
+    model: models.length === 1 ? models[0] : models.length > 1 ? "mixed" : undefined,
+    providers,
+    models,
+    calls: steps.length,
+    inputTokens: total.inputTokens,
+    outputTokens: total.outputTokens,
+    totalTokens: total.totalTokens,
+    creditsConsumed: total.creditsConsumed,
+    creditUnit: "token",
+    costUsd: Number(total.costUsd.toFixed(6)),
+    steps,
+    updatedAt
+  };
+}
+
+function summarizeExecutorStepLlmUsage(loopId: string, iteration: number, step: ExecutorStepResult): LlmUsageStepSummary | undefined {
+  const usage = field(step.output, "usage");
+  const provider = optionalTrimmedString(field(step.output, "provider")) ?? optionalTrimmedString(field(usage, "provider"));
+  const model = optionalTrimmedString(field(step.output, "model")) ?? optionalTrimmedString(field(usage, "model"));
+  const inputTokens = usageNumber(field(step.output, "inputTokens") ?? field(usage, "inputTokens"));
+  const outputTokens = usageNumber(field(step.output, "outputTokens") ?? field(usage, "outputTokens"));
+  const totalTokens = usageNumber(field(step.output, "totalTokens") ?? field(step.output, "tokens") ?? field(usage, "totalTokens"));
+  const creditsConsumed = usageNumber(field(step.output, "creditsConsumed") ?? field(usage, "creditsConsumed") ?? totalTokens);
+  const costUsd = usageNumber(field(step.output, "costUsd"));
+  const hasLlmSignal = step.type === "llm" || Boolean(provider || model || totalTokens > 0 || creditsConsumed > 0);
+  if (!hasLlmSignal) return undefined;
+  return {
+    loopId,
+    iteration,
+    nodeId: step.nodeId,
+    type: step.type,
+    status: step.status,
+    provider,
+    model,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    creditsConsumed,
+    creditUnit: "token",
+    costUsd,
+    llmRequestId: optionalTrimmedString(field(step.output, "llmRequestId")),
+    completedAt: step.completedAt
+  };
+}
+
+function usageNumber(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function field(value: unknown, key: string): unknown {
+  return isRecord(value) ? value[key] : undefined;
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort();
 }
 
 function buildLoopSandboxBoundaryProof(loop: LoopRun): LoopSandboxBoundaryProof {
@@ -17959,13 +18117,60 @@ function currentLlmResponseUsageMeta(): LlmResponseUsageMeta {
   };
 }
 
+function llmResponseUsageDelta(before: LlmResponseUsageMeta, after: LlmResponseUsageMeta): Record<string, unknown> {
+  const calls = Math.max(0, after.calls - before.calls);
+  const totalTokens = Math.max(0, after.totalTokens - before.totalTokens);
+  const inputTokens = Math.max(0, after.inputTokens - before.inputTokens);
+  const outputTokens = Math.max(0, after.outputTokens - before.outputTokens);
+  const creditsConsumed = Math.max(0, after.creditsConsumed - before.creditsConsumed);
+  return {
+    schema: "evopilot-http-llm-usage-delta/v1",
+    provider: after.provider,
+    model: after.model,
+    version: after.version,
+    request: {
+      calls,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      creditsConsumed,
+      creditUnit: after.creditUnit
+    },
+    cumulative: {
+      calls: after.calls,
+      succeeded: after.succeeded,
+      failed: after.failed,
+      inputTokens: after.inputTokens,
+      outputTokens: after.outputTokens,
+      totalTokens: after.totalTokens,
+      creditsConsumed: after.creditsConsumed,
+      creditUnit: after.creditUnit
+    },
+    latest: calls > 0 || totalTokens > 0 ? after.latest : undefined
+  };
+}
+
+function requestClientMetadata(request: http.IncomingMessage): Record<string, unknown> {
+  return removeUndefined({
+    name: requestHeader(request, "x-evopilot-client"),
+    surface: requestHeader(request, "x-evopilot-client-surface"),
+    command: requestHeader(request, "x-evopilot-cli-command"),
+    step: requestHeader(request, "x-evopilot-cli-step"),
+    cliVersion: requestHeader(request, "x-evopilot-cli-version"),
+    platform: requestHeader(request, "x-evopilot-cli-platform"),
+    pid: requestHeader(request, "x-evopilot-cli-pid"),
+    tty: requestHeader(request, "x-evopilot-cli-tty")
+  }) as Record<string, unknown>;
+}
+
 function resolveLlmMetricsPath(): string | undefined {
   const configured = optionalTrimmedString(process.env.EVOPILOT_LLM_METRICS_PATH);
-  if (!configured) return undefined;
-  if (path.isAbsolute(configured)) return configured;
+  const requested = configured ?? (optionalTrimmedString(process.env.EVOPILOT_DATA_ROOT) ? "llm-metrics.jsonl" : undefined);
+  if (!requested) return undefined;
+  if (path.isAbsolute(requested)) return requested;
   const dataRoot = optionalTrimmedString(process.env.EVOPILOT_DATA_ROOT);
-  if (!dataRoot) return configured;
-  const normalized = configured.replace(/^data\/evopilot\/?/, "");
+  if (!dataRoot) return requested;
+  const normalized = requested.replace(/^data\/evopilot\/?/, "");
   return path.join(dataRoot, normalized || "llm-metrics.jsonl");
 }
 
@@ -18222,13 +18427,27 @@ function includeLogStack(): boolean {
   return parseBoolean(process.env.EVOPILOT_LOG_STACK, true);
 }
 
-function redactLogValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactLogValue);
+function redactLogValue(value: unknown, path: string[] = []): unknown {
+  if (Array.isArray(value)) return value.map((entry, index) => redactLogValue(entry, [...path, String(index)]));
   if (!value || typeof value !== "object") return typeof value === "string" ? redactSensitiveText(value) : value;
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entry]) => {
-    if (/token|password|secret|authorization|apiKey|credential/i.test(key)) return [key, "[REDACTED]"];
-    return [key, redactLogValue(entry)];
+    const childPath = [...path, key];
+    if (isSensitiveLogKey(key) && !isObservableLlmUsageKey(key, path)) return [key, "[REDACTED]"];
+    return [key, redactLogValue(entry, childPath)];
   }));
+}
+
+function isSensitiveLogKey(key: string): boolean {
+  return /token|password|secret|authorization|apiKey|credential/i.test(key);
+}
+
+function isObservableLlmUsageKey(key: string, path: string[]): boolean {
+  const normalized = key.toLowerCase();
+  if (!/token/.test(normalized)) return false;
+  const countKey = /^(inputtokens|outputtokens|totaltokens|prompttokens|completiontokens|tokencount|tokens)$/i.test(key)
+    || /tokens$/i.test(key);
+  if (!countKey) return false;
+  return path.some((segment) => /llmusage|llm|usage|metrics|cost|request|cumulative|latest|summary/i.test(segment));
 }
 
 function removeUndefined<T extends object>(value: T): Partial<T> {

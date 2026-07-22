@@ -112,6 +112,20 @@ test("LLM env config aligns domainforge generic routes and thinking profiles", (
   assert.equal(legacy.profile, "deep-reasoning");
 });
 
+test("LLM env config defaults metrics path under data root", () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-llm-default-metrics-"));
+  const config = createLlmConfigFromEnv({
+    EVOPILOT_DATA_ROOT: dataRoot,
+    EVOPILOT_LLM_PROVIDER_NAME: "zhipu",
+    EVOPILOT_LLM_BASE_URL: "https://llm.local/v1",
+    EVOPILOT_LLM_MODEL_NAME: "glm-5.1",
+    EVOPILOT_LLM_API_KEY: "unit-key"
+  });
+
+  assert.equal(config.metrics.enabled, true);
+  assert.equal(config.metrics.path, path.join(dataRoot, "llm-metrics.jsonl"));
+});
+
 test("LLM gateway records metrics and compresses long context", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-llm-metrics-"));
   const metricsPath = path.join(dir, "llm.jsonl");

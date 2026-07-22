@@ -473,7 +473,7 @@ export function createLlmConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Ll
     },
     metrics: {
       enabled: parseBoolean(env.EVOPILOT_LLM_METRICS_ENABLED, true),
-      path: resolveMetricsPath(env.EVOPILOT_LLM_METRICS_PATH, env)
+      path: resolveMetricsPath(defaultMetricsPath(env), env)
     },
     contextCompression: {
       enabled: parseBoolean(env.EVOPILOT_LLM_CONTEXT_COMPRESSION_ENABLED, true),
@@ -539,6 +539,12 @@ function resolveMetricsPath(value: string | undefined, env: NodeJS.ProcessEnv = 
   if (!dataRoot) return metricsPath;
   const normalized = metricsPath.replace(/^data\/evopilot\/?/, "");
   return path.join(dataRoot, normalized || "llm-metrics.jsonl");
+}
+
+function defaultMetricsPath(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const configured = env.EVOPILOT_LLM_METRICS_PATH?.trim();
+  if (configured) return configured;
+  return env.EVOPILOT_DATA_ROOT?.trim() ? "llm-metrics.jsonl" : undefined;
 }
 
 function preflightPrompt(request: LlmGenerateRequest): string {

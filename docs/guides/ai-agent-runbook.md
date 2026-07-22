@@ -16,6 +16,7 @@ export EVOPILOT_API_TOKEN="<operator-or-admin-token>"
 export EVOPILOT_TENANT="tenant-production"
 export EVOPILOT_WORKSPACE="workspace-agent-products"
 export EVOPILOT_ACTOR="workbuddy"
+export EVOPILOT_CLI_CLIENT="workbuddy"
 ```
 
 Verify the control plane before making changes:
@@ -90,8 +91,27 @@ evopilot target run \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --client workbuddy \
   --json
 ```
+
+After every wrapper command, collect LLM usage before making a success claim:
+
+```text
+llmUsage.client.surface
+llmUsage.summary.provider
+llmUsage.summary.model
+llmUsage.summary.totalTokens
+llmUsage.summary.inputTokens
+llmUsage.summary.outputTokens
+llmUsage.summary.creditsConsumed
+llmUsage.process.responses[].requestId
+llmUsage.server.steps[].loopId
+llmUsage.server.steps[].nodeId
+llmUsage.server.steps[].totalTokens
+```
+
+`llmUsage.summary` is the command-level total. `llmUsage.server.steps[]` is the Loop executor-level evidence. If a run used an LLM but the agent cannot identify provider, model, or token totals, report the run as incomplete evidence instead of claiming completion.
 
 For a new GitHub project, use the onboarding wrapper after the tokenRef is available to the EvoPilot server:
 

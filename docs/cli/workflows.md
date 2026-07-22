@@ -204,6 +204,7 @@ evopilot target run \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --client workbuddy \
   --json
 ```
 
@@ -216,6 +217,36 @@ beta
 rc
 ga
 ```
+
+The wrapper result includes LLM and token visibility for summary, process, and executor steps:
+
+```json
+{
+  "llmUsage": {
+    "client": { "surface": "workbuddy", "command": "target run" },
+    "summary": {
+      "provider": "zhipu",
+      "model": "glm-5.1",
+      "totalTokens": 1500,
+      "inputTokens": 1000,
+      "outputTokens": 500,
+      "creditsConsumed": 1500
+    },
+    "process": {
+      "responses": [
+        { "label": "goal-run-advance-1", "requestId": "..." }
+      ]
+    },
+    "server": {
+      "steps": [
+        { "loopId": "...", "iteration": 1, "nodeId": "plan", "provider": "zhipu", "model": "glm-5.1", "totalTokens": 1500 }
+      ]
+    }
+  }
+}
+```
+
+Human-readable wrapper output includes an `LLM Usage` section. Production HTTP logs include the same caller and request-level token delta in `metadata.client` and `metadata.llmUsage`, so an operator can line up CLI `requestId` values with server logs.
 
 ## 6. One Command From New Project To Target
 

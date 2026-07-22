@@ -4,6 +4,7 @@ export interface EvoPilotClientOptions {
   tenantId?: string;
   workspaceId?: string;
   actor?: string;
+  headers?: Record<string, string>;
 }
 
 export interface EvoPilotRequestOptions {
@@ -40,6 +41,8 @@ export class EvoPilotClient {
   readonly tenantId?: string;
   readonly workspaceId?: string;
   readonly actor?: string;
+  readonly headers: Record<string, string>;
+  lastResponse?: EvoPilotResponse;
 
   constructor(options: EvoPilotClientOptions) {
     this.serverUrl = normalizeServerUrl(options.serverUrl);
@@ -47,6 +50,7 @@ export class EvoPilotClient {
     this.tenantId = options.tenantId;
     this.workspaceId = options.workspaceId;
     this.actor = options.actor;
+    this.headers = options.headers ?? {};
   }
 
   async get<T = unknown>(path: string, options: EvoPilotRequestOptions = {}): Promise<EvoPilotResponse<T>> {
@@ -67,7 +71,7 @@ export class EvoPilotClient {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
 
-    const headers = new Headers(options.headers ?? {});
+    const headers = new Headers({ ...this.headers, ...(options.headers ?? {}) });
     if (this.token) headers.set("authorization", `Bearer ${this.token}`);
     if (this.tenantId) headers.set("x-evopilot-tenant", this.tenantId);
     if (this.workspaceId) headers.set("x-evopilot-workspace", this.workspaceId);
@@ -82,7 +86,7 @@ export class EvoPilotClient {
 
     const response = await fetch(url, { method, headers, body });
     const parsed = await parseResponseBody(response);
-    return {
+    const result = {
       status: response.status,
       ok: response.ok,
       headers: response.headers,
@@ -90,6 +94,8 @@ export class EvoPilotClient {
       body: parsed as T,
       data: isRecord(parsed) && "data" in parsed ? parsed.data : undefined
     };
+    this.lastResponse = result;
+    return result;
   }
 
   async expectOk<T = unknown>(response: Promise<EvoPilotResponse<T>>): Promise<EvoPilotResponse<T>> {

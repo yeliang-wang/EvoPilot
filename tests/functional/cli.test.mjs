@@ -348,10 +348,27 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
   const configPath = path.join(dataRoot, "cli-config.json");
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-cli-repo-"));
   createGitRepository(repoRoot);
+  let llmCallCount = 0;
 
   const server = createServer({
     dataRoot,
     runtimeMode: "debug",
+    llmClient: {
+      async generate(request) {
+        llmCallCount += 1;
+        return {
+          requestId: request.requestId ?? `cli-llm-${llmCallCount}`,
+          success: true,
+          text: "# CLI LLM plan\n\nVisible token usage for CLI and WorkBuddy.",
+          provider: "cli-test-llm",
+          model: "cli-test-model",
+          durationMs: 4,
+          usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+          resolvedIntent: request.intent,
+          resolvedProfile: "test-profile"
+        };
+      }
+    },
     users: [
       {
         username: "tenant-admin",
@@ -400,6 +417,8 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(status.api.apiContractVersion, "v1");
     assert.equal(status.health.status, "UP");
     assert.equal(status.ready.status, "READY");
+    assert.equal(status.client.surface, "agent-or-script");
+    assert.equal(status.llmUsage.summary.totalTokens, 0);
     assert.ok(status.summary);
 
     const project = await runCli([
@@ -524,6 +543,8 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(goalRunJson.status.schema, "evopilot-goal-run-status/v1");
     assert.equal(goalRunJson.status.goal.id, goal.id);
     assert.ok(goalRunJson.status.chain.some((node) => node.id === "goal-target"));
+    assert.equal(goalRunJson.llmUsage.client.surface, "agent-or-script");
+    assert.equal(goalRunJson.llmUsage.summary.totalTokens, 0);
 
     const goalTimeoutJson = await runCli(["goal", "run", goal.id, "--timeout", "0s", "--config", configPath, "--json"], { status: 2 });
     assert.equal(goalTimeoutJson.schema, "evopilot-cli-goal-run/v1");
@@ -532,6 +553,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const goalRunText = await runCliText(["goal", "run", goal.id, "--max-steps", "0", "--config", configPath], { status: 2 });
     assert.match(goalRunText, /EvoPilot Goal Run/);
     assert.match(goalRunText, /Workflow/);
+    assert.match(goalRunText, /LLM Usage/);
     assert.match(goalRunText, /Next Action/);
     assert.match(goalRunText, /Evidence/);
 
@@ -578,6 +600,27 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(loopRunJson.until, "terminal");
     assert.equal(loopRunJson.loop.projectId, "cli-agent");
     assert.equal(loopRunJson.loop.status, "SUCCEEDED");
+    assert.equal(loopRunJson.llmUsage.summary.provider, "cli-test-llm");
+    assert.equal(loopRunJson.llmUsage.summary.model, "cli-test-model");
+    assert.equal(loopRunJson.llmUsage.summary.totalTokens, 12);
+    assert.equal(loopRunJson.llmUsage.server.steps[0].totalTokens, 12);
+    assert.ok(loopRunJson.llmUsage.process.responses.some((step) => step.label === "loop-run-start-1"));
+
+    const loopRunText = await runCliText([
+      "loop", "run",
+      "--project", "cli-agent",
+      "--target", "cli-agent-beta",
+      "--objective", "CLI wrapper loop run prints visible token usage",
+      "--force-decision", "SUCCEED",
+      "--max-iterations", "1",
+      "--client", "workbuddy",
+      "--config", configPath
+    ]);
+    assert.match(loopRunText, /LLM Usage/);
+    assert.match(loopRunText, /Client\s+workbuddy/);
+    assert.match(loopRunText, /Provider\s+cli-test-llm/);
+    assert.match(loopRunText, /Model\s+cli-test-model/);
+    assert.match(loopRunText, /Tokens\s+total=12/);
 
     const blockedLoopRunJson = await runCli([
       "loop", "run",
