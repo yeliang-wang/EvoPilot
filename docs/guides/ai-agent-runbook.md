@@ -51,7 +51,7 @@ Read the checklist contract:
 ```text
 schema=evopilot-project-onboarding-checklist/v1
 status=READY_TO_ONBOARD | READY_TO_RUN | WAITING_INPUT | BLOCKED
-nextAction=store-secret | install-github-app | register-project | configure-source-credentials | configure-devops | run-target | repair
+nextAction=store-secret | connect-github-account | connect-gitlab-account | install-github-app | register-project | configure-source-credentials | configure-devops | run-target | repair
 ```
 
 For GitHub/GitLab DevOps, also read:
@@ -67,7 +67,9 @@ claimBoundary=working-repo-ci | read-only-analysis | fork-ci-pr | upstream-relea
 
 The agent must not claim more than `claimBoundary`. In particular, `fork-ci-pr` is not an upstream release.
 
-If `nextAction=store-secret`, use the suggested `secret set` command from the checklist only from a trusted shell where the token environment variable is available. If `nextAction=register-project`, continue with `project onboard`. If `nextAction=run-target`, continue with `target run`. If `status=BLOCKED`, stop and report `blockers`.
+Writable GitHub/GitLab modes require an execution principal owned by the operator, user, or organization. For third-party open-source upstreams, use an operator-owned fork with `fork-validated-pr`, or use `upstream-authorized` only with maintainer credentials. If no GitHub/GitLab account or group exists, use `read-only-public` and do not claim PR, CI/CD, merge, deploy, or release readiness.
+
+If `nextAction=store-secret`, use the suggested `secret set` command from the checklist only from a trusted shell where the token environment variable is available. If `nextAction=connect-github-account` or `nextAction=connect-gitlab-account`, stop until the operator connects or creates the matching SCM account/group/principal and stores the server-side tokenRef. If `nextAction=register-project`, continue with `project onboard`. If `nextAction=run-target`, continue with `target run`. If `status=BLOCKED`, stop and report `blockers`.
 
 For an already registered project, verify source credentials and native DevOps before invoking a one-command target:
 
@@ -177,7 +179,7 @@ Expected result:
 ```json
 {
   "status": "READ_ONLY",
-  "nextAction": "configure-token-ref"
+  "nextAction": "connect-github-account"
 }
 ```
 
@@ -261,6 +263,8 @@ evopilot target run \
 
 Use this when the desired target is an open-source upstream or third-party repository, but the operator only has write permission to a fork. DevOps runs in the fork owner's GitHub/GitLab account.
 
+If the user does not have a GitHub/GitLab account or organization/group, do not continue with this scenario. Ask the user to create or connect one, or fall back to Scenario 1 read-only inspection.
+
 ```bash
 evopilot project onboard plan github \
   --repo apache/skywalking \
@@ -337,7 +341,7 @@ The agent may claim upstream release readiness only after source and DevOps pref
 
 ### Scenario 5: Repair An Existing Registered Project
 
-Use this when `project list` shows `credentialsConfigured=false`, or `project preflight` returns `READ_ONLY` / `configure-token-ref`.
+Use this when `project list` shows `credentialsConfigured=false`, or `project preflight` returns `READ_ONLY`, `connect-github-account`, `connect-gitlab-account`, or legacy `configure-token-ref`.
 
 ```bash
 evopilot project credentials set my-agent \
@@ -436,6 +440,8 @@ Agents must stop and report when any of these are returned:
 
 | Stop Condition | Meaning | Next Action |
 |---|---|---|
+| `connect-github-account` | GitHub writeback or GitHub Actions requires a GitHub account/org/service principal. | Connect or create the account, fork or authorize the repo as needed, store tokenRef, then rerun preflight. |
+| `connect-gitlab-account` | GitLab writeback or GitLab CI requires a GitLab account/group/deploy principal. | Connect or create the group/principal, fork or authorize the project as needed, store tokenRef, then rerun preflight. |
 | `human-approval` | A governed human gate is waiting. | Ask the operator; do not self-approve. |
 | `policy-review` | Release or merge policy blocked progress. | Inspect release run policy blockers. |
 | `configure-source-credentials` | Source writeback credentials are missing or read-only. | Ask for credential repair. |

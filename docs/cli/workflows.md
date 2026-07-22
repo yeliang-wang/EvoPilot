@@ -30,6 +30,8 @@ When CI/CD is part of onboarding, declare who owns the DevOps boundary:
 
 `--devops-owner` must match the GitHub owner or GitLab namespace that runs GitHub Actions or GitLab CI.
 
+For third-party open-source repositories, this means the operator must bring a GitHub/GitLab execution principal. Use `fork-validated-pr` when the writable repository is an operator-owned fork, or `upstream-authorized` only when a maintainer principal can write to the upstream. If the user has no GitHub/GitLab account or group, register the repository as `read-only-public` and stop before PR, CI/CD, merge, deploy, or release-readiness claims. EvoPilot does not supply a shared official account or generic runner for other people's upstream projects.
+
 Start with a non-mutating checklist. Agents should parse `status`, `nextAction`, `missingInputs`, `blockers`, and `commands` before attempting registration:
 
 ```bash
@@ -81,6 +83,8 @@ evopilot project onboard verify my-agent --template ga --json
 ```
 
 `READY` means source writeback can proceed. `READ_ONLY` or `BLOCKED` means the agent must stop and repair credentials before claiming PR, merge, or source-closure readiness.
+
+When the checklist or preflight returns `nextAction=connect-github-account` or `nextAction=connect-gitlab-account`, the blocker is not a retry condition. The operator must connect or create the matching GitHub/GitLab account, organization, group, service account, deploy token, or GitHub App principal, then store the server-side tokenRef before rerunning onboarding.
 
 ## 3. Register A GitLab Project
 

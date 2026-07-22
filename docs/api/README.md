@@ -254,6 +254,8 @@ GET /api/v1/projects/{projectId}/onboarding-checklist
 
 `POST /api/v1/onboarding/project/checklist` 是无副作用计划接口，接收与项目注册相同的 `repository`、`tokenRef`、可选 `devops`、`template` 和 `objective` 字段，返回 `evopilot-project-onboarding-checklist/v1`。响应包含 `status`、`steps`、`sourceCredentials`、`devops`、`missingInputs`、`blockers`、`commands` 和 `nextAction`，用于告诉 WorkBuddy/Codex/Claude Code 下一条 CLI 命令应该是 `secret set`、`project onboard`、`project devops set`、`project onboard verify` 还是 `target run`。
 
+对于 GitHub/GitLab 写回和仓库原生 DevOps，`nextAction=connect-github-account` 或 `connect-gitlab-account` 表示缺少可解析的用户/组织/服务账号执行主体。第三方开源上游必须由用户或组织自己的账号 fork 到 `workingRepo` 并使用 `fork-validated-pr`，或由维护者凭据使用 `upstream-authorized`。如果没有 GitHub/GitLab 账号或 group，只能使用 `read-only-public`，不能声明 PR、CI/CD、merge、deploy 或 release readiness。EvoPilot 不提供共享官方账号或内置通用 CI/CD runner 作为替代。
+
 `GET /api/v1/projects/{projectId}/onboarding-checklist` 复核已注册项目，会基于持久化项目、source credentials 和 GitHub Actions/GitLab CI 配置生成同一 schema。只有 `READY_TO_RUN` 才表示项目已经具备真实源代码写回和仓库原生 DevOps 的前置条件；`BLOCKED` 或 `WAITING_INPUT` 不能被解释为 GA/RC/alpha 可执行完成。
 
 ```http
@@ -262,7 +264,7 @@ GET /api/v1/projects/{projectId}/source-credentials/preflight
 POST /api/v1/projects/{projectId}/source-credentials/preflight
 ```
 
-`source-credentials` 只更新项目级 GitHub/GitLab 写回凭据元数据，例如 `tokenRef`、`token`、`password`、`username` 或 `defaultBranch`，响应不会回显 secret。`source-credentials/preflight` 不写仓库，只检查项目、provider、credential ref、token 解析、source branch 和写回策略。响应 schema 为 `evopilot-source-credential-readiness/v1`，状态为 `READY`、`READ_ONLY` 或 `BLOCKED`。公开 GitHub 无 token 时通常是 `READ_ONLY`，blocker 为 `token-resolution:SOURCE_CREDENTIAL_TOKEN_REQUIRED`；`tokenRef` 已配置但环境变量和 secret vault 都未解析时仍为 `READ_ONLY`；解析成功并能读取分支后为 `READY`。Dashboard 保存凭据后会立即调用同一 readiness contract，因此用户补齐凭据后可以回到 Target Loop Backlog 继续 autopilot。
+`source-credentials` 只更新项目级 GitHub/GitLab 写回凭据元数据，例如 `tokenRef`、`token`、`password`、`username` 或 `defaultBranch`，响应不会回显 secret。`source-credentials/preflight` 不写仓库，只检查项目、provider、credential ref、token 解析、source branch 和写回策略。响应 schema 为 `evopilot-source-credential-readiness/v1`，状态为 `READY`、`READ_ONLY` 或 `BLOCKED`。公开 GitHub/GitLab 无 token 时通常是 `READ_ONLY`，blocker 为 `token-resolution:SOURCE_CREDENTIAL_TOKEN_REQUIRED`，`nextAction` 为 `connect-github-account` 或 `connect-gitlab-account`；`tokenRef` 已配置但环境变量和 secret vault 都未解析时仍为 `READ_ONLY`，也会要求连接/修复对应执行主体；解析成功并能读取分支后为 `READY / nextAction=write-source`。Dashboard 保存凭据后会立即调用同一 readiness contract，因此用户补齐凭据后可以回到 Target Loop Backlog 继续 autopilot。
 
 项目 DevOps 绑定使用仓库原生 CI/CD。GitHub 项目绑定 GitHub Actions，GitLab 项目绑定 GitLab CI：
 
@@ -293,6 +295,8 @@ DevOps 请求可以显式携带执行边界：
 | `credentialPrincipal` | 可选的 token principal 标签，便于审计和 Agent 排障。 |
 
 `devops/preflight` 响应会返回 `executionMode`、`repositoryOwner`、`devopsOwner`、`workflowRepository`、`credentialRef`、`credentialPrincipal` 和 `claimBoundary`。这些字段是 Dashboard 和 AI Agent 展示/判断端到端能力边界的权威来源。
+
+如果 DevOps token 缺失或无法解析，GitHub 项目返回 `nextAction=connect-github-account`，GitLab 项目返回 `nextAction=connect-gitlab-account`。这表示需要先补齐运行 GitHub Actions/GitLab CI 的账号、组织、group、service account、deploy token 或 GitHub App principal，而不是让 Agent 重试同一请求。
 
 GitHub Actions 请求示例：
 

@@ -148,6 +148,8 @@ Do not infer DevOps ownership from repository URL. Use the server-returned `devo
 Automation must stop and report when JSON output contains:
 
 - `status=BLOCKED`
+- `nextAction=connect-github-account`
+- `nextAction=connect-gitlab-account`
 - `nextAction=configure-source-credentials`
 - `nextAction=human-approval`
 - `nextAction=policy-review`

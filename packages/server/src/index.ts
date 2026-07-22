@@ -291,7 +291,7 @@ interface SourceCredentialReadiness {
   }>;
   blockers: string[];
   capabilities: string[];
-  nextAction: "write-source" | "configure-token-ref" | "repair-project" | "use-local-git";
+  nextAction: "write-source" | "configure-token-ref" | "connect-github-account" | "connect-gitlab-account" | "repair-project" | "use-local-git";
   checkedAt: string;
 }
 
@@ -315,7 +315,7 @@ interface ProjectDevopsReadiness {
   }>;
   blockers: string[];
   capabilities: string[];
-  nextAction: "run-devops" | "configure-devops" | "configure-source-credentials" | "repair-project" | "inspect-ci";
+  nextAction: "run-devops" | "configure-devops" | "configure-source-credentials" | "connect-github-account" | "connect-gitlab-account" | "repair-project" | "inspect-ci";
   checkedAt: string;
 }
 
@@ -351,7 +351,7 @@ interface ProjectOnboardingChecklist {
     when: string;
     requiresHuman?: boolean;
   }>;
-  nextAction: "store-secret" | "install-github-app" | "register-project" | "configure-source-credentials" | "configure-devops" | "run-target" | "repair";
+  nextAction: "store-secret" | "connect-github-account" | "connect-gitlab-account" | "install-github-app" | "register-project" | "configure-source-credentials" | "configure-devops" | "run-target" | "repair";
   generatedAt: string;
 }
 
@@ -10239,27 +10239,33 @@ async function buildProjectOnboardingChecklist(args: {
   const tokenResolved = tokenRef ? Boolean(resolveTokenRef(args.store, tokenRef, { tenantId, workspaceId })) : false;
   const hasInlineSecret = Boolean(repository?.credentials?.token || repository?.credentials?.password);
   const remoteRepository = provider === "github" || provider === "gitlab";
+  const executionMode = repository?.topology?.executionMode ?? "owned-repository";
+  const readOnlyPublicMode = executionMode === "read-only-public";
+  const principalNextAction = scmPrincipalNextAction(provider);
+  const writablePrincipalConfigured = Boolean(tokenRef || hasInlineSecret);
+  const writablePrincipalReady = Boolean(tokenResolved || hasInlineSecret);
   addStep({
     id: "secret",
-    label: "Server-side source credential",
-    status: !remoteRepository ? "SKIP" : tokenRef ? tokenResolved ? "PASS" : "FAIL" : hasInlineSecret ? "WARN" : "FAIL",
-    required: remoteRepository,
+    label: "GitHub/GitLab execution principal",
+    status: !remoteRepository ? "SKIP" : readOnlyPublicMode ? writablePrincipalReady ? "PASS" : "WARN" : tokenRef ? tokenResolved ? "PASS" : "FAIL" : hasInlineSecret ? "WARN" : "FAIL",
+    required: remoteRepository && !readOnlyPublicMode,
     evidence: !remoteRepository ? ["local-git does not require a server-side source token"]
-      : tokenRef ? [`tokenRef=${tokenRef}`, `tokenRefResolved=${tokenResolved}`]
-        : hasInlineSecret ? ["inlineCredentialConfigured=true", "prefer tokenRef backed by server env or EvoPilot secret vault"] : ["tokenRef=missing"],
-    nextAction: !remoteRepository ? "continue" : tokenRef && tokenResolved ? "continue" : "store-secret"
+      : readOnlyPublicMode && !writablePrincipalConfigured ? [`executionMode=${executionMode}`, `${provider}-principal=missing`, "read-only-public cannot claim PR, CI/CD, or release readiness"]
+        : tokenRef ? [`tokenRef=${tokenRef}`, `tokenRefResolved=${tokenResolved}`]
+          : hasInlineSecret ? ["inlineCredentialConfigured=true", "prefer tokenRef backed by server env or EvoPilot secret vault"] : ["tokenRef=missing", `${provider}-account-or-org-principal=required-for-writeback`],
+    nextAction: !remoteRepository || readOnlyPublicMode || writablePrincipalReady ? "continue" : principalNextAction
   });
 
   const matchingGitHubApp = provider === "github" && repository ? findMatchingGitHubAppInstallation(args.store, tenantId, workspaceId, repository, args.body) : undefined;
   addStep({
     id: "github-app",
     label: "GitHub App installation",
-    status: provider !== "github" ? "SKIP" : matchingGitHubApp?.status === "READY" ? "PASS" : tokenResolved || hasInlineSecret ? "WARN" : "FAIL",
-    required: provider === "github" && !tokenResolved && !hasInlineSecret,
+    status: provider !== "github" ? "SKIP" : matchingGitHubApp?.status === "READY" ? "PASS" : "WARN",
+    required: false,
     evidence: provider !== "github" ? ["provider is not GitHub"]
       : matchingGitHubApp ? [`installation=${matchingGitHubApp.id}`, `status=${matchingGitHubApp.status}`, `repositories=${matchingGitHubApp.repositories.length}`]
         : ["installation=missing", "GitHub App is optional when a scoped source tokenRef is ready"],
-    nextAction: provider === "github" && !matchingGitHubApp ? "install-github-app" : "continue"
+    nextAction: provider === "github" && !matchingGitHubApp && !readOnlyPublicMode ? "install-github-app" : "continue"
   });
 
   const draftProject: StoredProject | undefined = args.project ?? (projectId && repository ? {
@@ -10282,8 +10288,6 @@ async function buildProjectOnboardingChecklist(args: {
     nextAction: args.project ? "continue" : draftProject && validation.status === "VERIFIED" ? "register-project" : "repair-project"
   });
 
-  const executionMode = repository?.topology?.executionMode ?? "owned-repository";
-  const readOnlyPublicMode = executionMode === "read-only-public";
   const sourceCredentials = draftProject ? await checkSourceCredentialReadiness(draftProject, args.store) : undefined;
   addStep({
     id: "source-credentials",
@@ -10291,7 +10295,7 @@ async function buildProjectOnboardingChecklist(args: {
     status: sourceCredentials?.status === "READY" ? "PASS" : sourceCredentials?.status === "READ_ONLY" && readOnlyPublicMode ? "WARN" : sourceCredentials?.status === "READ_ONLY" ? "FAIL" : sourceCredentials ? "FAIL" : "SKIP",
     required: Boolean(draftProject) && !readOnlyPublicMode,
     evidence: sourceCredentials ? [`status=${sourceCredentials.status}`, ...sourceCredentials.blockers] : ["project draft unavailable"],
-    nextAction: sourceCredentials?.nextAction ?? "configure-source-credentials"
+    nextAction: remoteRepository && !readOnlyPublicMode && !writablePrincipalReady ? principalNextAction : sourceCredentials?.nextAction ?? "configure-source-credentials"
   });
 
   const draftDevops = args.project?.devops ?? (draftProject ? normalizeProjectDevops(args.body, draftProject) : undefined);
@@ -10305,7 +10309,7 @@ async function buildProjectOnboardingChecklist(args: {
     evidence: !remoteRepository ? ["local-git project does not use GitHub Actions or GitLab CI"]
       : readOnlyPublicMode ? ["executionMode=read-only-public", "DevOps release readiness requires fork-validated-pr or upstream-authorized"]
         : devops ? [`status=${devops.status}`, ...devops.blockers] : ["devops=missing"],
-    nextAction: !remoteRepository || readOnlyPublicMode ? "continue" : devops?.nextAction ?? "configure-devops"
+    nextAction: !remoteRepository || readOnlyPublicMode ? "continue" : !writablePrincipalReady ? principalNextAction : devops?.nextAction ?? "configure-devops"
   });
 
   addStep({
@@ -10377,6 +10381,28 @@ function onboardingRepositoryEvidence(repository: ProjectRepositoryRegistration)
   return "repository=unknown";
 }
 
+function scmPrincipalNextAction(provider: ProjectRepositoryProvider | "unknown"): "connect-github-account" | "connect-gitlab-account" | "store-secret" {
+  if (provider === "github") return "connect-github-account";
+  if (provider === "gitlab") return "connect-gitlab-account";
+  return "store-secret";
+}
+
+function scmConnectPrincipalNextAction(provider: "github" | "gitlab"): "connect-github-account" | "connect-gitlab-account" {
+  return provider === "github" ? "connect-github-account" : "connect-gitlab-account";
+}
+
+function scmPrincipalName(provider: ProjectRepositoryProvider | "unknown"): string {
+  if (provider === "github") return "GitHub account, organization, service account, or GitHub App principal";
+  if (provider === "gitlab") return "GitLab account, group, deploy token, or service account";
+  return "SCM principal";
+}
+
+function scmPrincipalMissingInput(provider: ProjectRepositoryProvider | "unknown"): string {
+  if (provider === "github") return "github-account-or-org-principal";
+  if (provider === "gitlab") return "gitlab-account-or-group-principal";
+  return "scm-principal";
+}
+
 function maskOnboardingRepository(repository: ProjectRepositoryRegistration, store: FileStore, scope: { tenantId: string; workspaceId: string }): ProjectOnboardingChecklist["repository"] {
   const { credentials, ...safe } = repository;
   const credentialMode = credentials?.tokenRef ? "tokenRef"
@@ -10419,7 +10445,10 @@ function onboardingMissingInputs(args: {
   const readOnlyPublicMode = args.repository?.topology?.executionMode === "read-only-public";
   if (!args.projectId) missing.push("project-id");
   if (!args.repository) missing.push("repository");
-  if (args.remoteRepository && !readOnlyPublicMode && !args.tokenRef && !args.repository?.credentials?.token && !args.repository?.credentials?.password) missing.push("server-side-token-ref");
+  if (args.remoteRepository && !readOnlyPublicMode && !args.tokenRef && !args.repository?.credentials?.token && !args.repository?.credentials?.password) {
+    missing.push(scmPrincipalMissingInput(args.provider));
+    missing.push("server-side-token-ref");
+  }
   if ((args.provider === "github" || args.provider === "gitlab") && !readOnlyPublicMode && !args.draftDevops) missing.push("repository-native-devops-contract");
   if (!args.template) missing.push("target-template(optional-for-registration)");
   return missing;
@@ -10440,17 +10469,18 @@ function buildProjectOnboardingCommands(args: {
 }): ProjectOnboardingChecklist["commands"] {
   const commands: ProjectOnboardingChecklist["commands"] = [];
   const remoteRepository = args.provider === "github" || args.provider === "gitlab";
+  const readOnlyPublicMode = args.repository?.topology?.executionMode === "read-only-public";
   const defaultTokenRef = args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId);
-  if (remoteRepository && defaultTokenRef && !args.tokenResolved) {
+  if (remoteRepository && defaultTokenRef && !args.tokenResolved && !readOnlyPublicMode) {
     commands.push({
-      id: "store-source-token",
-      title: "Store writable source token once on the EvoPilot server",
+      id: scmPrincipalNextAction(args.provider),
+      title: `Connect ${args.provider === "github" ? "GitHub" : "GitLab"} execution principal and store writable source token`,
       command: `evopilot secret set --id ${cliArg(defaultTokenRef)} --kind source-token --from-env ${cliArg(defaultTokenRef)} --json`,
-      when: "Run once after the operator exports the token in the shell that invokes the CLI.",
+      when: `Create or connect a ${scmPrincipalName(args.provider)}, fork third-party upstreams into that principal when needed, export the token, then run this once from a trusted shell.`,
       requiresHuman: true
     });
   }
-  if (args.provider === "github") {
+  if (args.provider === "github" && !readOnlyPublicMode) {
     commands.push({
       id: "optional-github-app",
       title: "Register GitHub App installation metadata",
@@ -10513,13 +10543,15 @@ function buildProjectOnboardCliCommand(args: {
   objective?: string;
 }): string {
   const parts = ["evopilot", "project", "onboard", args.provider];
+  const readOnlyPublicMode = args.repository?.topology?.executionMode === "read-only-public";
   pushCliOption(parts, "id", args.projectId);
   pushRepositoryCliOptions(parts, args.repository);
-  pushCliOption(parts, "token-ref", args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId));
+  if (!readOnlyPublicMode) pushCliOption(parts, "token-ref", args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId));
   pushDevopsCliOptions(parts, args.draftDevops);
   pushCliOption(parts, "template", args.template);
   pushCliOption(parts, "objective", args.objective);
-  parts.push("--require-source-ready", "--require-devops-ready", "--json");
+  if (!readOnlyPublicMode) parts.push("--require-source-ready", "--require-devops-ready");
+  parts.push("--json");
   return parts.join(" ");
 }
 
@@ -10582,7 +10614,10 @@ function cliArg(value: string): string {
 function onboardingNextAction(status: ProjectOnboardingChecklist["status"], steps: ProjectOnboardingChecklist["steps"]): ProjectOnboardingChecklist["nextAction"] {
   if (status === "READY_TO_RUN") return "run-target";
   const failed = steps.find((step) => step.required && step.status === "FAIL");
-  if (failed?.id === "secret" || failed?.id === "source-credentials") return "store-secret";
+  if (failed?.id === "secret" || failed?.id === "source-credentials") {
+    if (failed.nextAction === "connect-github-account" || failed.nextAction === "connect-gitlab-account") return failed.nextAction;
+    return "store-secret";
+  }
   if (failed?.id === "github-app") return "install-github-app";
   if (failed?.id === "project" || failed?.id === "repository" || failed?.id === "workspace") return "repair";
   if (failed?.id === "devops") return "configure-devops";
@@ -16338,6 +16373,8 @@ function sourceCredentialReadinessResult(projectId: string, provider: ProjectRep
   const status: SourceCredentialReadiness["status"] = blockers.length === 0 ? "READY"
     : blockers.every((blocker) => blocker.includes("credential") || blocker.includes("token") || blocker.includes("source-branch:SKIP") || blocker.includes("writeback-policy")) ? "READ_ONLY"
       : "BLOCKED";
+  const missingScmPrincipal = (provider === "github" || provider === "gitlab")
+    && blockers.some((blocker) => blocker.includes("SOURCE_CREDENTIAL_TOKEN_REQUIRED") || blocker.includes("credential-ref:FAIL") || blocker.includes("token-resolution:SOURCE_CREDENTIAL_TOKEN_REQUIRED"));
   return {
     schema: "evopilot-source-credential-readiness/v1",
     projectId,
@@ -16355,7 +16392,7 @@ function sourceCredentialReadinessResult(projectId: string, provider: ProjectRep
     nextAction: status === "READY" ? "write-source"
       : provider === "local-git" ? "use-local-git"
         : blockers.some((blocker) => blocker.includes("project") || blocker.includes("provider") || blocker.includes("source-branch:FAIL")) ? "repair-project"
-          : "configure-token-ref",
+          : missingScmPrincipal ? scmConnectPrincipalNextAction(provider as "github" | "gitlab") : "configure-token-ref",
     checkedAt
   };
 }
@@ -16807,6 +16844,9 @@ function projectDevopsReadinessResult(project: StoredProject, provider: ProjectD
     : blockers.every((blocker) => blocker.includes("ci-state")) ? "OBSERVABLE"
       : "BLOCKED";
   const context = devopsReadinessContext(project, devops);
+  const scmProvider = project.repository?.provider ?? "unknown";
+  const missingScmPrincipal = (scmProvider === "github" || scmProvider === "gitlab")
+    && blockers.some((blocker) => blocker.includes("DEVOPS_TOKEN_REQUIRED") || blocker.includes("token-resolution"));
   return {
     schema: "evopilot-project-devops-readiness/v1",
     projectId: project.id,
@@ -16826,7 +16866,8 @@ function projectDevopsReadinessResult(project: StoredProject, provider: ProjectD
       "dashboard-cli-readable-chain"
     ],
     nextAction: status === "READY" ? "run-devops"
-      : blockers.some((blocker) => blocker.includes("token")) ? "configure-source-credentials"
+      : missingScmPrincipal ? scmConnectPrincipalNextAction(scmProvider as "github" | "gitlab")
+        : blockers.some((blocker) => blocker.includes("token")) ? "configure-source-credentials"
         : blockers.some((blocker) => blocker.includes("devops-provider") || blocker.includes("devops-owner") || blocker.includes("execution-mode") || blocker.includes("ci-config")) ? "configure-devops"
           : blockers.some((blocker) => blocker.includes("project") || blocker.includes("source-provider")) ? "repair-project"
             : "inspect-ci",

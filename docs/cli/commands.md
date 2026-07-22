@@ -99,6 +99,8 @@ Credential options:
 
 `project onboard plan` is a non-mutating front-door checklist. It calls `POST /api/v1/onboarding/project/checklist` and returns `evopilot-project-onboarding-checklist/v1` with `status`, `steps`, `sourceCredentials`, `devops`, `missingInputs`, `blockers`, `commands`, `nextAction`, and `requestId`.
 
+Writable GitHub/GitLab modes require an execution principal. If the checklist returns `nextAction=connect-github-account` or `nextAction=connect-gitlab-account`, the operator must connect or create the account/organization/group/service principal, fork or authorize the repository as needed, and store the server-side `tokenRef` before rerunning onboarding. Use `read-only-public` when no SCM account exists.
+
 Use it before first project registration:
 
 ```bash
@@ -194,12 +196,12 @@ DevOps configuration requires an explicit execution boundary. The CLI blocks amb
 
 Execution modes:
 
-| Mode | Use When | Claim Boundary |
-|---|---|---|
-| `owned-repository` | The same GitHub/GitLab owner controls source writeback and CI/CD. | `working-repo-ci` |
-| `read-only-public` | The repository is public and no writable token is available. | `read-only-analysis` |
-| `fork-validated-pr` | The upstream is public or third-party, and EvoPilot works in a writable fork. | `fork-ci-pr` |
-| `upstream-authorized` | A maintainer token can write to and run CI/CD in the upstream. | `upstream-release` |
+| Mode | Use When | Required Principal | Claim Boundary |
+|---|---|---|---|
+| `owned-repository` | The same GitHub/GitLab owner controls source writeback and CI/CD. | Owner, organization, group, service account, deploy token, or GitHub App principal with write/CI permission. | `working-repo-ci` |
+| `read-only-public` | The repository is public and no writable token/account is available. | None. | `read-only-analysis` |
+| `fork-validated-pr` | The upstream is public or third-party, and EvoPilot works in a writable fork. | Operator-owned fork account/organization/group that runs CI/CD. | `fork-ci-pr` |
+| `upstream-authorized` | A maintainer token can write to and run CI/CD in the upstream. | Upstream maintainer principal. | `upstream-release` |
 
 `project devops preflight` returns `executionMode`, `repositoryOwner`, `devopsOwner`, `workflowRepository`, `credentialRef`, `credentialPrincipal`, and `claimBoundary`. Automation must stop when `status` is not `READY`, and must not claim a stronger result than `claimBoundary`.
 

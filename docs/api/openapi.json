@@ -3996,6 +3996,7 @@
     "/api/v1/projects/{projectId}/source-credentials/preflight": {
       "get": {
         "summary": "读取项目源码写回凭据 readiness",
+        "description": "返回 evopilot-source-credential-readiness/v1。GitHub/GitLab 写回或原生 DevOps 缺少可解析执行主体时，状态为 READ_ONLY 或 BLOCKED，nextAction 为 connect-github-account 或 connect-gitlab-account；read-only-public 只能用于分析，不能声明 PR、CI/CD、merge、deploy 或 release readiness。",
         "security": [
           {
             "bearerAuth": []
@@ -4032,6 +4033,7 @@
       },
       "post": {
         "summary": "执行项目源码写回凭据预检",
+        "description": "无副作用预检。检查项目、provider、credential ref、token 解析、source branch 和写回策略。GitHub/GitLab writable modes 缺少用户/组织/group/service principal 时返回 connect-github-account 或 connect-gitlab-account。",
         "security": [
           {
             "bearerAuth": []
@@ -4081,7 +4083,7 @@
     "/api/v1/projects/{projectId}/source-credentials": {
       "post": {
         "summary": "保存项目源码写回凭据",
-        "description": "绑定 tokenRef、inline token、password、username 或默认分支；响应不回显 secret。",
+        "description": "绑定 tokenRef、inline token、password、username 或默认分支；响应不回显 secret。tokenRef 应属于执行 GitHub/GitLab 写回和原生 DevOps 的用户、组织、group、service account、deploy token 或 GitHub App principal。",
         "security": [
           {
             "bearerAuth": []
@@ -4165,7 +4167,7 @@
       },
       "post": {
         "summary": "保存项目 GitHub/GitLab 原生 DevOps 配置",
-        "description": "provider 支持 github-actions 和 gitlab-ci。GitHub Actions 只能用于 GitHub 项目；GitLab CI 只能用于 GitLab 项目。请求应显式携带 executionMode、devopsOwner、可选 upstreamRepo/workingRepo/workflowRepo/devopsTokenRef/credentialPrincipal。read-only-public 不能配置 DevOps；fork-validated-pr 必须声明 upstreamRepo 和 workingRepo。",
+        "description": "provider 支持 github-actions 和 gitlab-ci。GitHub Actions 只能用于 GitHub 项目；GitLab CI 只能用于 GitLab 项目。请求应显式携带 executionMode、devopsOwner、可选 upstreamRepo/workingRepo/workflowRepo/devopsTokenRef/credentialPrincipal。read-only-public 不能配置 DevOps；fork-validated-pr 必须声明 upstreamRepo 和 workingRepo，并使用 operator-owned fork principal；upstream-authorized 需要 maintainer principal。EvoPilot 不提供共享官方账号或通用 CI/CD runner。",
         "security": [
           {
             "bearerAuth": []
@@ -4320,7 +4322,7 @@
     "/api/v1/projects/{projectId}/devops/preflight": {
       "get": {
         "summary": "读取项目 DevOps readiness",
-        "description": "返回 evopilot-project-devops-readiness/v1，状态为 READY、OBSERVABLE 或 BLOCKED。响应包含 executionMode、repositoryOwner、devopsOwner、workflowRepository、credentialRef、credentialPrincipal、claimBoundary、checks、blockers 和 nextAction。claimBoundary 是 Agent/Dashboard 可声明能力的上限。",
+        "description": "返回 evopilot-project-devops-readiness/v1，状态为 READY、OBSERVABLE 或 BLOCKED。响应包含 executionMode、repositoryOwner、devopsOwner、workflowRepository、credentialRef、credentialPrincipal、claimBoundary、checks、blockers 和 nextAction。claimBoundary 是 Agent/Dashboard 可声明能力的上限。缺少 GitHub/GitLab DevOps 执行主体时 nextAction 为 connect-github-account 或 connect-gitlab-account。",
         "security": [
           {
             "bearerAuth": []
@@ -4389,7 +4391,7 @@
     "/api/v1/onboarding/project/checklist": {
       "post": {
         "summary": "生成项目首次接入 checklist",
-        "description": "无副作用计划接口。用于 CLI、Dashboard 和 AI Agent 在项目注册前检查 workspace、repository、server-side tokenRef、GitHub App、source writeback、GitHub Actions/GitLab CI、DevOps executionMode/devopsOwner/claimBoundary、目标模板和下一步命令。响应 schema 为 evopilot-project-onboarding-checklist/v1。open-source upstream 场景应传 upstreamRepo、workingRepo、executionMode=fork-validated-pr 和 devopsOwner。",
+        "description": "无副作用计划接口。用于 CLI、Dashboard 和 AI Agent 在项目注册前检查 workspace、repository、server-side tokenRef、GitHub App、source writeback、GitHub Actions/GitLab CI、DevOps executionMode/devopsOwner/claimBoundary、目标模板和下一步命令。响应 schema 为 evopilot-project-onboarding-checklist/v1。open-source upstream 场景应传 upstreamRepo、workingRepo、executionMode=fork-validated-pr 和 devopsOwner，并由用户/组织自己的 GitHub/GitLab principal 执行 fork DevOps；如果缺少 principal，nextAction 为 connect-github-account 或 connect-gitlab-account；无账号场景只能使用 read-only-public。",
         "security": [
           {
             "bearerAuth": []

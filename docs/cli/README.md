@@ -111,6 +111,8 @@ Declare the DevOps execution boundary whenever the checklist or wrapper configur
 
 `--devops-owner` is the GitHub owner or GitLab namespace whose account runs the project DevOps. For open-source upstream work, set `--upstream-repo` to the public project and `--working-repo` to the writable fork.
 
+Full writeback, PR/MR, CI/CD, merge, deploy, or release readiness requires a GitHub/GitLab execution principal owned by the operator, user, or organization. For a third-party open-source upstream, the operator must either fork the upstream into a writable account/organization and use `fork-validated-pr`, or provide maintainer-authorized credentials and use `upstream-authorized`. If no GitHub/GitLab account or group exists, use `read-only-public`; EvoPilot will not provide a default platform account or built-in generic DevOps runner.
+
 ```bash
 evopilot project onboard plan github \
   --repo <owner>/<repo> \
@@ -130,7 +132,7 @@ evopilot project onboard plan github \
   --json
 ```
 
-If `nextAction` is `store-secret`, store the token once on the EvoPilot server or in the current tenant/workspace secret vault:
+If `nextAction` is `store-secret`, `connect-github-account`, or `connect-gitlab-account`, store the token once on the EvoPilot server or in the current tenant/workspace secret vault after the correct GitHub/GitLab account, organization, group, service account, deploy token, or GitHub App principal exists:
 
 ```bash
 evopilot secret set \
@@ -172,6 +174,8 @@ evopilot project onboard github \
 ```
 
 For a public upstream with a writable fork:
+
+Precondition: create or use the operator-owned GitHub/GitLab account or organization first, fork the upstream into `--working-repo`, and make sure the `--token-ref` resolves to that principal on the EvoPilot server.
 
 ```bash
 evopilot project onboard github \

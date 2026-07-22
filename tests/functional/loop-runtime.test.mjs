@@ -2688,7 +2688,7 @@ test("Project source credential control plane separates public read-only from wr
     assert.equal(readOnly.status, 409);
     assert.equal(readOnly.body.data.schema, "evopilot-source-credential-readiness/v1");
     assert.equal(readOnly.body.data.status, "READ_ONLY");
-    assert.equal(readOnly.body.data.nextAction, "configure-token-ref");
+    assert.equal(readOnly.body.data.nextAction, "connect-github-account");
     assert.ok(readOnly.body.data.blockers.includes("token-resolution:SOURCE_CREDENTIAL_TOKEN_REQUIRED"));
 
     const unresolved = await jsonFetch(`${baseUrl}/api/v1/projects/github-credential-control/source-credentials`, {
@@ -2701,6 +2701,7 @@ test("Project source credential control plane separates public read-only from wr
     assert.equal(unresolved.body.data.project.repository.tokenRef, tokenRef);
     assert.equal(unresolved.body.data.project.repository.tokenRefResolved, false);
     assert.equal(unresolved.body.data.readiness.status, "READ_ONLY");
+    assert.equal(unresolved.body.data.readiness.nextAction, "connect-github-account");
 
     process.env[tokenRef] = "write-token";
     const ready = await jsonFetch(`${baseUrl}/api/v1/projects/github-credential-control/source-credentials`, {

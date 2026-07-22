@@ -79,6 +79,8 @@ Mutating wrapper commands should use stable job or task identifiers when availab
 If a command returns any of these `nextAction` values, the agent must stop and report the blocker:
 
 ```text
+connect-github-account
+connect-gitlab-account
 human-approval
 policy-review
 configure-source-credentials
@@ -100,6 +102,8 @@ max-iterations
 
 Do not approve human gates, merge source, or deploy production changes unless the server state and the user's instruction explicitly allow that operation.
 
+`connect-github-account` and `connect-gitlab-account` mean the project needs a user-owned or organization-owned SCM execution principal before writeback or repository-native DevOps can run. Do not retry the same wrapper command until the operator has connected the account/group and stored the tokenRef on the EvoPilot server or tenant/workspace secret vault.
+
 ## Token Rules
 
 Do not pass raw GitHub or GitLab tokens in daily `target run`, `goal run`, or `loop run` commands.
@@ -107,9 +111,10 @@ Do not pass raw GitHub or GitLab tokens in daily `target run`, `goal run`, or `l
 Preferred pattern:
 
 1. A production operator stores the real token in the EvoPilot server runtime or secret manager.
-2. The project stores only `tokenRef`.
-3. The agent runs `project preflight` and `project devops preflight`.
-4. The agent proceeds only when readiness is `READY`.
+2. The token belongs to the GitHub/GitLab account, organization, group, service account, deploy token, or GitHub App principal that owns the target DevOps boundary.
+3. The project stores only `tokenRef`.
+4. The agent runs `project preflight` and `project devops preflight`.
+5. The agent proceeds only when readiness is `READY`.
 
 Example:
 
@@ -165,6 +170,8 @@ evopilot project onboard github \
 ## Native DevOps Rules
 
 GitHub projects use GitHub Actions. GitLab projects use GitLab CI.
+
+EvoPilot does not provide a default shared DevOps account or generic runner for third-party repositories. For a public upstream, use the operator's fork/account for `fork-validated-pr`, use maintainer credentials for `upstream-authorized`, or stay in `read-only-public`.
 
 DevOps configuration commands must declare ownership:
 

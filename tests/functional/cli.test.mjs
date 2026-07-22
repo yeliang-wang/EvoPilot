@@ -152,6 +152,50 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
     assert.equal(forkPlan.devops.workflowRepository, "yeliang-wang/skywalking-fork");
     assert.equal(forkPlan.devops.claimBoundary, "fork-ci-pr");
 
+    const forkWithoutPrincipal = await runCli([
+      "project", "onboard", "plan", "github",
+      "--id", "skywalking-no-principal",
+      "--base-url", github.baseUrl,
+      "--repo", "apache/skywalking",
+      "--upstream-repo", "apache/skywalking",
+      "--working-repo", "yeliang-wang/skywalking-fork",
+      "--branch", "main",
+      "--execution-mode", "fork-validated-pr",
+      "--devops-owner", "yeliang-wang",
+      "--ci-workflow", "ci.yml",
+      "--ci-required-check", "build",
+      "--template", "rc",
+      "--objective", "Validate SkyWalking fork before upstream PR",
+      "--config", configPath,
+      "--json"
+    ], { status: 2 });
+    assert.equal(forkWithoutPrincipal.status, "BLOCKED");
+    assert.equal(forkWithoutPrincipal.nextAction, "connect-github-account");
+    assert.ok(forkWithoutPrincipal.missingInputs.includes("github-account-or-org-principal"));
+    assert.ok(forkWithoutPrincipal.missingInputs.includes("server-side-token-ref"));
+    assert.ok(forkWithoutPrincipal.commands.some((command) => command.id === "connect-github-account" && command.command.includes("evopilot secret set")));
+
+    const readOnlyPlan = await runCli([
+      "project", "onboard", "plan", "github",
+      "--id", "skywalking-readonly-cli",
+      "--base-url", github.baseUrl,
+      "--repo", "apache/skywalking",
+      "--execution-mode", "read-only-public",
+      "--template", "rc",
+      "--objective", "Inspect SkyWalking and report blockers without writeback",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(readOnlyPlan.status, "READY_TO_ONBOARD");
+    assert.equal(readOnlyPlan.nextAction, "register-project");
+    assert.equal(readOnlyPlan.repository.topology.executionMode, "read-only-public");
+    assert.equal(readOnlyPlan.repository.topology.claimBoundary, "read-only-analysis");
+    assert.equal(readOnlyPlan.sourceCredentials.status, "READ_ONLY");
+    assert.equal(readOnlyPlan.devops, undefined);
+    assert.equal(readOnlyPlan.missingInputs.includes("server-side-token-ref"), false);
+    assert.equal(readOnlyPlan.missingInputs.includes("github-account-or-org-principal"), false);
+    assert.ok(readOnlyPlan.commands.some((command) => command.id === "project-onboard" && !command.command.includes("--token-ref") && !command.command.includes("--require-devops-ready")));
+
     const ambiguous = await runCliErrorText([
       "project", "onboard", "plan", "github",
       "--id", "ambiguous-skywalking",
