@@ -2493,6 +2493,411 @@
         ]
       }
     },
+    "/api/v1/llm-profiles": {
+      "get": {
+        "summary": "列出 LLM Profiles",
+        "description": "返回当前 tenant/workspace 可见的 LLM Profile。响应不回显 API key，只返回 apiKeyRef 和 apiKeyConfigured。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LLM Profile 列表"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      },
+      "post": {
+        "summary": "创建或更新 LLM Profile",
+        "description": "创建 tenant/workspace scoped LLM Profile。当前 provider 支持 openai-compatible。请求必须包含 baseUrl、model/modelName 和 apiKeyRef；真实 API key 通过服务端环境变量或 secret vault 解析。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "openai-compatible"
+                    ]
+                  },
+                  "providerName": {
+                    "type": "string"
+                  },
+                  "baseUrl": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "apiKeyRef": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LLM Profile 已更新"
+          },
+          "201": {
+            "description": "LLM Profile 已创建"
+          },
+          "400": {
+            "description": "缺少 baseUrl、model/modelName 或 apiKeyRef"
+          },
+          "403": {
+            "description": "需要管理员角色"
+          },
+          "409": {
+            "description": "workspace 与 tenant 不匹配"
+          }
+        }
+      }
+    },
+    "/api/v1/llm-profiles/{profileId}": {
+      "get": {
+        "summary": "读取 LLM Profile",
+        "description": "读取一个 LLM Profile 的非 secret 元数据。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "description": "LLM Profile id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LLM Profile 详情"
+          },
+          "403": {
+            "description": "tenant/workspace 不匹配或权限不足"
+          },
+          "404": {
+            "description": "LLM Profile 不存在"
+          }
+        }
+      }
+    },
+    "/api/v1/llm-profiles/{profileId}/preflight": {
+      "get": {
+        "summary": "读取 LLM Profile readiness",
+        "description": "解析 apiKeyRef 并返回 evopilot-llm-profile-readiness/v1。GET 可用于只读查看最近 readiness；POST 会执行 provider probe 并写入审计。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "description": "LLM Profile id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LLM Profile READY"
+          },
+          "403": {
+            "description": "tenant/workspace 不匹配或权限不足"
+          },
+          "404": {
+            "description": "LLM Profile 不存在"
+          },
+          "409": {
+            "description": "LLM Profile BLOCKED"
+          }
+        }
+      },
+      "post": {
+        "summary": "执行 LLM Profile provider preflight",
+        "description": "执行 provider probe，记录 llm-profile.preflight 审计和结构化日志。返回 provider、model、checks、blockers 和 nextAction。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profileId",
+            "in": "path",
+            "required": true,
+            "description": "LLM Profile id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LLM Profile READY"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "LLM Profile 不存在"
+          },
+          "409": {
+            "description": "LLM Profile BLOCKED"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/llm": {
+      "get": {
+        "summary": "读取项目 LLM 绑定",
+        "description": "返回项目默认 LLM Profile 绑定和当前解析 selection。响应不回显 API key。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 LLM 绑定"
+          },
+          "404": {
+            "description": "项目不存在"
+          }
+        }
+      },
+      "post": {
+        "summary": "保存项目 LLM 绑定",
+        "description": "绑定项目默认 LLM Profile。Goal/Loop 运行未传 llmProfileId 时会使用该 profile；仍可通过 run-level llmProfileId 覆盖。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "profile": {
+                    "type": "string"
+                  },
+                  "llmProfileId": {
+                    "type": "string"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 LLM 已绑定"
+          },
+          "403": {
+            "description": "需要管理员角色或 LLM Profile 不属于当前 tenant/workspace"
+          },
+          "404": {
+            "description": "项目或 LLM Profile 不存在"
+          }
+        }
+      },
+      "put": {
+        "summary": "更新项目 LLM 绑定",
+        "description": "语义同 POST。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 LLM 已更新"
+          },
+          "404": {
+            "description": "项目或 LLM Profile 不存在"
+          }
+        }
+      },
+      "delete": {
+        "summary": "清除项目 LLM 绑定",
+        "description": "清除后项目回退到服务端全局默认 LLM。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 LLM 绑定已清除"
+          },
+          "404": {
+            "description": "项目不存在"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{projectId}/llm/preflight": {
+      "get": {
+        "summary": "读取项目 LLM readiness",
+        "description": "按 run override、项目默认 profile、全局默认 LLM 的规则返回当前项目 LLM readiness。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 LLM READY"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目 LLM BLOCKED"
+          }
+        }
+      },
+      "post": {
+        "summary": "执行项目 LLM readiness preflight",
+        "description": "用于 CLI/Dashboard/Agent 在启动 Goal/Loop 前确认 provider、model、apiKeyRef 和 provider probe。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "Project id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "项目 LLM READY"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "404": {
+            "description": "项目不存在"
+          },
+          "409": {
+            "description": "项目 LLM BLOCKED"
+          }
+        }
+      }
+    },
     "/api/v1/github-app/installations": {
       "get": {
         "summary": "列出 GitHub App 安装",

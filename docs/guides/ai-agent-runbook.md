@@ -77,7 +77,40 @@ For an already registered project, verify source credentials and native DevOps b
 ```bash
 evopilot project preflight my-agent --json
 evopilot project devops preflight my-agent --json
+evopilot project llm preflight my-agent --json
 evopilot project onboard verify my-agent --template ga --json
+```
+
+If the project must use a custom public or private LLM, create the server-side LLM profile before the first loop target. This is normally a one-time trusted setup step:
+
+```bash
+export LLM_API_KEY_MY_AGENT="<real-llm-api-key>"
+
+evopilot secret set \
+  --id LLM_API_KEY_MY_AGENT \
+  --kind llm-key \
+  --from-env LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile set my-agent-llm \
+  --provider openai-compatible \
+  --base-url https://llm.example.com/v1 \
+  --model qwen2.5-coder-32b \
+  --api-key-ref LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile preflight my-agent-llm --json
+
+evopilot project llm set my-agent \
+  --profile my-agent-llm \
+  --require-llm-ready \
+  --json
+```
+
+Daily WorkBuddy commands should pass only the LLM profile id, never the raw API key. EvoPilot resolves LLMs in this order:
+
+```text
+run override --llm-profile -> project default LLM -> server global default LLM
 ```
 
 Run one project toward GA with one command:
@@ -91,6 +124,8 @@ evopilot target run \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -135,6 +170,8 @@ evopilot project onboard github \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -148,6 +185,8 @@ evopilot target run \
   --objective "Move my-agent to RC with source-readiness, source closure, deploy evidence, and release blocker review" \
   --until terminal \
   --max-steps 20 \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -161,6 +200,8 @@ evopilot target run \
   --objective "Reach alpha readiness with a visible goal plan, loop evidence, and blockers listed" \
   --until terminal \
   --max-steps 10 \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -389,6 +430,7 @@ A successful source-to-release loop needs more than a GitHub token. Agents shoul
 | Source closure | Loop source-closure contract and release run state. | `evopilot source-closure preflight <loop-id> --json` returns no blockers. |
 | CI | Project DevOps config: GitHub Actions or GitLab CI. | `evopilot project devops preflight <project-id> --json` returns `READY`; inspect pipeline evidence after execution. |
 | CD | Project DevOps CD workflow, deploy connector such as `ecs-docker-compose`, webhook, K8s, or cloud deployer. | `project devops preflight` and `connector deploy list` show the required boundary. |
+| LLM | Project default LLM profile or per-run `--llm-profile` override. | `evopilot project llm preflight <project-id> --json` and wrapper `llmUsage.summary` show provider/model/tokens. |
 | Health gate | Deployment health and readiness URLs or connector-provided probe URLs. | Release run gates include health/ready evidence. |
 | Release decision | Product-native release evidence and policy. | `evopilot release decisions --project <project-id> --target <target-id> --json`. |
 
@@ -428,6 +470,7 @@ Common production checks before a one-command target:
 ```bash
 evopilot project preflight my-agent --json
 evopilot project devops preflight my-agent --json
+evopilot project llm preflight my-agent --json
 evopilot connector deploy list --json
 evopilot target run \
   --project my-agent \
@@ -436,15 +479,17 @@ evopilot target run \
   --until terminal \
   --max-steps 20 \
   --require-devops-ready \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
 
-If `project devops preflight` returns `BLOCKED`, repair provider, tokenRef, workflow, required checks/jobs, or project binding before running the target. If it returns `OBSERVABLE`, current CI evidence is not green; an agent may inspect but must not claim release readiness. If `target run` stops with `configure-source-credentials`, run `project preflight` and repair tokenRef. If it stops with `repair-deploy-target`, inspect or create the deploy connector. If it stops with `policy-review`, inspect the release run and do not merge until the server-side policy allows it. If it returns `NO-GO`, stop and report the release decision as authoritative.
+If `project devops preflight` returns `BLOCKED`, repair provider, tokenRef, workflow, required checks/jobs, or project binding before running the target. If it returns `OBSERVABLE`, current CI evidence is not green; an agent may inspect but must not claim release readiness. If `project llm preflight` returns `BLOCKED`, repair the server-side LLM key, profile, or provider before starting the Loop. If `target run` stops with `configure-source-credentials`, run `project preflight` and repair tokenRef. If it stops with `repair-deploy-target`, inspect or create the deploy connector. If it stops with `policy-review`, inspect the release run and do not merge until the server-side policy allows it. If it returns `NO-GO`, stop and report the release decision as authoritative.
 
 ### Security Rules For Agents
 
 - Do not pass raw GitHub tokens in `target run`.
+- Do not pass raw LLM API keys in `target run`, `goal run`, or `loop run`; use `--llm-profile`.
 - Prefer server-side `tokenRef` over inline `--source-token`.
 - Do not write secrets to committed files or evidence artifacts.
 - Do not continue after `READ_ONLY`, `BLOCKED`, `configure-source-credentials`, `configure-devops`, or `repair-deploy-target` without explicit operator repair.
@@ -473,6 +518,10 @@ Agents must stop and report when any of these are returned:
 | `policy-review` | Release or merge policy blocked progress. | Inspect release run policy blockers. |
 | `configure-source-credentials` | Source writeback credentials are missing or read-only. | Ask for credential repair. |
 | `configure-devops` | Project GitHub Actions/GitLab CI contract is missing or invalid. | Run `project devops set` or ask the operator to repair tokenRef/workflow/checks. |
+| `configure-llm` | No usable project or global LLM is selected for a required LLM run. | Create or bind an LLM profile, then run `project llm preflight`. |
+| `store-llm-secret` | The selected profile's `apiKeyRef` cannot be resolved by the server. | Store the API key server-side with `secret set --kind llm-key`, then rerun preflight. |
+| `configure-llm-profile` | LLM profile metadata is missing or incomplete. | Run `llm profile set` with provider, base URL, model, and apiKeyRef. |
+| `repair-llm-provider` | The provider probe failed. | Repair endpoint, model, key, network, timeout, or provider compatibility. |
 | `repair-project` | Project binding is incomplete or invalid. | Inspect project settings and preflight. |
 | `repair-deploy-target` | Deploy connector or health/ready target is not valid. | Repair connector settings. |
 | `repair` | The loop or release run needs a repair path. | Inspect trace, release runs, and audit. |

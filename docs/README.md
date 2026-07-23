@@ -10,14 +10,14 @@ EvoPilot documentation is organized by reader task. Start from the section that 
 ## AI Agents And CLI Automation
 
 - [CLI](cli/README.md) - install and connect the EvoPilot CLI to a remote control-plane server.
-- [CLI Workflows](cli/workflows.md) - one-command Goal/Loop Target scenarios for GA, RC, and production automation.
+- [CLI Workflows](cli/workflows.md) - one-command Goal/Loop Target scenarios for GA, RC, project DevOps, and project LLM profile selection.
 - [CLI Commands](cli/commands.md) - atomic command reference.
 - [CLI Automation](cli/automation.md) - WorkBuddy, Codex, Claude Code, and CI usage rules.
 - [AI Agent Runbook](guides/ai-agent-runbook.md) - end-to-end production operating flow and failure handling.
 
 ## API And Dashboard Integrators
 
-- [API Reference](api/README.md) - HTTP API behavior, governance semantics, and examples.
+- [API Reference](api/README.md) - HTTP API behavior, LLM profiles, governance semantics, and examples.
 - [OpenAPI Schema](api/openapi.json) - machine-readable API contract.
 - [Dashboard Integration](guides/dashboard-integration.md) - contract for standalone Dashboard clients.
 - Dashboard UI operation docs live in `yeliang-wang/evopilot-dashboard` under `docs/`.

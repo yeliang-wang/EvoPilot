@@ -141,6 +141,18 @@ async function main(argv: string[]): Promise<number> {
         if (maybeId === "preflight") return await projectDevopsPreflight(ctx, args.positionals[3]);
         if (maybeId === "clear") return await projectDevopsClear(ctx, args.positionals[3]);
         throw usage("Use: evopilot project devops <set|inspect|preflight|clear> <project-id> [options]");
+      case "project:llm":
+        if (maybeId === "set") return await projectLlmSet(ctx, args.positionals[3]);
+        if (maybeId === "inspect") return await projectLlmInspect(ctx, args.positionals[3]);
+        if (maybeId === "preflight") return await projectLlmPreflight(ctx, args.positionals[3]);
+        if (maybeId === "clear") return await projectLlmClear(ctx, args.positionals[3]);
+        throw usage("Use: evopilot project llm <set|inspect|preflight|clear> <project-id> [options]");
+      case "llm:profile":
+        if (maybeId === "list") return await llmProfileList(ctx);
+        if (maybeId === "set") return await llmProfileSet(ctx, args.positionals[3]);
+        if (maybeId === "inspect") return await llmProfileInspect(ctx, args.positionals[3]);
+        if (maybeId === "preflight") return await llmProfilePreflight(ctx, args.positionals[3]);
+        throw usage("Use: evopilot llm profile <list|set|inspect|preflight> [profile-id] [options]");
       case "secret:list":
         return await secretList(ctx);
       case "secret:set":
@@ -378,7 +390,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     status: nestedField(project, ["validation", "status"]) ?? (register.ok ? "VERIFIED" : "FAILED")
   }, "project-onboard-register", register));
   if (!register.ok) {
-    return finishProjectOnboard(ctx, projectId, project, undefined, undefined, steps, 2);
+    return finishProjectOnboard(ctx, projectId, project, undefined, undefined, undefined, steps, 2);
   }
 
   const sourcePreflight = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/source-credentials/preflight`, {}, derivedRequestOptions(ctx, "project-onboard-source-preflight"));
@@ -393,7 +405,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     blockers: field(sourceReadiness, "blockers")
   }, "project-onboard-source-preflight", sourcePreflight));
   if (hasFlag(ctx.args, "require-source-ready") && field(sourceReadiness, "status") !== "READY") {
-    return finishProjectOnboard(ctx, projectId, project, sourceReadiness, undefined, steps, 2);
+    return finishProjectOnboard(ctx, projectId, project, sourceReadiness, undefined, undefined, steps, 2);
   }
 
   let devopsResult: unknown;
@@ -413,7 +425,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
       blockers: nestedField(devopsResult, ["readiness", "blockers"]) ?? field(devopsResult, "blockers")
     }, "project-onboard-devops-set", devops));
     if (!devops.ok && hasFlag(ctx.args, "require-devops-ready")) {
-      return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsResult, steps, 2);
+      return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsResult, undefined, steps, 2);
     }
   }
 
@@ -446,7 +458,28 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
       blockers: field(devopsReadiness, "blockers")
     }, "project-onboard-devops-preflight", devopsPreflight));
     if (hasFlag(ctx.args, "require-devops-ready") && field(devopsReadiness, "status") !== "READY") {
-      return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, steps, 2);
+      return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, undefined, steps, 2);
+    }
+  }
+
+  let llmReadiness: unknown;
+  if (stringOption(ctx.args, "llm-profile") || stringOption(ctx.args, "llm-profile-id") || hasFlag(ctx.args, "require-llm-ready")) {
+    const llmPreflight = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm/preflight`, {}, derivedRequestOptions(ctx, "project-onboard-llm-preflight"));
+    llmReadiness = llmPreflight.data ?? llmPreflight.body;
+    steps.push(attachStepLlmUsage(ctx, {
+      type: "project.llm.preflight",
+      projectId,
+      httpStatus: llmPreflight.status,
+      requestId: llmPreflight.requestId,
+      profileId: field(llmReadiness, "profileId"),
+      llmProvider: field(llmReadiness, "provider"),
+      llmModel: field(llmReadiness, "model"),
+      status: field(llmReadiness, "status"),
+      nextAction: field(llmReadiness, "nextAction"),
+      blockers: field(llmReadiness, "blockers")
+    }, "project-onboard-llm-preflight", llmPreflight));
+    if (hasFlag(ctx.args, "require-llm-ready") && field(llmReadiness, "status") !== "READY") {
+      return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, llmReadiness, steps, 2);
     }
   }
 
@@ -471,7 +504,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     });
   }
 
-  return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, steps, 0);
+  return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, llmReadiness, steps, 0);
 }
 
 async function projectOnboardPlan(ctx: RuntimeContext, providerArg?: string): Promise<number> {
@@ -506,6 +539,7 @@ function projectRegistrationBody(args: ParsedArgs, id: string, provider: string)
     id,
     name: stringOption(args, "name") ?? id,
     profileId: stringOption(args, "profile-id"),
+    llmProfileId: stringOption(args, "llm-profile") ?? stringOption(args, "llm-profile-id"),
     tenantId: stringOption(args, "tenant") ?? stringOption(args, "tenant-id"),
     workspaceId: stringOption(args, "workspace") ?? stringOption(args, "workspace-id"),
     repository: projectRepositoryBody(args, provider)
@@ -521,6 +555,8 @@ function projectOnboardingChecklistBody(args: ParsedArgs, provider: string): Rec
     tenantId: stringOption(args, "tenant") ?? stringOption(args, "tenant-id"),
     workspaceId: stringOption(args, "workspace") ?? stringOption(args, "workspace-id"),
     repository: projectRepositoryBody(args, provider),
+    llmProfileId: stringOption(args, "llm-profile") ?? stringOption(args, "llm-profile-id"),
+    requireLlmReady: hasFlag(args, "require-llm-ready"),
     template: stringOption(args, "template"),
     releaseTargetTemplate: stringOption(args, "release-target-template"),
     objective: stringOption(args, "objective"),
@@ -720,19 +756,42 @@ function buildProjectDevopsBody(args: ParsedArgs, fallbackProvider?: "github-act
   };
 }
 
-function finishProjectOnboard(ctx: RuntimeContext, projectId: string, project: unknown, sourceCredentials: unknown, devops: unknown, steps: Array<Record<string, unknown>>, exitCode: number): number {
+function buildLlmProfileBody(args: ParsedArgs, profileId: string): Record<string, unknown> {
+  return {
+    id: profileId,
+    name: stringOption(args, "name") ?? profileId,
+    provider: stringOption(args, "provider") ?? "openai-compatible",
+    providerName: stringOption(args, "provider-name") ?? stringOption(args, "provider") ?? "openai-compatible",
+    baseUrl: requiredOption(args, "base-url"),
+    modelName: stringOption(args, "model-name") ?? requiredOption(args, "model"),
+    apiKeyRef: stringOption(args, "api-key-ref") ?? stringOption(args, "token-ref") ?? requiredOption(args, "api-key-ref"),
+    timeoutSeconds: numberOption(args, "timeout-seconds"),
+    maxRetries: numberOption(args, "max-retries"),
+    defaultMaxOutputTokens: numberOption(args, "default-max-output-tokens"),
+    maxOutputTokens: numberOption(args, "max-output-tokens"),
+    temperature: numberOption(args, "temperature"),
+    thinkingType: stringOption(args, "thinking"),
+    status: hasFlag(args, "disabled") ? "DISABLED" : "ACTIVE",
+    tenantId: stringOption(args, "tenant") ?? stringOption(args, "tenant-id"),
+    workspaceId: stringOption(args, "workspace") ?? stringOption(args, "workspace-id")
+  };
+}
+
+function finishProjectOnboard(ctx: RuntimeContext, projectId: string, project: unknown, sourceCredentials: unknown, devops: unknown, llm: unknown, steps: Array<Record<string, unknown>>, exitCode: number): number {
   const result = {
     schema: "evopilot-cli-project-onboard/v1",
     projectId,
     project,
     sourceCredentials,
     devops,
+    llm,
     steps,
     result: {
       exitCode,
       sourceCredentialStatus: field(sourceCredentials, "status") ?? "UNKNOWN",
       devopsStatus: field(devops, "status") ?? nestedField(devops, ["readiness", "status"]) ?? "UNKNOWN",
-      nextAction: field(devops, "nextAction") ?? field(sourceCredentials, "nextAction") ?? "target-run"
+      llmStatus: field(llm, "status") ?? "UNKNOWN",
+      nextAction: field(llm, "nextAction") ?? field(devops, "nextAction") ?? field(sourceCredentials, "nextAction") ?? "target-run"
     },
     llmUsage: cliLlmUsageReport(ctx),
     generatedAt: new Date().toISOString()
@@ -746,6 +805,7 @@ function finishProjectOnboard(ctx: RuntimeContext, projectId: string, project: u
     `Project    ${projectId}`,
     `Source     ${field(sourceCredentials, "status") ?? "UNKNOWN"}`,
     `DevOps     ${field(devops, "status") ?? nestedField(devops, ["readiness", "status"]) ?? "UNKNOWN"}`,
+    `LLM        ${field(llm, "status") ?? "UNKNOWN"}`,
     "",
     "Execution Boundary",
     ...formatExecutionBoundary(readinessLike(devops), project),
@@ -821,6 +881,77 @@ async function projectDevopsClear(ctx: RuntimeContext, id?: string): Promise<num
   const projectId = id ?? requiredOption(ctx.args, "project");
   const response = await ctx.client.request("DELETE", `/api/v1/projects/${encodeURIComponent(projectId)}/devops`, requestOptions(ctx));
   printProjectDevopsResult(ctx, "project devops clear", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function llmProfileList(ctx: RuntimeContext): Promise<number> {
+  const response = await ctx.client.expectOk(ctx.client.get("/api/v1/llm-profiles"));
+  printOutput(ctx, response.data, listSummary(response.data, "id"));
+  return 0;
+}
+
+async function llmProfileSet(ctx: RuntimeContext, id?: string): Promise<number> {
+  const profileId = id ?? stringOption(ctx.args, "id") ?? stringOption(ctx.args, "profile");
+  if (!profileId) throw usage("llm profile set requires <profile-id> or --id <profile-id>.");
+  const body = buildLlmProfileBody(ctx.args, profileId);
+  const response = await ctx.client.post("/api/v1/llm-profiles", body, requestOptions(ctx));
+  printLlmProfileResult(ctx, "llm profile set", response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function llmProfileInspect(ctx: RuntimeContext, id?: string): Promise<number> {
+  const profileId = id ?? requiredOption(ctx.args, "profile");
+  const response = await ctx.client.get(`/api/v1/llm-profiles/${encodeURIComponent(profileId)}`);
+  printLlmProfileResult(ctx, "llm profile inspect", response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function llmProfilePreflight(ctx: RuntimeContext, id?: string): Promise<number> {
+  const profileId = id ?? requiredOption(ctx.args, "profile");
+  const response = await ctx.client.post(`/api/v1/llm-profiles/${encodeURIComponent(profileId)}/preflight`, {}, requestOptions(ctx));
+  printLlmProfileResult(ctx, "llm profile preflight", response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectLlmSet(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const body = {
+    profileId: requiredOption(ctx.args, "profile"),
+    required: hasFlag(ctx.args, "optional") ? false : true
+  };
+  const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm`, body, requestOptions(ctx));
+  if (response.ok && hasFlag(ctx.args, "require-llm-ready")) {
+    const preflight = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm/preflight`, {}, requestOptions(ctx));
+    const combined = {
+      ...(isRecord(response.data) ? response.data : {}),
+      readiness: preflight.data ?? preflight.body,
+      preflight: preflight.data ?? preflight.body
+    };
+    printProjectLlmResult(ctx, "project llm set", projectId, combined, preflight.status);
+    return preflight.ok ? 0 : 2;
+  }
+  printProjectLlmResult(ctx, "project llm set", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectLlmInspect(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.get(`/api/v1/projects/${encodeURIComponent(projectId)}/llm`);
+  printProjectLlmResult(ctx, "project llm inspect", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectLlmPreflight(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm/preflight`, {}, requestOptions(ctx));
+  printProjectLlmResult(ctx, "project llm preflight", projectId, response.data ?? response.body, response.status);
+  return response.ok ? 0 : 2;
+}
+
+async function projectLlmClear(ctx: RuntimeContext, id?: string): Promise<number> {
+  const projectId = id ?? requiredOption(ctx.args, "project");
+  const response = await ctx.client.request("DELETE", `/api/v1/projects/${encodeURIComponent(projectId)}/llm`, requestOptions(ctx));
+  printProjectLlmResult(ctx, "project llm clear", projectId, response.data ?? response.body, response.status);
   return response.ok ? 0 : 2;
 }
 
@@ -977,6 +1108,11 @@ async function targetRun(ctx: RuntimeContext): Promise<number> {
   if (hasFlag(ctx.args, "require-devops-ready") && devopsPreflight.status !== "READY") {
     throw usage(`Project DevOps is not READY: ${devopsPreflight.status}`);
   }
+  const llmPreflight = await tryLlmReadinessPreflight(ctx, projectId);
+  steps.push(llmPreflight);
+  if (hasFlag(ctx.args, "require-llm-ready") && llmPreflight.status !== "READY") {
+    throw usage(`Project LLM is not READY: ${llmPreflight.status}`);
+  }
   const objective = stringOption(ctx.args, "objective") ?? `Promote ${projectId} to ${templateId ?? targetId} through source closure, deployment evidence, release decision, and blocker review.`;
   return await runGoalWrapper(ctx, {
     command: "target run",
@@ -1005,6 +1141,7 @@ async function goalCreate(ctx: RuntimeContext): Promise<number> {
     projectId: requiredOption(ctx.args, "project"),
     releaseTargetId: requiredOption(ctx.args, "target"),
     objective: requiredOption(ctx.args, "objective"),
+    llmProfileId: stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id"),
     tenantId: stringOption(ctx.args, "tenant") ?? stringOption(ctx.args, "tenant-id"),
     workspaceId: stringOption(ctx.args, "workspace") ?? stringOption(ctx.args, "workspace-id")
   };
@@ -1131,6 +1268,7 @@ async function loopCreate(ctx: RuntimeContext): Promise<number> {
     id: stringOption(ctx.args, "id"),
     projectId: requiredOption(ctx.args, "project"),
     objective: requiredOption(ctx.args, "objective"),
+    llmProfileId: stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id"),
     source: stringOption(ctx.args, "source") ?? (targetId ? "release-target" : undefined),
     executorGraphId: stringOption(ctx.args, "executor-graph"),
     controlPlaneUrl: stringOption(ctx.args, "control-plane-url"),
@@ -1175,6 +1313,7 @@ async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
       id: stringOption(ctx.args, "id"),
       projectId: requiredOption(ctx.args, "project"),
       objective: requiredOption(ctx.args, "objective"),
+      llmProfileId: stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id"),
       source: stringOption(ctx.args, "source") ?? "release-target",
       executorGraphId: stringOption(ctx.args, "executor-graph"),
       controlPlaneUrl: stringOption(ctx.args, "control-plane-url"),
@@ -1551,6 +1690,36 @@ async function tryProjectDevopsPreflight(ctx: RuntimeContext, projectId: string)
   }
 }
 
+async function tryLlmReadinessPreflight(ctx: RuntimeContext, projectId: string): Promise<Record<string, unknown>> {
+  const profileId = stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id");
+  try {
+    const response = profileId
+      ? await ctx.client.post(`/api/v1/llm-profiles/${encodeURIComponent(profileId)}/preflight`, {}, derivedRequestOptions(ctx, "target-run-llm-profile-preflight"))
+      : await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm/preflight`, {}, derivedRequestOptions(ctx, "target-run-project-llm-preflight"));
+    const readiness = isRecord(response.data) ? response.data : undefined;
+    return attachStepLlmUsage(ctx, {
+      type: profileId ? "llm.profile.preflight" : "project.llm.preflight",
+      projectId,
+      profileId: profileId ?? field(readiness, "profileId"),
+      httpStatus: response.status,
+      requestId: response.requestId,
+      status: field(readiness, "status") ?? (response.ok ? "READY" : "BLOCKED"),
+      nextAction: field(readiness, "nextAction"),
+      llmProvider: field(readiness, "provider"),
+      llmModel: field(readiness, "model"),
+      blockers: field(readiness, "blockers")
+    }, profileId ? "target-run-llm-profile-preflight" : "target-run-project-llm-preflight", response);
+  } catch (error) {
+    return {
+      type: "project.llm.preflight",
+      projectId,
+      profileId,
+      status: "UNAVAILABLE",
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 async function runGoalWrapper(ctx: RuntimeContext, input: {
   command: "goal run" | "target run" | "project onboard";
   goalId?: string;
@@ -1707,7 +1876,8 @@ async function createGoalForRun(ctx: RuntimeContext, projectId: string, targetId
     id: stringOption(ctx.args, "goal-id"),
     projectId,
     releaseTargetId: targetId,
-    objective
+    objective,
+    llmProfileId: stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id")
   }, derivedRequestOptions(ctx, "goal-run-create-goal"));
   recordResponseLlmUsage(ctx, "goal-run-create-goal", response);
   if (!response.ok) throw apiErrorFromResponse(response);
@@ -1717,12 +1887,14 @@ async function createGoalForRun(ctx: RuntimeContext, projectId: string, targetId
 async function findReusableGoal(ctx: RuntimeContext, projectId: string, targetId: string, objective: string): Promise<unknown | undefined> {
   const response = await ctx.client.expectOk(ctx.client.get("/api/v1/goals"));
   const reusableStatuses = new Set(["DRAFT", "PLANNED", "APPROVED", "RUNNING", "WAITING_HUMAN", "BLOCKED"]);
+  const requestedLlmProfileId = stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id");
   return Array.isArray(response.data)
     ? response.data.find((item: unknown) =>
       isRecord(item) &&
       item.projectId === projectId &&
       item.releaseTargetId === targetId &&
       item.objective === objective &&
+      (!requestedLlmProfileId || nestedField(item, ["llm", "profileId"]) === requestedLlmProfileId) &&
       reusableStatuses.has(String(item.status))
     )
     : undefined;
@@ -1954,6 +2126,71 @@ function printProjectDevopsResult(ctx: RuntimeContext, command: string, projectI
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
+function printLlmProfileResult(ctx: RuntimeContext, command: string, data: unknown, httpStatus: number): void {
+  if (ctx.json) {
+    process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+    return;
+  }
+  const readiness = isRecord(field(data, "readiness")) ? field(data, "readiness") : data;
+  const checks = Array.isArray(field(readiness, "checks")) ? field(readiness, "checks") as unknown[] : [];
+  const blockers = Array.isArray(field(readiness, "blockers")) ? field(readiness, "blockers") as unknown[] : [];
+  const lines = [
+    "EvoPilot LLM Profile",
+    `Command    ${command}`,
+    `HTTP       ${httpStatus}`,
+    `Profile    ${field(data, "id") ?? field(readiness, "profileId") ?? "-"}`,
+    `Provider   ${field(data, "providerName") ?? field(readiness, "provider") ?? "-"}`,
+    `Model      ${field(data, "modelName") ?? field(readiness, "model") ?? "-"}`,
+    `Base URL   ${field(data, "baseUrl") ?? field(readiness, "baseUrl") ?? "-"}`,
+    `API Key    ${field(data, "apiKeyRef") ?? field(readiness, "apiKeyRef") ?? "-"}`,
+    `Status     ${field(readiness, "status") ?? field(data, "status") ?? (httpStatus >= 200 && httpStatus < 300 ? "OK" : `HTTP_${httpStatus}`)}`,
+    "",
+    "Workflow",
+    ...formatReadinessChecks(checks),
+    "",
+    "Next Action",
+    String(field(readiness, "nextAction") ?? "run-loop"),
+    "",
+    "Blockers",
+    ...(blockers.length > 0 ? blockers.map((item) => `- ${String(item)}`) : ["- none"]),
+    ""
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function printProjectLlmResult(ctx: RuntimeContext, command: string, projectId: string, data: unknown, httpStatus: number): void {
+  if (ctx.json) {
+    process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+    return;
+  }
+  const readiness = isRecord(field(data, "readiness")) ? field(data, "readiness") : data;
+  const selection = field(data, "selection");
+  const checks = Array.isArray(field(readiness, "checks")) ? field(readiness, "checks") as unknown[] : [];
+  const blockers = Array.isArray(field(readiness, "blockers")) ? field(readiness, "blockers") as unknown[] : [];
+  const lines = [
+    "EvoPilot Project LLM",
+    `Command    ${command}`,
+    `HTTP       ${httpStatus}`,
+    `Project    ${projectId}`,
+    `Profile    ${field(selection, "profileId") ?? field(readiness, "profileId") ?? "-"}`,
+    `Source     ${field(selection, "source") ?? field(readiness, "source") ?? "-"}`,
+    `Provider   ${field(selection, "provider") ?? field(readiness, "provider") ?? "-"}`,
+    `Model      ${field(selection, "model") ?? field(readiness, "model") ?? "-"}`,
+    `Status     ${field(readiness, "status") ?? (httpStatus >= 200 && httpStatus < 300 ? "OK" : `HTTP_${httpStatus}`)}`,
+    "",
+    "Workflow",
+    ...formatReadinessChecks(checks),
+    "",
+    "Next Action",
+    String(field(readiness, "nextAction") ?? "run-loop"),
+    "",
+    "Blockers",
+    ...(blockers.length > 0 ? blockers.map((item) => `- ${String(item)}`) : ["- none"]),
+    ""
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
 function printProjectOnboardingChecklist(ctx: RuntimeContext, command: string, data: unknown, httpStatus: number, requestId?: string): void {
   const output = attachRequestId(data, requestId);
   if (ctx.json) {
@@ -2045,6 +2282,10 @@ function cliRepositoryName(value: unknown): string | undefined {
 }
 
 function formatDevopsChecks(checks: unknown[]): string[] {
+  return formatReadinessChecks(checks);
+}
+
+function formatReadinessChecks(checks: unknown[]): string[] {
   if (checks.length === 0) return ["[SKIP] No readiness checks returned."];
   return checks.map((item) => {
     const status = String(field(item, "status") ?? "SKIP");
@@ -2078,7 +2319,7 @@ function formatChain(value: unknown): string[] {
 
 function formatSteps(steps: Array<Record<string, unknown>>): string[] {
   if (steps.length === 0) return ["- none"];
-  return steps.slice(-8).map((step) => `- ${step.type ?? "step"}${step.status ? ` status=${step.status}` : ""}${step.httpStatus ? ` http=${step.httpStatus}` : ""}${step.provider ? ` provider=${step.provider}` : ""}${step.executionMode ? ` mode=${step.executionMode}` : ""}${step.devopsOwner ? ` devopsOwner=${step.devopsOwner}` : ""}${step.workflowRepository ? ` workflowRepo=${step.workflowRepository}` : ""}${step.claimBoundary ? ` claim=${step.claimBoundary}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.projectId ? ` project=${step.projectId}` : ""}${step.targetId ? ` target=${step.targetId}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}${step.requestId ? ` request=${step.requestId}` : ""}${formatInlineStepLlmUsage(field(step, "llmUsage"))}${Array.isArray(step.blockers) && step.blockers.length > 0 ? ` blockers=${step.blockers.length}` : ""}`);
+  return steps.slice(-8).map((step) => `- ${step.type ?? "step"}${step.status ? ` status=${step.status}` : ""}${step.httpStatus ? ` http=${step.httpStatus}` : ""}${step.provider ? ` provider=${step.provider}` : ""}${step.profileId ? ` llmProfile=${step.profileId}` : ""}${step.llmProvider ? ` llmProvider=${step.llmProvider}` : ""}${step.llmModel ? ` llmModel=${step.llmModel}` : ""}${step.executionMode ? ` mode=${step.executionMode}` : ""}${step.devopsOwner ? ` devopsOwner=${step.devopsOwner}` : ""}${step.workflowRepository ? ` workflowRepo=${step.workflowRepository}` : ""}${step.claimBoundary ? ` claim=${step.claimBoundary}` : ""}${step.nextAction ? ` next=${step.nextAction}` : ""}${step.projectId ? ` project=${step.projectId}` : ""}${step.targetId ? ` target=${step.targetId}` : ""}${step.goalId ? ` goal=${step.goalId}` : ""}${step.loopId ? ` loop=${step.loopId}` : ""}${step.requestId ? ` request=${step.requestId}` : ""}${formatInlineStepLlmUsage(field(step, "llmUsage"))}${Array.isArray(step.blockers) && step.blockers.length > 0 ? ` blockers=${step.blockers.length}` : ""}`);
 }
 
 function formatInlineStepLlmUsage(value: unknown): string {
@@ -2109,7 +2350,7 @@ function formatLlmUsage(summary: unknown, cliSteps: Array<Record<string, unknown
   return [
     ...lines,
     "Step Usage",
-    ...usageSteps.slice(-8).map((step) => `- ${field(step, "loopId") ?? field(step, "label") ?? "step"}${field(step, "iteration") ? ` iter=${field(step, "iteration")}` : ""}${field(step, "nodeId") ? ` node=${field(step, "nodeId")}` : ""} provider=${field(step, "provider") ?? "-"} model=${field(step, "model") ?? "-"} tokens=${field(step, "totalTokens") ?? 0} input=${field(step, "inputTokens") ?? 0} output=${field(step, "outputTokens") ?? 0} request=${field(step, "llmRequestId") ?? field(step, "requestId") ?? "-"}`)
+    ...usageSteps.slice(-8).map((step) => `- ${field(step, "loopId") ?? field(step, "label") ?? "step"}${field(step, "iteration") ? ` iter=${field(step, "iteration")}` : ""}${field(step, "nodeId") ? ` node=${field(step, "nodeId")}` : ""}${field(step, "llmProfileId") ? ` profile=${field(step, "llmProfileId")}` : ""} provider=${field(step, "provider") ?? "-"} model=${field(step, "model") ?? "-"} tokens=${field(step, "totalTokens") ?? 0} input=${field(step, "inputTokens") ?? 0} output=${field(step, "outputTokens") ?? 0} request=${field(step, "llmRequestId") ?? field(step, "requestId") ?? "-"}`)
   ];
 }
 
@@ -2528,9 +2769,17 @@ Usage:
   evopilot project devops inspect <project-id>
   evopilot project devops preflight <project-id>
   evopilot project devops clear <project-id>
+  evopilot project llm set <project-id> --profile <llm-profile-id>
+  evopilot project llm inspect <project-id>
+  evopilot project llm preflight <project-id>
+  evopilot project llm clear <project-id>
   evopilot secret list
-  evopilot secret set --id <secret-ref> --kind <source-token|deploy-token|github-app-private-key|github-webhook-secret> (--value <value>|--value-file <file>|--from-env <env>)
+  evopilot secret set --id <secret-ref> --kind <source-token|deploy-token|llm-key|llm-api-key|github-app-private-key|github-webhook-secret> (--value <value>|--value-file <file>|--from-env <env>)
   evopilot secret revoke <secret-ref>
+  evopilot llm profile list
+  evopilot llm profile set <profile-id> --provider openai-compatible --base-url <url> --model <name> --api-key-ref <secret-ref>
+  evopilot llm profile inspect <profile-id>
+  evopilot llm profile preflight <profile-id>
   evopilot github-app installation list
   evopilot github-app installation set --installation-id <id> --account <org> [--repository <owner/repo>] [--permission <name=value>]
   evopilot github-app installation preflight <id>
@@ -2538,10 +2787,10 @@ Usage:
   evopilot target templates
   evopilot target list
   evopilot target create --project <id> --template <experimental|alpha|beta|rc|ga>
-  evopilot target run --project <id> --template <experimental|alpha|beta|rc|ga> --objective <text> [--max-steps <n>] [--timeout <duration>]
+  evopilot target run --project <id> --template <experimental|alpha|beta|rc|ga> --objective <text> [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
   evopilot target decision <target-id> [--project <id>]
   evopilot goal create --project <id> --target <target-id> --objective <text>
-  evopilot goal run [<goal-id>] [--project <id> --target <target-id> --objective <text>] [--max-steps <n>] [--timeout <duration>]
+  evopilot goal run [<goal-id>] [--project <id> --target <target-id> --objective <text>] [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
   evopilot goal list [--project <id>] [--target <target-id>] [--status <status>]
   evopilot goal inspect <goal-id>
   evopilot goal plan <goal-id>
@@ -2553,9 +2802,9 @@ Usage:
   evopilot goal timeline <goal-id>
   evopilot goal evidence-matrix <goal-id>
   evopilot goal final-report <goal-id>
-  evopilot loop create --project <id> --target <target-id> --objective <text>
+  evopilot loop create --project <id> --target <target-id> --objective <text> [--llm-profile <id>]
   evopilot loop list
-  evopilot loop run [<loop-id>] [--project <id> --target <target-id> --objective <text>] [--max-iterations <n>] [--timeout <duration>]
+  evopilot loop run [<loop-id>] [--project <id> --target <target-id> --objective <text>] [--llm-profile <id>] [--max-iterations <n>] [--timeout <duration>]
   evopilot loop start <loop-id>
   evopilot loop approve <loop-id>
   evopilot source-closure preflight <loop-id>
@@ -2599,6 +2848,8 @@ Global options:
   --until <policy>            Wrapper stop policy: terminal or blocked-or-complete
   --require-source-ready      project onboard fails fast unless source credential preflight is READY
   --require-devops-ready      target run fails fast unless project DevOps preflight is READY
+  --require-llm-ready         project onboard / target run fails fast unless LLM profile preflight is READY
+  --llm-profile <id>          LLM profile for this project onboarding or new Goal/Loop run
   --execution-mode <mode>     DevOps boundary: owned-repository, fork-validated-pr, upstream-authorized, or read-only-public
   --upstream-repo <repo>      Upstream GitHub/GitLab repository for public read-only or fork-validated PR mode
   --working-repo <repo>       Writable GitHub/GitLab repository where EvoPilot runs source writeback and native CI/CD
@@ -2613,6 +2864,10 @@ Project DevOps examples:
   evopilot project onboard verify my-agent --template ga --json
   evopilot project onboard github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Promote my-agent to GA stable" --require-source-ready --require-devops-ready
   evopilot project onboard github --repo apache/skywalking --upstream-repo apache/skywalking --working-repo my-org/skywalking-fork --id skywalking-fork --token-ref GITHUB_TOKEN_SKYWALKING_FORK --execution-mode fork-validated-pr --devops-owner my-org --ci-workflow ci.yml --ci-required-check build --template rc --objective "Validate fork before upstream PR" --json
+  evopilot secret set --id LLM_API_KEY_QWEN_PRIVATE --kind llm-key --from-env LLM_API_KEY_QWEN_PRIVATE --json
+  evopilot llm profile set qwen-private --provider openai-compatible --base-url https://llm.example.com/v1 --model qwen2.5-coder-32b --api-key-ref LLM_API_KEY_QWEN_PRIVATE --json
+  evopilot project llm set my-agent --profile qwen-private --require-llm-ready --json
+  evopilot target run --project my-agent --template ga --objective "Promote my-agent to GA stable" --llm-profile qwen-private --require-llm-ready --json
   evopilot project devops set my-agent --provider github-actions --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --ci-required-check test --cd-workflow deploy-prod.yml --deploy-environment production --health-url https://app.example.com/health
   evopilot project devops set my-agent --provider gitlab-ci --execution-mode owned-repository --devops-owner group --ci-required-stage test --ci-required-job build --cd-required-stage deploy --deploy-environment production --ready-url https://app.example.com/ready
 `);

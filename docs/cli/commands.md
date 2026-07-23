@@ -22,6 +22,8 @@ The CLI uses EvoPilot HTTP APIs. Global flags can be used with any command:
 --devops-owner <account>    GitHub owner or GitLab namespace whose account runs CI/CD
 --devops-token-ref <ref>    Optional server-side DevOps tokenRef, otherwise source tokenRef is used
 --credential-principal <id> Optional operator-readable principal expected behind the DevOps tokenRef
+--llm-profile <id>          LLM profile for project onboarding or this Goal/Loop run
+--require-llm-ready         project onboard / target run fails fast unless the selected LLM profile is READY
 --json                      Print JSON response data
 --config <file>             Config path, defaults to ~/.evopilot/config.json
 ```
@@ -33,8 +35,8 @@ Use `--json` for AI agents and CI. Human-readable output is for operators and ca
 | Command | JSON Schema | Important Fields |
 |---|---|---|
 | `status --json` | `evopilot-cli-status/v1` | `health`, `ready`, `api`, `summary`, `client`, `llmUsage` |
-| `project onboard plan ... --json` | `evopilot-project-onboarding-checklist/v1` | `status`, `nextAction`, `missingInputs`, `blockers`, `commands`, `sourceCredentials`, `devops`, `requestId` |
-| `project onboard verify ... --json` | `evopilot-project-onboarding-checklist/v1` | Persisted project readiness, same fields as `plan` |
+| `project onboard plan ... --json` | `evopilot-project-onboarding-checklist/v1` | `status`, `nextAction`, `missingInputs`, `blockers`, `commands`, `sourceCredentials`, `devops`, `llm`, `requestId` |
+| `project onboard verify ... --json` | `evopilot-project-onboarding-checklist/v1` | Persisted project readiness, same fields as `plan`, including project LLM readiness |
 | `project onboard ... --json` without `--template` | `evopilot-cli-project-onboard/v1` | `projectId`, `sourceCredentials`, `devops`, `steps`, `result`, `llmUsage` |
 | `project onboard ... --template ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage`; includes onboarding/preflight steps before Goal/Loop execution |
 | `target run ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage` |
@@ -117,6 +119,8 @@ Credential options:
 --clear-inline-token
 --clear-password
 --clear-token-ref
+--llm-profile <llm-profile-id>
+--require-llm-ready
 ```
 
 `project onboard plan` is a non-mutating front-door checklist. It calls `POST /api/v1/onboarding/project/checklist` and returns `evopilot-project-onboarding-checklist/v1` with `status`, `steps`, `sourceCredentials`, `devops`, `missingInputs`, `blockers`, `commands`, `nextAction`, and `requestId`.
@@ -246,8 +250,90 @@ deploy-token
 github-app-private-key
 github-webhook-secret
 llm-key
+llm-api-key
 generic
 ```
+
+## LLM Profiles
+
+```bash
+evopilot llm profile list
+evopilot llm profile set <profile-id> --provider openai-compatible --base-url <url> --model <name> --api-key-ref <secret-ref>
+evopilot llm profile inspect <profile-id>
+evopilot llm profile preflight <profile-id>
+```
+
+Common profile options:
+
+```text
+--name <display-name>
+--provider openai-compatible
+--provider-name <provider-label>
+--base-url <openai-compatible-base-url>
+--model <model-name>
+--model-name <model-name>
+--api-key-ref <server-side-secret-ref>
+--timeout-seconds <seconds>
+--max-retries <n>
+--default-max-output-tokens <tokens>
+--max-output-tokens <tokens>
+--temperature <0..2>
+--thinking <type>
+--disabled
+```
+
+`llm profile set` creates or updates a tenant/workspace-scoped profile. It stores only metadata and a server-side `apiKeyRef`; it does not print the raw key. Before creating a profile, store the key once:
+
+```bash
+evopilot secret set \
+  --id LLM_API_KEY_QWEN_PRIVATE \
+  --kind llm-key \
+  --from-env LLM_API_KEY_QWEN_PRIVATE \
+  --json
+```
+
+`llm profile preflight` returns `evopilot-llm-profile-readiness/v1` with:
+
+```text
+profileId
+source
+status
+provider
+model
+baseUrl
+apiKeyRef
+checks[]
+blockers[]
+nextAction
+```
+
+Stop when `status` is not `READY`. Typical `nextAction` values are `store-llm-secret`, `configure-llm-profile`, and `repair-llm-provider`.
+
+## Project LLM
+
+```bash
+evopilot project llm set <project-id> --profile <llm-profile-id>
+evopilot project llm inspect <project-id>
+evopilot project llm preflight <project-id>
+evopilot project llm clear <project-id>
+```
+
+`project llm set` binds a project default LLM profile. Add `--require-llm-ready` to fail fast if the profile cannot resolve its key or provider probe:
+
+```bash
+evopilot project llm set my-agent \
+  --profile qwen-private \
+  --require-llm-ready \
+  --json
+```
+
+Goal and Loop creation resolve the LLM in this order:
+
+```text
+--llm-profile override -> project default profile -> global server default LLM
+```
+
+Use `project llm clear` only when the project should fall back to the global server default LLM.
 
 ## GitHub App
 
@@ -286,6 +372,7 @@ evopilot target decision <target-id> [--project <project-id>]
 
 `target run` is the one-command wrapper for a project release target.
 Use `--require-source-ready --require-devops-ready` when the run must fail before Goal/Loop execution if PR/merge or repository-native DevOps is not ready.
+Use `--llm-profile <id>` to override the project default LLM for this run, and `--require-llm-ready` to stop before Loop execution if the selected profile is blocked.
 
 `target run`, `goal run`, `loop run`, and `project onboard` wrapper output includes command-level and step-level LLM visibility:
 
@@ -323,6 +410,7 @@ evopilot goal final-report <goal-id>
 ```
 
 `goal advance` advances one server-governed step. It is atomic even when a wrapper command calls it repeatedly.
+`goal create` and `goal run` accept `--llm-profile <id>` for run-level LLM selection.
 
 ## Loop
 
@@ -342,6 +430,8 @@ Common loop options:
 --force-decision <SUCCEED|BLOCK|FAIL>
 --max-iterations <n>
 --until <terminal|blocked-or-complete>
+--llm-profile <llm-profile-id>
+--require-llm-ready
 ```
 
 ## Source Closure

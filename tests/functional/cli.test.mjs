@@ -22,6 +22,9 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   assert.match(help, /evopilot project onboard verify/);
   assert.match(help, /evopilot project devops set/);
   assert.match(help, /evopilot project devops preflight/);
+  assert.match(help, /evopilot llm profile set/);
+  assert.match(help, /evopilot project llm set/);
+  assert.match(help, /--llm-profile/);
   assert.match(help, /--execution-mode/);
   assert.match(help, /--devops-owner/);
   assert.match(help, /evopilot secret set/);
@@ -348,6 +351,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
   const configPath = path.join(dataRoot, "cli-config.json");
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-cli-repo-"));
   createGitRepository(repoRoot);
+  const profileLlm = await startFakeOpenAiLlmForCli();
   let llmCallCount = 0;
 
   const server = createServer({
@@ -437,6 +441,60 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const sourceCredentials = await runCli(["project", "preflight", "cli-agent", "--config", configPath, "--json"]);
     assert.equal(sourceCredentials.status, "READY");
     assert.equal(sourceCredentials.provider, "local-git");
+
+    const llmSecret = await runCli([
+      "secret", "set",
+      "--id", "LLM_API_KEY_QWEN_PRIVATE",
+      "--kind", "llm-key",
+      "--value", "fake-llm-token",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(llmSecret.secretRef, "LLM_API_KEY_QWEN_PRIVATE");
+    assert.equal(llmSecret.kind, "llm-key");
+
+    const llmProfile = await runCli([
+      "llm", "profile", "set", "qwen-private",
+      "--provider", "openai-compatible",
+      "--base-url", profileLlm.baseUrl,
+      "--model", "qwen-private-test",
+      "--api-key-ref", "LLM_API_KEY_QWEN_PRIVATE",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(llmProfile.id, "qwen-private");
+    assert.equal(llmProfile.modelName, "qwen-private-test");
+    assert.equal(llmProfile.apiKeyRef, "LLM_API_KEY_QWEN_PRIVATE");
+    assert.equal(llmProfile.apiKeyConfigured, true);
+
+    const llmProfiles = await runCli(["llm", "profile", "list", "--config", configPath, "--json"]);
+    assert.ok(llmProfiles.some((profile) => profile.id === "qwen-private"));
+
+    const inspectedLlmProfile = await runCli(["llm", "profile", "inspect", "qwen-private", "--config", configPath, "--json"]);
+    assert.equal(inspectedLlmProfile.id, "qwen-private");
+
+    const llmProfilePreflight = await runCli(["llm", "profile", "preflight", "qwen-private", "--config", configPath, "--json"]);
+    assert.equal(llmProfilePreflight.status, "READY");
+    assert.equal(llmProfilePreflight.provider, "openai-compatible");
+    assert.equal(llmProfilePreflight.model, "qwen-private-test");
+    assert.ok(profileLlm.calls >= 1);
+
+    const projectLlm = await runCli([
+      "project", "llm", "set", "cli-agent",
+      "--profile", "qwen-private",
+      "--require-llm-ready",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(projectLlm.llm.profileId, "qwen-private");
+    assert.equal(projectLlm.readiness.status, "READY");
+
+    const projectLlmInspect = await runCli(["project", "llm", "inspect", "cli-agent", "--config", configPath, "--json"]);
+    assert.equal(projectLlmInspect.selection.profileId, "qwen-private");
+    assert.equal(projectLlmInspect.selection.source, "project-default");
+
+    const projectLlmPreflight = await runCli(["project", "llm", "preflight", "cli-agent", "--config", configPath, "--json"]);
+    assert.equal(projectLlmPreflight.status, "READY");
 
     const devopsMismatch = await runCli([
       "project", "devops", "set", "cli-agent",
@@ -562,6 +620,8 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
       "--project", "cli-agent",
       "--template", "alpha",
       "--objective", "CLI wrapper target run reaches alpha visibility",
+      "--llm-profile", "qwen-private",
+      "--require-llm-ready",
       "--until", "terminal",
       "--max-steps", "0",
       "--config", configPath,
@@ -572,6 +632,8 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(targetRunJson.until, "terminal");
     assert.equal(targetRunJson.status.goal.projectId, "cli-agent");
     assert.equal(targetRunJson.status.goal.releaseTargetId, "cli-agent-alpha");
+    assert.equal(targetRunJson.status.goal.llm.profileId, "qwen-private");
+    assert.ok(targetRunJson.steps.some((step) => step.type === "llm.profile.preflight" && step.status === "READY"));
 
     const loopTimeoutJson = await runCli([
       "loop", "run",
@@ -599,11 +661,13 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(loopRunJson.command, "loop run");
     assert.equal(loopRunJson.until, "terminal");
     assert.equal(loopRunJson.loop.projectId, "cli-agent");
+    assert.equal(loopRunJson.loop.llm.profileId, "qwen-private");
     assert.equal(loopRunJson.loop.status, "SUCCEEDED");
-    assert.equal(loopRunJson.llmUsage.summary.provider, "cli-test-llm");
-    assert.equal(loopRunJson.llmUsage.summary.model, "cli-test-model");
-    assert.equal(loopRunJson.llmUsage.summary.totalTokens, 12);
-    assert.equal(loopRunJson.llmUsage.server.steps[0].totalTokens, 12);
+    assert.equal(loopRunJson.llmUsage.summary.provider, "openai-compatible");
+    assert.equal(loopRunJson.llmUsage.summary.model, "qwen-private-test");
+    assert.equal(loopRunJson.llmUsage.summary.totalTokens, 24);
+    assert.equal(loopRunJson.llmUsage.server.steps[0].llmProfileId, "qwen-private");
+    assert.equal(loopRunJson.llmUsage.server.steps[0].totalTokens, 24);
     assert.ok(loopRunJson.llmUsage.process.responses.some((step) => step.label === "loop-run-start-1"));
 
     const loopRunText = await runCliText([
@@ -618,9 +682,9 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     ]);
     assert.match(loopRunText, /LLM Usage/);
     assert.match(loopRunText, /Client\s+workbuddy/);
-    assert.match(loopRunText, /Provider\s+cli-test-llm/);
-    assert.match(loopRunText, /Model\s+cli-test-model/);
-    assert.match(loopRunText, /Tokens\s+total=12/);
+    assert.match(loopRunText, /Provider\s+openai-compatible/);
+    assert.match(loopRunText, /Model\s+qwen-private-test/);
+    assert.match(loopRunText, /Tokens\s+total=24/);
 
     const blockedLoopRunJson = await runCli([
       "loop", "run",
@@ -820,6 +884,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.ok(decisions.some((decision) => decision.id === releaseGate.releaseDecisionId));
   } finally {
     await new Promise((resolve) => server.close(resolve));
+    await profileLlm.close();
   }
 });
 
@@ -961,6 +1026,49 @@ async function startFakeGitHubForCli() {
   const address = server.address();
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise((resolve) => server.close(resolve))
+  };
+}
+
+async function startFakeOpenAiLlmForCli() {
+  const state = { calls: 0 };
+  const server = http.createServer(async (request, response) => {
+    if (request.method === "POST" && request.url === "/chat/completions") {
+      state.calls += 1;
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      const parsed = body ? JSON.parse(body) : {};
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        id: `fake-llm-${state.calls}`,
+        object: "chat.completion",
+        model: parsed.model ?? "qwen-private-test",
+        choices: [{
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "# Qwen private plan\n\nProfile-selected loop execution is visible."
+          },
+          finish_reason: "stop"
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 14,
+          total_tokens: 24
+        }
+      }));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    get calls() {
+      return state.calls;
+    },
     close: () => new Promise((resolve) => server.close(resolve))
   };
 }

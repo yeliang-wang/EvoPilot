@@ -10,7 +10,7 @@ import { GitHubHttpAdapter, type GitHubPullRequestDraft } from "@evopilot/adapte
 import { GitLabHttpAdapter } from "@evopilot/adapter-gitlab";
 import { listRepositoryFiles } from "@evopilot/adapter-local-git";
 import { OpenHandsClient, type OpenHandsConnectorConfig, type OpenHandsRunStatus } from "@evopilot/adapter-openhands";
-import { createLlmClientFromEnv, type LlmGenerateResponse, type LlmTaskClient } from "@evopilot/llm";
+import { createLlmClientFromEnv, createLlmConfigFromEnv, LlmProxy, type LlmGenerateResponse, type LlmTaskClient } from "@evopilot/llm";
 import {
   applyReviewDecision,
   createPipelineRun,
@@ -140,10 +140,19 @@ interface StoredProject {
   workspaceId: string;
   repository?: ProjectRepositoryRegistration;
   devops?: ProjectDevopsConfiguration;
+  llm?: ProjectLlmBinding;
   runtime?: ProjectRuntimeConfiguration;
   validation: ProjectValidation;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ProjectLlmBinding {
+  schema: "evopilot-project-llm-binding/v1";
+  profileId: string;
+  required: boolean;
+  boundAt: string;
+  boundBy?: string;
 }
 
 type ProjectRepositoryProvider = "local-git" | "gitlab" | "github";
@@ -333,7 +342,7 @@ interface ProjectOnboardingChecklist {
   };
   status: "READY_TO_ONBOARD" | "READY_TO_RUN" | "WAITING_INPUT" | "BLOCKED";
   steps: Array<{
-    id: "workspace" | "repository" | "secret" | "github-app" | "project" | "source-credentials" | "devops" | "target";
+    id: "workspace" | "repository" | "secret" | "github-app" | "project" | "source-credentials" | "devops" | "llm" | "target";
     label: string;
     status: "PASS" | "WARN" | "FAIL" | "SKIP";
     required: boolean;
@@ -342,6 +351,7 @@ interface ProjectOnboardingChecklist {
   }>;
   sourceCredentials?: SourceCredentialReadiness;
   devops?: ProjectDevopsReadiness;
+  llm?: LlmProfileReadiness;
   missingInputs: string[];
   blockers: string[];
   commands: Array<{
@@ -351,7 +361,7 @@ interface ProjectOnboardingChecklist {
     when: string;
     requiresHuman?: boolean;
   }>;
-  nextAction: "store-secret" | "connect-github-account" | "connect-gitlab-account" | "install-github-app" | "register-project" | "configure-source-credentials" | "configure-devops" | "run-target" | "repair";
+  nextAction: "store-secret" | "store-llm-secret" | "connect-github-account" | "connect-gitlab-account" | "install-github-app" | "register-project" | "configure-source-credentials" | "configure-devops" | "configure-llm" | "run-target" | "repair";
   generatedAt: string;
 }
 
@@ -597,7 +607,7 @@ interface WorkspaceRecord {
   updatedAt: string;
 }
 
-type SecretKind = "github-app-private-key" | "github-webhook-secret" | "source-token" | "deploy-token" | "llm-key" | "generic";
+type SecretKind = "github-app-private-key" | "github-webhook-secret" | "source-token" | "deploy-token" | "llm-key" | "llm-api-key" | "generic";
 
 interface SecretRecord {
   schema: "evopilot-secret/v1";
@@ -618,6 +628,66 @@ interface SecretRecord {
   updatedAt: string;
   rotatedAt?: string;
   revokedAt?: string;
+}
+
+type LlmProfileProvider = "openai-compatible";
+
+interface LlmProfileRecord {
+  schema: "evopilot-llm-profile/v1";
+  id: string;
+  tenantId: string;
+  workspaceId: string;
+  name: string;
+  provider: LlmProfileProvider;
+  providerName: string;
+  baseUrl: string;
+  modelName: string;
+  apiKeyRef: string;
+  status: "ACTIVE" | "DISABLED";
+  timeoutSeconds: number;
+  maxRetries: number;
+  defaultMaxOutputTokens: number;
+  maxOutputTokens: number;
+  temperature: number;
+  thinkingType: string;
+  createdAt: string;
+  updatedAt: string;
+  lastPreflight?: LlmProfileReadiness;
+}
+
+interface LlmProfileReadiness {
+  schema: "evopilot-llm-profile-readiness/v1";
+  profileId?: string;
+  tenantId: string;
+  workspaceId: string;
+  source: "global-default" | "profile" | "missing";
+  status: "READY" | "BLOCKED";
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  apiKeyRef?: string;
+  checks: Array<{
+    id: "profile" | "provider" | "base-url" | "model" | "secret" | "provider-call";
+    status: "PASS" | "FAIL" | "SKIP";
+    required: boolean;
+    evidence: string[];
+  }>;
+  blockers: string[];
+  nextAction: "run-loop" | "store-llm-secret" | "configure-llm-profile" | "repair-llm-provider";
+  checkedAt: string;
+}
+
+interface LoopLlmSelection {
+  schema: "evopilot-loop-llm-selection/v1";
+  source: "global-default" | "project-default" | "loop-override" | "none";
+  configured: boolean;
+  required: boolean;
+  profileId?: string;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  apiKeyRef?: string;
+  resolvedAt: string;
 }
 
 interface GitHubAppInstallationRecord {
@@ -1091,6 +1161,7 @@ interface GlobalGoal {
   projectId: string;
   releaseTargetId: string;
   objective: string;
+  llm?: LoopLlmSelection;
   status: GlobalGoalStatus;
   plan: GoalPlan;
   finalReport?: GoalCompletionReport;
@@ -1554,6 +1625,8 @@ interface LlmUsageStepSummary {
   status: ExecutorStepResult["status"];
   provider?: string;
   model?: string;
+  llmProfileId?: string;
+  llmSource?: string;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -1779,6 +1852,7 @@ interface LoopRun {
   tenantId: string;
   workspaceId: string;
   objective: string;
+  llm?: LoopLlmSelection;
   status: LoopRunStatus;
   currentIteration: number;
   executorGraphId: string;
@@ -2468,15 +2542,26 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const releaseTargetId = safeFileName(String(body.releaseTargetId ?? body.targetId ?? "ga"));
         const releaseTarget = store.readReleaseTarget(releaseTargetId);
         if (!releaseTarget) return writeJson(response, 404, { error: "RELEASE_TARGET_NOT_FOUND" });
+        const llmResolution = resolveLoopLlmSelection(store, {
+          project,
+          tenantId,
+          workspaceId,
+          requestedProfileId: llmProfileIdFromPayload(body),
+          requireLlm
+        });
+        if (llmResolution.readiness.status !== "READY" && llmProfileIdFromPayload(body)) {
+          return writeJson(response, 409, { error: "LLM_PROFILE_NOT_READY", readiness: llmResolution.readiness });
+        }
         const goal = store.createGoal({
           id: body.id ? String(body.id) : undefined,
           projectId,
           releaseTargetId,
           objective,
           tenantId,
-          workspaceId
+          workspaceId,
+          llm: llmResolution.selection
         });
-        store.appendAudit(audit(auth, "goal.created", goal.id, { projectId, releaseTargetId, objective }));
+        store.appendAudit(audit(auth, "goal.created", goal.id, { projectId, releaseTargetId, objective, llmProfileId: goal.llm?.profileId, llmProvider: goal.llm?.provider, llmModel: goal.llm?.model }));
         return writeJson(response, 201, envelope(goal));
       }
       const goalPlanMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/plan$/);
@@ -2737,6 +2822,69 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         });
         store.appendAudit(audit(auth, existing ? "secret.rotated" : "secret.created", secret.id, { kind: secret.kind, version: secret.version }));
         return writeJson(response, existing ? 200 : 201, envelope(maskSecret(secret)));
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/llm-profiles") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(store.listLlmProfiles(auth.tenantId, auth.workspaceId).map(maskLlmProfile)));
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/llm-profiles") {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const existingId = optionalTrimmedString(body.id) ?? optionalTrimmedString(body.profileId) ?? optionalTrimmedString(body.name);
+        const existing = existingId ? store.readLlmProfile(existingId) : undefined;
+        const profile = normalizeLlmProfileBody(body, auth, existing);
+        const workspace = store.readWorkspace(profile.workspaceId);
+        if (!workspace) return writeJson(response, 404, { error: "WORKSPACE_NOT_FOUND" });
+        if (workspace.tenantId !== profile.tenantId) return writeJson(response, 409, { error: "LLM_PROFILE_WORKSPACE_TENANT_MISMATCH" });
+        if (!canAccessWorkspace(auth, workspace, "admin")) return writeJson(response, 403, { error: "WORKSPACE_FORBIDDEN" });
+        if (!profile.baseUrl || !profile.modelName || !profile.apiKeyRef) return writeJson(response, 400, { error: "LLM_PROFILE_REQUIRED", detail: "baseUrl, model/modelName, and apiKeyRef are required." });
+        const written = store.writeLlmProfile(profile);
+        store.appendAudit(audit(auth, existing ? "llm-profile.updated" : "llm-profile.created", written.id, {
+          provider: written.providerName,
+          model: written.modelName,
+          apiKeyRef: written.apiKeyRef,
+          tenantId: written.tenantId,
+          workspaceId: written.workspaceId
+        }));
+        return writeJson(response, existing ? 200 : 201, envelope(maskLlmProfile(written)));
+      }
+      const llmProfileMatch = url.pathname.match(/^\/api\/v1\/llm-profiles\/([^/]+)$/);
+      if (request.method === "GET" && llmProfileMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const profileRecord = store.readLlmProfile(decodeURIComponent(llmProfileMatch[1]));
+        if (!profileRecord) return writeJson(response, 404, { error: "LLM_PROFILE_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, profileRecord.tenantId, profileRecord.workspaceId)) return writeJson(response, 403, { error: "LLM_PROFILE_FORBIDDEN" });
+        return writeJson(response, 200, envelope(maskLlmProfile(profileRecord)));
+      }
+      const llmProfilePreflightMatch = url.pathname.match(/^\/api\/v1\/llm-profiles\/([^/]+)\/preflight$/);
+      if ((request.method === "GET" || request.method === "POST") && llmProfilePreflightMatch) {
+        if (!hasRole(auth, request.method === "POST" ? "operator" : "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const profileRecord = store.readLlmProfile(decodeURIComponent(llmProfilePreflightMatch[1]));
+        if (!profileRecord) return writeJson(response, 404, { error: "LLM_PROFILE_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, profileRecord.tenantId, profileRecord.workspaceId)) return writeJson(response, 403, { error: "LLM_PROFILE_FORBIDDEN" });
+        const readiness = await checkLlmProfileReadiness(store, profileRecord, { tenantId: profileRecord.tenantId, workspaceId: profileRecord.workspaceId });
+        const updated = store.writeLlmProfile({ ...profileRecord, lastPreflight: readiness, updatedAt: new Date().toISOString() });
+        if (request.method === "POST") {
+          store.appendAudit(audit(auth, "llm-profile.preflight", updated.id, {
+            provider: updated.providerName,
+            model: updated.modelName,
+            readiness: readiness.status,
+            blockers: readiness.blockers
+          }));
+          logInfo("llm-profile.preflight", {
+            actor: auth.actor,
+            target: updated.id,
+            metadata: {
+              tenantId: updated.tenantId,
+              workspaceId: updated.workspaceId,
+              provider: updated.providerName,
+              model: updated.modelName,
+              readiness: readiness.status,
+              blockers: readiness.blockers
+            }
+          });
+        }
+        return writeJson(response, readiness.status === "READY" ? 200 : 409, envelope(readiness));
       }
       const secretRevokeMatch = url.pathname.match(/^\/api\/v1\/secrets\/([^/]+)\/revoke$/);
       if (request.method === "POST" && secretRevokeMatch) {
@@ -3104,6 +3252,16 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!preset) return writeJson(response, 404, { error: "LOOP_ORCHESTRATION_PRESET_NOT_FOUND" });
         const projectId = safeFileName(String(body.projectId ?? "evopilot"));
         const project = store.readProject(projectId);
+        const llmResolution = resolveLoopLlmSelection(store, {
+          project,
+          tenantId: auth.tenantId,
+          workspaceId: auth.workspaceId,
+          requestedProfileId: llmProfileIdFromPayload(body),
+          requireLlm
+        });
+        if (llmResolution.readiness.status !== "READY" && (llmProfileIdFromPayload(body) || project?.llm?.required)) {
+          return writeJson(response, 409, { error: "LLM_PROFILE_NOT_READY", readiness: llmResolution.readiness });
+        }
         const deployConnectorId = optionalTrimmedString(body.deployConnectorId)
           ?? (store.listDeployConnectors().length === 1 ? store.listDeployConnectors()[0].id : undefined);
         const graph = store.writeExecutorGraph(executorGraphFromLoopOrchestrationRequest(body, preset.id));
@@ -3154,12 +3312,16 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
               sourceClosure: true,
               deployRollback: true
             }
-          }
+          },
+          llm: llmResolution.selection
         });
         store.appendAudit(audit(auth, "loop-orchestration.instantiated", loop.id, {
           presetId: preset.id,
           projectId,
           executorGraphId: graph.id,
+          llmProfileId: loop.llm?.profileId,
+          llmProvider: loop.llm?.provider,
+          llmModel: loop.llm?.model,
           graphValidation: graph.validation.status,
           graphCapabilities: graph.capabilities
         }));
@@ -3227,6 +3389,16 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (usage.loops.used >= usage.loops.limit) {
           return writeJson(response, 429, { error: "WORKSPACE_LOOP_QUOTA_EXCEEDED", detail: usage });
         }
+        const llmResolution = resolveLoopLlmSelection(store, {
+          project,
+          tenantId,
+          workspaceId,
+          requestedProfileId: llmProfileIdFromPayload(body),
+          requireLlm
+        });
+        if (llmResolution.readiness.status !== "READY" && (llmProfileIdFromPayload(body) || project?.llm?.required)) {
+          return writeJson(response, 409, { error: "LLM_PROFILE_NOT_READY", readiness: llmResolution.readiness });
+        }
         const loop = store.createLoop({
           id: body.id ? String(body.id) : undefined,
           source: normalizeLoopTriggerSource(body.source),
@@ -3240,9 +3412,10 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           stopPolicy: isRecord(body.stopPolicy) ? body.stopPolicy : undefined,
           retryPolicy: isRecord(body.retryPolicy) ? body.retryPolicy : undefined,
           sandbox: isRecord(body.sandbox) ? body.sandbox : undefined,
-          context: isRecord(body.context) ? body.context : undefined
+          context: isRecord(body.context) ? body.context : undefined,
+          llm: llmResolution.selection
         });
-        store.appendAudit(audit(auth, "loop.created", loop.id, { source: loop.source, projectId: loop.projectId, executorGraphId: loop.executorGraphId }));
+        store.appendAudit(audit(auth, "loop.created", loop.id, { source: loop.source, projectId: loop.projectId, executorGraphId: loop.executorGraphId, llmProfileId: loop.llm?.profileId, llmProvider: loop.llm?.provider, llmModel: loop.llm?.model }));
         const bodyOut = envelope(loop);
         if (idempotencyKey) store.writeIdempotency(`loop:create:${idempotencyKey}`, bodyOut);
         return writeJson(response, 201, bodyOut);
@@ -4045,6 +4218,119 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         }
         return writeJson(response, readiness.status === "READY" ? 200 : 409, envelope(readiness));
       }
+      const projectLlmMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/llm$/);
+      if (request.method === "GET" && projectLlmMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectLlmMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const resolved = resolveLoopLlmSelection(store, { project, tenantId: project.tenantId, workspaceId: project.workspaceId, requireLlm });
+        return writeJson(response, resolved.readiness.status === "READY" ? 200 : 409, envelope({
+          schema: "evopilot-project-llm/v1",
+          projectId: project.id,
+          llm: project.llm,
+          selection: resolved.selection,
+          profile: resolved.profile ? maskLlmProfile(resolved.profile) : undefined,
+          readiness: resolved.readiness
+        }));
+      }
+      if ((request.method === "POST" || request.method === "PUT") && projectLlmMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectLlmMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const profileId = safeFileName(optionalTrimmedString(body.profileId) ?? optionalTrimmedString(body.profile) ?? optionalTrimmedString(body.llmProfileId) ?? "");
+        if (!profileId) return writeJson(response, 400, { error: "LLM_PROFILE_REQUIRED", detail: "profileId is required." });
+        const profileRecord = store.readLlmProfile(profileId);
+        if (!profileRecord) return writeJson(response, 404, { error: "LLM_PROFILE_NOT_FOUND" });
+        if (profileRecord.tenantId !== project.tenantId || profileRecord.workspaceId !== project.workspaceId) return writeJson(response, 403, { error: "LLM_PROFILE_FORBIDDEN" });
+        const updated: StoredProject = {
+          ...project,
+          llm: {
+            schema: "evopilot-project-llm-binding/v1",
+            profileId,
+            required: body.required === undefined ? true : body.required !== false,
+            boundAt: new Date().toISOString(),
+            boundBy: auth.actor
+          },
+          updatedAt: new Date().toISOString()
+        };
+        store.writeProject(updated);
+        const resolved = resolveLoopLlmSelection(store, { project: updated, tenantId: updated.tenantId, workspaceId: updated.workspaceId, requireLlm: true });
+        store.appendAudit(audit(auth, "project.llm.updated", updated.id, {
+          profileId,
+          provider: profileRecord.providerName,
+          model: profileRecord.modelName,
+          readiness: resolved.readiness.status,
+          blockers: resolved.readiness.blockers
+        }));
+        logInfo("project.llm.updated", {
+          actor: auth.actor,
+          target: updated.id,
+          metadata: {
+            projectId: updated.id,
+            profileId,
+            provider: profileRecord.providerName,
+            model: profileRecord.modelName,
+            readiness: resolved.readiness.status,
+            blockers: resolved.readiness.blockers
+          }
+        });
+        return writeJson(response, resolved.readiness.status === "READY" ? 200 : 409, envelope({
+          schema: "evopilot-project-llm/v1",
+          project: maskProject(updated, store),
+          llm: updated.llm,
+          selection: resolved.selection,
+          profile: maskLlmProfile(profileRecord),
+          readiness: resolved.readiness
+        }));
+      }
+      if (request.method === "DELETE" && projectLlmMatch) {
+        if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectLlmMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const { llm, ...rest } = project;
+        const updated: StoredProject = { ...rest, updatedAt: new Date().toISOString() };
+        store.writeProject(updated);
+        store.appendAudit(audit(auth, "project.llm.cleared", updated.id, { previousProfileId: llm?.profileId }));
+        const resolved = resolveLoopLlmSelection(store, { project: updated, tenantId: updated.tenantId, workspaceId: updated.workspaceId, requireLlm });
+        return writeJson(response, 200, envelope({ project: maskProject(updated, store), cleared: Boolean(llm), selection: resolved.selection, readiness: resolved.readiness }));
+      }
+      const projectLlmPreflightMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/llm\/preflight$/);
+      if ((request.method === "GET" || request.method === "POST") && projectLlmPreflightMatch) {
+        if (!hasRole(auth, request.method === "POST" ? "operator" : "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const project = store.readProject(decodeURIComponent(projectLlmPreflightMatch[1]));
+        if (!project) return writeJson(response, 404, { error: "PROJECT_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, project.tenantId, project.workspaceId)) return writeJson(response, 403, { error: "PROJECT_FORBIDDEN" });
+        const resolved = resolveLoopLlmSelection(store, { project, tenantId: project.tenantId, workspaceId: project.workspaceId, requireLlm: true });
+        const readiness = resolved.profile
+          ? await checkLlmProfileReadiness(store, resolved.profile, { tenantId: project.tenantId, workspaceId: project.workspaceId })
+          : resolved.readiness;
+        if (request.method === "POST") {
+          store.appendAudit(audit(auth, "project.llm-preflight", project.id, {
+            profileId: project.llm?.profileId,
+            provider: readiness.provider,
+            model: readiness.model,
+            readiness: readiness.status,
+            blockers: readiness.blockers
+          }));
+          logInfo("project.llm.preflight", {
+            actor: auth.actor,
+            target: project.id,
+            metadata: {
+              projectId: project.id,
+              profileId: project.llm?.profileId,
+              provider: readiness.provider,
+              model: readiness.model,
+              readiness: readiness.status,
+              blockers: readiness.blockers
+            }
+          });
+        }
+        return writeJson(response, readiness.status === "READY" ? 200 : 409, envelope(readiness));
+      }
       if (request.method === "GET" && url.pathname === "/api/v1/pipelines") {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listPipelines().slice(-10).reverse()));
@@ -4070,6 +4356,12 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         const repository = normalizeProjectRepository(body);
         const validation = await validateProjectRepository(repository, store, { tenantId, workspaceId });
         const projectRuntime = normalizeProjectRuntime(body);
+        const projectLlm = normalizeProjectLlmBinding(body, auth.actor);
+        if (projectLlm) {
+          const llmProfile = store.readLlmProfile(projectLlm.profileId);
+          if (!llmProfile) return writeJson(response, 404, { error: "LLM_PROFILE_NOT_FOUND", profileId: projectLlm.profileId });
+          if (llmProfile.tenantId !== tenantId || llmProfile.workspaceId !== workspaceId) return writeJson(response, 403, { error: "LLM_PROFILE_FORBIDDEN", profileId: projectLlm.profileId });
+        }
         const projectDevops = normalizeProjectDevops(body, {
           id: projectId,
           name: String(body.name ?? body.id ?? "").trim(),
@@ -4077,6 +4369,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           tenantId,
           workspaceId,
           repository,
+          llm: projectLlm,
           validation,
           createdAt: now,
           updatedAt: now
@@ -4091,6 +4384,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           workspaceId,
           repository,
           devops: projectDevops,
+          llm: projectLlm,
           runtime: projectRuntime,
           validation,
           createdAt: now,
@@ -4108,7 +4402,8 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           validation: validation.status,
           devopsProvider: project.devops?.provider,
           devopsOwner: project.devops?.boundary?.owner,
-          claimBoundary: project.devops?.boundary?.claimBoundary
+          claimBoundary: project.devops?.boundary?.claimBoundary,
+          llmProfileId: project.llm?.profileId
         }));
         return writeJson(response, 201, envelope(maskProject(project, store)));
       }
@@ -4472,6 +4767,7 @@ class FileStore {
     fs.mkdirSync(this.workspacesDir, { recursive: true });
     fs.mkdirSync(this.usersDir, { recursive: true });
     fs.mkdirSync(this.secretsDir, { recursive: true });
+    fs.mkdirSync(this.llmProfilesDir, { recursive: true });
     fs.mkdirSync(this.githubAppInstallationsDir, { recursive: true });
     fs.mkdirSync(this.runsDir, { recursive: true });
     fs.mkdirSync(this.projectsDir, { recursive: true });
@@ -4523,6 +4819,10 @@ class FileStore {
 
   get secretsDir(): string {
     return path.join(this.dataRoot, "secrets");
+  }
+
+  get llmProfilesDir(): string {
+    return path.join(this.dataRoot, "llm-profiles");
   }
 
   get githubAppInstallationsDir(): string {
@@ -5360,6 +5660,70 @@ class FileStore {
     };
   }
 
+  listLlmProfiles(tenantId?: string, workspaceId?: string): LlmProfileRecord[] {
+    return fs.readdirSync(this.llmProfilesDir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => this.hydrateLlmProfile(JSON.parse(fs.readFileSync(path.join(this.llmProfilesDir, file), "utf8"))))
+      .filter((profile) => (!tenantId || profile.tenantId === tenantId) && (!workspaceId || profile.workspaceId === workspaceId));
+  }
+
+  readLlmProfile(id: string): LlmProfileRecord | undefined {
+    const file = path.join(this.llmProfilesDir, `${safeFileName(id)}.json`);
+    if (!fs.existsSync(file)) return undefined;
+    return this.hydrateLlmProfile(JSON.parse(fs.readFileSync(file, "utf8")));
+  }
+
+  writeLlmProfile(profile: LlmProfileRecord): LlmProfileRecord {
+    const hydrated = this.hydrateLlmProfile(profile);
+    atomicWriteJson(path.join(this.llmProfilesDir, `${safeFileName(hydrated.id)}.json`), hydrated);
+    return hydrated;
+  }
+
+  defaultLlmConfigured(): boolean {
+    return Boolean(this.executionRuntime.llmClient);
+  }
+
+  requireLlm(): boolean {
+    return this.executionRuntime.requireLlm === true;
+  }
+
+  resolveLoopLlmClient(loop: LoopRun): LlmTaskClient | undefined {
+    if (loop.llm?.profileId) {
+      const profile = this.readLlmProfile(loop.llm.profileId);
+      if (!profile || profile.status !== "ACTIVE") return undefined;
+      const apiKey = resolveLlmProfileApiKey(this, profile);
+      return apiKey ? createLlmClientFromProfile(profile, apiKey) : undefined;
+    }
+    return this.executionRuntime.llmClient;
+  }
+
+  private hydrateLlmProfile(profile: any): LlmProfileRecord {
+    const now = new Date().toISOString();
+    return {
+      schema: "evopilot-llm-profile/v1",
+      id: safeFileName(String(profile.id ?? profile.name ?? `llm-profile-${Date.now()}`)),
+      tenantId: safeFileName(String(profile.tenantId ?? DEFAULT_TENANT_ID)),
+      workspaceId: safeFileName(String(profile.workspaceId ?? DEFAULT_WORKSPACE_ID)),
+      name: String(profile.name ?? profile.id ?? "LLM Profile"),
+      provider: normalizeLlmProfileProvider(profile.provider),
+      providerName: optionalTrimmedString(profile.providerName) ?? optionalTrimmedString(profile.provider) ?? "openai-compatible",
+      baseUrl: optionalTrimmedString(profile.baseUrl) ?? "",
+      modelName: optionalTrimmedString(profile.modelName) ?? optionalTrimmedString(profile.model) ?? "",
+      apiKeyRef: optionalTrimmedString(profile.apiKeyRef) ?? optionalTrimmedString(profile.tokenRef) ?? "",
+      status: String(profile.status ?? "ACTIVE").toUpperCase() === "DISABLED" ? "DISABLED" : "ACTIVE",
+      timeoutSeconds: clampPositiveInteger(profile.timeoutSeconds, 300),
+      maxRetries: clampPositiveInteger(profile.maxRetries, 1),
+      defaultMaxOutputTokens: clampPositiveInteger(profile.defaultMaxOutputTokens, 8192),
+      maxOutputTokens: clampPositiveInteger(profile.maxOutputTokens, 12288),
+      temperature: normalizeTemperature(profile.temperature, 0.2),
+      thinkingType: optionalTrimmedString(profile.thinkingType) ?? optionalTrimmedString(profile.thinking) ?? "disabled",
+      createdAt: String(profile.createdAt ?? now),
+      updatedAt: String(profile.updatedAt ?? profile.createdAt ?? now),
+      lastPreflight: isRecord(profile.lastPreflight) ? profile.lastPreflight as LlmProfileReadiness : undefined
+    };
+  }
+
   listGitHubAppInstallations(tenantId?: string, workspaceId?: string): GitHubAppInstallationRecord[] {
     return fs.readdirSync(this.githubAppInstallationsDir)
       .filter((file) => file.endsWith(".json"))
@@ -5432,6 +5796,7 @@ class FileStore {
       ...project,
       tenantId: safeFileName(String(project.tenantId ?? DEFAULT_TENANT_ID)),
       workspaceId: safeFileName(String(project.workspaceId ?? DEFAULT_WORKSPACE_ID)),
+      llm: hydrateProjectLlmBinding(project.llm),
       validation: project.validation ?? {
         status: "VERIFIED",
         checkedAt: project.createdAt ?? new Date().toISOString(),
@@ -6346,6 +6711,7 @@ class FileStore {
     objective: string;
     tenantId?: string;
     workspaceId?: string;
+    llm?: LoopLlmSelection;
   }): GlobalGoal {
     const now = new Date().toISOString();
     const projectId = safeFileName(String(input.projectId ?? "evopilot"));
@@ -6362,9 +6728,10 @@ class FileStore {
       projectId,
       releaseTargetId,
       objective: input.objective,
+      llm: input.llm,
       status: "DRAFT",
       plan: emptyGoalPlan(),
-      timeline: [goalTimelineEvent("CREATED", `Global goal ${id} created.`, { projectId, releaseTargetId, objective: input.objective })],
+      timeline: [goalTimelineEvent("CREATED", `Global goal ${id} created.`, { projectId, releaseTargetId, objective: input.objective, llmProfileId: input.llm?.profileId, llmProvider: input.llm?.provider, llmModel: input.llm?.model })],
       createdAt: now,
       updatedAt: now
     });
@@ -6565,6 +6932,9 @@ class FileStore {
   createGoalTargetLoop(goal: GlobalGoal, target: GoalTarget, actor: string): LoopRun {
     const project = this.readProject(goal.projectId);
     const graph = this.writeExecutorGraph(selfEvolutionExecutorGraph());
+    const llmResolution = goal.llm
+      ? { selection: goal.llm }
+      : resolveLoopLlmSelection(this, { project, tenantId: goal.tenantId, workspaceId: goal.workspaceId, requireLlm: this.requireLlm() });
     return this.createLoop({
       id: `goal-${goal.id}-${target.id}-${Date.now()}`,
       source: "api",
@@ -6607,7 +6977,8 @@ class FileStore {
         acceptanceCriteria: target.acceptanceCriteria,
         dashboardGoalCockpit: true,
         createdBy: actor
-      }
+      },
+      llm: llmResolution.selection
     });
   }
 
@@ -6758,6 +7129,7 @@ class FileStore {
       projectId,
       releaseTargetId,
       objective: String(goal.objective ?? `${projectId} reaches ${releaseTargetId.toUpperCase()}.`),
+      llm: hydrateLoopLlmSelection(goal.llm),
       status: normalizeGlobalGoalStatus(goal.status),
       plan,
       finalReport: isRecord(goal.finalReport) ? goal.finalReport as GoalCompletionReport : undefined,
@@ -7009,6 +7381,7 @@ class FileStore {
       source: normalizeLoopTriggerSource(loop.source),
       tenantId,
       workspaceId,
+      llm: hydrateLoopLlmSelection(loop.llm),
       status: normalizeLoopRunStatus(loop.status),
       currentIteration: Number.isFinite(Number(loop.currentIteration)) ? Number(loop.currentIteration) : 0,
       executorGraphId: String(loop.executorGraphId ?? graph.id),
@@ -7048,6 +7421,7 @@ class FileStore {
     retryPolicy?: Partial<LoopRetryPolicy>;
     sandbox?: Partial<LoopSandboxPolicy>;
     context?: Record<string, unknown>;
+    llm?: LoopLlmSelection;
   }): LoopRun {
     const now = new Date().toISOString();
     const projectId = safeFileName(String(input.projectId ?? "evopilot"));
@@ -7065,6 +7439,7 @@ class FileStore {
       tenantId,
       workspaceId,
       objective: input.objective,
+      llm: input.llm,
       status: "PENDING",
       currentIteration: 0,
       executorGraphId: graph.id,
@@ -7082,7 +7457,7 @@ class FileStore {
       evidenceSets: [],
       artifacts: [],
       approvals: [],
-      timeline: [loopTimelineEvent("CREATED", `Loop ${id} created from ${input.source ?? "api"}.`, { objective: input.objective, projectId, tenantId, workspaceId, sourceClosure: normalizeLoopSourceClosure(input.sourceClosure ?? input.context?.sourceClosure, project, input.controlPlaneUrl) })],
+      timeline: [loopTimelineEvent("CREATED", `Loop ${id} created from ${input.source ?? "api"}.`, { objective: input.objective, projectId, tenantId, workspaceId, llmProfileId: input.llm?.profileId, llmProvider: input.llm?.provider, llmModel: input.llm?.model, sourceClosure: normalizeLoopSourceClosure(input.sourceClosure ?? input.context?.sourceClosure, project, input.controlPlaneUrl) })],
       createdAt: now,
       updatedAt: now
     };
@@ -7259,6 +7634,7 @@ class FileStore {
     const startedAt = now;
     const iterationWorkspace = path.join(this.loopWorkspacesDir, safeFileName(args.loop.id), `iteration-${nextIndex}`);
     fs.mkdirSync(iterationWorkspace, { recursive: true });
+    const llmClient = this.resolveLoopLlmClient(args.loop);
     const steps = await Promise.all(graph.nodes.map((node, index) => executeLoopNode({
       node,
       loop: args.loop,
@@ -7271,7 +7647,7 @@ class FileStore {
       sandbox: args.loop.sandbox,
       sandboxEnforcement: evaluateLoopSandboxEnforcement(args.loop.sandbox),
       now: new Date(Date.now() + index).toISOString(),
-      llmClient: this.executionRuntime.llmClient,
+      llmClient,
       requireLlm: this.executionRuntime.requireLlm === true
     })));
     const failedSteps = steps.filter((step) => step.status === "FAILED");
@@ -10136,8 +10512,19 @@ function normalizeWorkspaceQuotas(value: unknown): WorkspaceRecord["quotas"] {
 
 function normalizeSecretKind(value: unknown): SecretKind {
   const kind = String(value ?? "").trim();
-  if (kind === "github-app-private-key" || kind === "github-webhook-secret" || kind === "source-token" || kind === "deploy-token" || kind === "llm-key" || kind === "generic") return kind;
+  if (kind === "github-app-private-key" || kind === "github-webhook-secret" || kind === "source-token" || kind === "deploy-token" || kind === "llm-key" || kind === "llm-api-key" || kind === "generic") return kind;
   return "generic";
+}
+
+function normalizeLlmProfileProvider(value: unknown): LlmProfileProvider {
+  const provider = String(value ?? "").trim();
+  return provider === "openai-compatible" ? "openai-compatible" : "openai-compatible";
+}
+
+function normalizeTemperature(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(2, parsed));
 }
 
 function normalizeAuthRole(value: unknown, fallback: AuthRole): AuthRole {
@@ -10199,6 +10586,275 @@ function maskSecret(secret: SecretRecord): Omit<SecretRecord, "encryption"> & { 
   };
 }
 
+function maskLlmProfile(profile: LlmProfileRecord): LlmProfileRecord & { apiKeyConfigured: boolean } {
+  return {
+    ...profile,
+    apiKeyConfigured: Boolean(profile.apiKeyRef)
+  };
+}
+
+function normalizeLlmProfileBody(body: any, auth: AuthContext, existing?: LlmProfileRecord): LlmProfileRecord {
+  const now = new Date().toISOString();
+  const id = safeFileName(optionalTrimmedString(body.id) ?? optionalTrimmedString(body.profileId) ?? optionalTrimmedString(body.name) ?? existing?.id ?? `llm-profile-${Date.now()}`);
+  return {
+    schema: "evopilot-llm-profile/v1",
+    id,
+    tenantId: safeFileName(optionalTrimmedString(body.tenantId) ?? existing?.tenantId ?? auth.tenantId),
+    workspaceId: safeFileName(optionalTrimmedString(body.workspaceId) ?? existing?.workspaceId ?? auth.workspaceId),
+    name: optionalTrimmedString(body.name) ?? existing?.name ?? id,
+    provider: normalizeLlmProfileProvider(body.provider ?? existing?.provider),
+    providerName: optionalTrimmedString(body.providerName) ?? optionalTrimmedString(body.provider) ?? existing?.providerName ?? "openai-compatible",
+    baseUrl: optionalTrimmedString(body.baseUrl) ?? existing?.baseUrl ?? "",
+    modelName: optionalTrimmedString(body.modelName) ?? optionalTrimmedString(body.model) ?? existing?.modelName ?? "",
+    apiKeyRef: optionalTrimmedString(body.apiKeyRef) ?? optionalTrimmedString(body.tokenRef) ?? existing?.apiKeyRef ?? "",
+    status: String(body.status ?? existing?.status ?? "ACTIVE").toUpperCase() === "DISABLED" ? "DISABLED" : "ACTIVE",
+    timeoutSeconds: clampPositiveInteger(body.timeoutSeconds, existing?.timeoutSeconds ?? 300),
+    maxRetries: clampPositiveInteger(body.maxRetries, existing?.maxRetries ?? 1),
+    defaultMaxOutputTokens: clampPositiveInteger(body.defaultMaxOutputTokens, existing?.defaultMaxOutputTokens ?? 8192),
+    maxOutputTokens: clampPositiveInteger(body.maxOutputTokens, existing?.maxOutputTokens ?? 12288),
+    temperature: normalizeTemperature(body.temperature, existing?.temperature ?? 0.2),
+    thinkingType: optionalTrimmedString(body.thinkingType) ?? optionalTrimmedString(body.thinking) ?? existing?.thinkingType ?? "disabled",
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastPreflight: existing?.lastPreflight
+  };
+}
+
+function resolveLlmProfileApiKey(store: FileStore | undefined, profile: LlmProfileRecord): string | undefined {
+  if (!profile.apiKeyRef) return undefined;
+  return resolveTokenRef(store, profile.apiKeyRef, profile);
+}
+
+function createLlmClientFromProfile(profile: LlmProfileRecord, apiKey: string): LlmTaskClient | undefined {
+  const config = createLlmConfigFromEnv({
+    ...process.env,
+    EVOPILOT_LLM_PROVIDER_NAME: profile.providerName,
+    EVOPILOT_LLM_BASE_URL: profile.baseUrl,
+    EVOPILOT_LLM_API_KEY: apiKey,
+    EVOPILOT_LLM_MODEL_NAME: profile.modelName,
+    EVOPILOT_LLM_TIMEOUT_SECONDS: String(profile.timeoutSeconds),
+    EVOPILOT_LLM_MAX_RETRIES: String(profile.maxRetries),
+    EVOPILOT_LLM_DEFAULT_MAX_OUTPUT_TOKENS: String(profile.defaultMaxOutputTokens),
+    EVOPILOT_LLM_MAX_OUTPUT_TOKENS: String(profile.maxOutputTokens),
+    EVOPILOT_LLM_TEMPERATURE: String(profile.temperature),
+    EVOPILOT_LLM_THINKING: profile.thinkingType
+  });
+  return config ? new LlmProxy(config) : undefined;
+}
+
+async function checkLlmProfileReadiness(store: FileStore, profile: LlmProfileRecord | undefined, scope: { tenantId: string; workspaceId: string }, options: { probeProvider?: boolean } = {}): Promise<LlmProfileReadiness> {
+  const checkedAt = new Date().toISOString();
+  const checks: LlmProfileReadiness["checks"] = [];
+  const addCheck = (check: LlmProfileReadiness["checks"][number]) => checks.push(check);
+  if (!profile) {
+    addCheck({ id: "profile", status: "FAIL", required: true, evidence: ["llmProfile=missing"] });
+    return llmProfileReadinessResult({
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+      source: "missing",
+      checks,
+      checkedAt,
+      provider: undefined,
+      model: undefined
+    });
+  }
+  addCheck({
+    id: "profile",
+    status: profile.status === "ACTIVE" && profile.tenantId === scope.tenantId && profile.workspaceId === scope.workspaceId ? "PASS" : "FAIL",
+    required: true,
+    evidence: [`profile=${profile.id}`, `status=${profile.status}`, `tenantId=${profile.tenantId}`, `workspaceId=${profile.workspaceId}`]
+  });
+  addCheck({ id: "provider", status: profile.provider === "openai-compatible" ? "PASS" : "FAIL", required: true, evidence: [`provider=${profile.provider}`, `providerName=${profile.providerName}`] });
+  addCheck({ id: "base-url", status: profile.baseUrl ? "PASS" : "FAIL", required: true, evidence: [`baseUrl=${profile.baseUrl || "missing"}`] });
+  addCheck({ id: "model", status: profile.modelName ? "PASS" : "FAIL", required: true, evidence: [`model=${profile.modelName || "missing"}`] });
+  const apiKey = resolveLlmProfileApiKey(store, profile);
+  addCheck({ id: "secret", status: apiKey ? "PASS" : "FAIL", required: true, evidence: [profile.apiKeyRef ? `apiKeyRef=${profile.apiKeyRef}` : "apiKeyRef=missing", apiKey ? "apiKeyResolved=true" : "LLM_API_KEY_REF_NOT_RESOLVED"] });
+  if (apiKey && options.probeProvider !== false) {
+    const client = createLlmClientFromProfile(profile, apiKey);
+    if (client) {
+      const result = await client.generate({
+        caller: "evopilot-llm-profile-preflight",
+        intent: "structured.extraction",
+        outputContract: "plain_text",
+        maxOutputTokens: 16,
+        prompt: "Reply with OK to confirm this EvoPilot LLM profile is reachable.",
+        metadata: {
+          profileId: profile.id,
+          tenantId: profile.tenantId,
+          workspaceId: profile.workspaceId
+        }
+      });
+      addCheck({
+        id: "provider-call",
+        status: result.success ? "PASS" : "FAIL",
+        required: true,
+        evidence: [
+          `requestId=${result.requestId}`,
+          `provider=${result.provider ?? profile.providerName}`,
+          `model=${result.model ?? profile.modelName}`,
+          result.usage ? `totalTokens=${result.usage.totalTokens}` : "totalTokens=0",
+          result.success ? "providerCall=ok" : `error=${result.errorCode ?? "LLM_PROVIDER_FAILED"}`
+        ]
+      });
+    } else {
+      addCheck({ id: "provider-call", status: "FAIL", required: true, evidence: ["LLM_CLIENT_NOT_CREATED"] });
+    }
+  } else {
+    addCheck({ id: "provider-call", status: "SKIP", required: false, evidence: [apiKey ? "probeProvider=false" : "secret-not-ready"] });
+  }
+  return llmProfileReadinessResult({
+    profile,
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    source: "profile",
+    checks,
+    checkedAt,
+    provider: profile.providerName,
+    model: profile.modelName
+  });
+}
+
+function llmProfileReadinessResult(input: {
+  profile?: LlmProfileRecord;
+  tenantId: string;
+  workspaceId: string;
+  source: LlmProfileReadiness["source"];
+  checks: LlmProfileReadiness["checks"];
+  checkedAt: string;
+  provider?: string;
+  model?: string;
+}): LlmProfileReadiness {
+  const blockers = input.checks
+    .filter((check) => check.required && check.status === "FAIL")
+    .flatMap((check) => check.evidence.map((item) => `${check.id}:${item}`));
+  return {
+    schema: "evopilot-llm-profile-readiness/v1",
+    profileId: input.profile?.id,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    source: input.source,
+    status: blockers.length > 0 ? "BLOCKED" : "READY",
+    provider: input.provider,
+    model: input.model,
+    baseUrl: input.profile?.baseUrl,
+    apiKeyRef: input.profile?.apiKeyRef,
+    checks: input.checks,
+    blockers,
+    nextAction: blockers.length === 0 ? "run-loop"
+      : blockers.some((item) => item.startsWith("secret:")) ? "store-llm-secret"
+        : blockers.some((item) => item.startsWith("provider-call:")) ? "repair-llm-provider"
+          : "configure-llm-profile",
+    checkedAt: input.checkedAt
+  };
+}
+
+function defaultLlmReadiness(store: FileStore, scope: { tenantId: string; workspaceId: string }): LlmProfileReadiness {
+  const checkedAt = new Date().toISOString();
+  const provider = optionalTrimmedString(process.env.EVOPILOT_LLM_PROVIDER_NAME);
+  const model = optionalTrimmedString(process.env.EVOPILOT_LLM_MODEL_NAME);
+  const configured = store.defaultLlmConfigured();
+  const checks: LlmProfileReadiness["checks"] = [
+    { id: "profile", status: configured ? "PASS" : "SKIP", required: false, evidence: ["profile=global-default"] },
+    { id: "provider", status: provider || configured ? "PASS" : "FAIL", required: store.requireLlm(), evidence: [`provider=${provider ?? "runtime-default"}`] },
+    { id: "base-url", status: process.env.EVOPILOT_LLM_BASE_URL || configured ? "PASS" : "FAIL", required: store.requireLlm(), evidence: [process.env.EVOPILOT_LLM_BASE_URL ? "baseUrl=env-configured" : "baseUrl=not-visible"] },
+    { id: "model", status: model || configured ? "PASS" : "FAIL", required: store.requireLlm(), evidence: [`model=${model ?? "runtime-default"}`] },
+    { id: "secret", status: process.env.EVOPILOT_LLM_API_KEY || configured ? "PASS" : "FAIL", required: store.requireLlm(), evidence: [process.env.EVOPILOT_LLM_API_KEY ? "apiKey=env-configured" : "apiKey=not-visible"] },
+    { id: "provider-call", status: "SKIP", required: false, evidence: ["use llm profile preflight for provider-call proof"] }
+  ];
+  return llmProfileReadinessResult({
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    source: configured ? "global-default" : "missing",
+    checks,
+    checkedAt,
+    provider: provider ?? (configured ? "runtime-default" : undefined),
+    model: model ?? (configured ? "runtime-default" : undefined)
+  });
+}
+
+function resolveLoopLlmSelection(store: FileStore, input: {
+  project?: StoredProject;
+  tenantId: string;
+  workspaceId: string;
+  requestedProfileId?: string;
+  requireLlm?: boolean;
+}): { selection: LoopLlmSelection; readiness: LlmProfileReadiness; profile?: LlmProfileRecord } {
+  const now = new Date().toISOString();
+  const projectProfileId = input.project?.llm?.profileId;
+  const profileId = optionalTrimmedString(input.requestedProfileId) ?? projectProfileId;
+  if (profileId) {
+    const profile = store.readLlmProfile(profileId);
+    const source: LoopLlmSelection["source"] = input.requestedProfileId ? "loop-override" : "project-default";
+    if (!profile || profile.tenantId !== input.tenantId || profile.workspaceId !== input.workspaceId || profile.status !== "ACTIVE") {
+      const readiness = llmProfileReadinessResult({
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        source: "missing",
+        checks: [{ id: "profile", status: "FAIL", required: true, evidence: [`profile=${profileId}`, "profile=missing-or-inaccessible"] }],
+        checkedAt: now
+      });
+      return {
+        readiness,
+        selection: {
+          schema: "evopilot-loop-llm-selection/v1",
+          source,
+          configured: false,
+          required: input.requireLlm === true,
+          profileId,
+          resolvedAt: now
+        }
+      };
+    }
+    const apiKey = resolveLlmProfileApiKey(store, profile);
+    const readiness = llmProfileReadinessResult({
+      profile,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      source: "profile",
+      checks: [
+        { id: "profile", status: "PASS", required: true, evidence: [`profile=${profile.id}`, `status=${profile.status}`] },
+        { id: "provider", status: "PASS", required: true, evidence: [`provider=${profile.provider}`, `providerName=${profile.providerName}`] },
+        { id: "base-url", status: profile.baseUrl ? "PASS" : "FAIL", required: true, evidence: [`baseUrl=${profile.baseUrl || "missing"}`] },
+        { id: "model", status: profile.modelName ? "PASS" : "FAIL", required: true, evidence: [`model=${profile.modelName || "missing"}`] },
+        { id: "secret", status: apiKey ? "PASS" : "FAIL", required: true, evidence: [profile.apiKeyRef ? `apiKeyRef=${profile.apiKeyRef}` : "apiKeyRef=missing", apiKey ? "apiKeyResolved=true" : "LLM_API_KEY_REF_NOT_RESOLVED"] },
+        { id: "provider-call", status: "SKIP", required: false, evidence: ["provider probe skipped during loop creation; run llm profile preflight for live proof"] }
+      ],
+      checkedAt: now,
+      provider: profile.providerName,
+      model: profile.modelName
+    });
+    return {
+      readiness,
+      profile,
+      selection: {
+        schema: "evopilot-loop-llm-selection/v1",
+        source,
+        configured: readiness.status === "READY",
+        required: input.requireLlm === true,
+        profileId: profile.id,
+        provider: profile.providerName,
+        model: profile.modelName,
+        baseUrl: profile.baseUrl,
+        apiKeyRef: profile.apiKeyRef,
+        resolvedAt: now
+      }
+    };
+  }
+  const readiness = defaultLlmReadiness(store, input);
+  return {
+    readiness,
+    selection: {
+      schema: "evopilot-loop-llm-selection/v1",
+      source: readiness.status === "READY" ? "global-default" : "none",
+      configured: readiness.status === "READY",
+      required: input.requireLlm === true,
+      provider: readiness.provider,
+      model: readiness.model,
+      resolvedAt: now
+    }
+  };
+}
+
 function githubAppInstallationChecks(store: FileStore, tenantId: string, workspaceId: string, installation: Pick<GitHubAppInstallationRecord, "privateKeySecretRef" | "webhookSecretRef" | "repositories" | "permissions">): GitHubAppInstallationRecord["checks"] {
   const privateKey = installation.privateKeySecretRef ? store.readSecret(installation.privateKeySecretRef) : undefined;
   const webhookSecret = installation.webhookSecretRef ? store.readSecret(installation.webhookSecretRef) : undefined;
@@ -10250,6 +10906,7 @@ async function buildProjectOnboardingChecklist(args: {
   const projectName = args.project?.name ?? optionalTrimmedString(args.body.name) ?? projectId ?? "Project";
   const template = optionalTrimmedString(args.body.template) ?? optionalTrimmedString(args.body.releaseTargetTemplate);
   const objective = optionalTrimmedString(args.body.objective) ?? (projectId && template ? `Promote ${projectId} to ${template} with source closure, native CI/CD, deployment evidence, release decision, and blocker review` : undefined);
+  const requestedLlmProfileId = llmProfileIdFromPayload(args.body);
   const steps: ProjectOnboardingChecklist["steps"] = [];
   const addStep = (step: ProjectOnboardingChecklist["steps"][number]) => steps.push(step);
 
@@ -10313,13 +10970,14 @@ async function buildProjectOnboardingChecklist(args: {
     nextAction: provider === "github" && !matchingGitHubApp && !readOnlyPublicMode ? "install-github-app" : "continue"
   });
 
-  const draftProject: StoredProject | undefined = args.project ?? (projectId && repository ? {
+	  const draftProject: StoredProject | undefined = args.project ?? (projectId && repository ? {
     id: projectId,
     name: projectName,
     profileId: optionalTrimmedString(args.body.profileId) ?? args.profileId,
     tenantId,
     workspaceId,
     repository,
+    llm: normalizeProjectLlmBinding(args.body, args.auth.actor),
     validation,
     createdAt: generatedAt,
     updatedAt: generatedAt
@@ -10357,6 +11015,30 @@ async function buildProjectOnboardingChecklist(args: {
     nextAction: !remoteRepository || readOnlyPublicMode ? "continue" : !writablePrincipalReady ? principalNextAction : devops?.nextAction ?? "configure-devops"
   });
 
+  const llmResolution = draftProject ? resolveLoopLlmSelection(args.store, {
+    project: draftProject,
+    tenantId,
+    workspaceId,
+    requestedProfileId: requestedLlmProfileId,
+    requireLlm: true
+  }) : undefined;
+  const llmRequired = Boolean(args.body.requireLlmReady || requestedLlmProfileId || draftProject?.llm?.required);
+  addStep({
+    id: "llm",
+    label: "Loop LLM profile",
+    status: llmResolution?.readiness.status === "READY" ? "PASS" : llmRequired ? "FAIL" : "WARN",
+    required: llmRequired,
+    evidence: llmResolution ? [
+      `source=${llmResolution.selection.source}`,
+      `profile=${llmResolution.selection.profileId ?? "global-default"}`,
+      `provider=${llmResolution.selection.provider ?? llmResolution.readiness.provider ?? "missing"}`,
+      `model=${llmResolution.selection.model ?? llmResolution.readiness.model ?? "missing"}`,
+      `readiness=${llmResolution.readiness.status}`,
+      ...llmResolution.readiness.blockers.slice(0, 4)
+    ] : ["project draft unavailable"],
+    nextAction: llmResolution?.readiness.status === "READY" ? "run-loop" : llmRequired ? llmResolution?.readiness.nextAction ?? "configure-llm-profile" : "configure-llm"
+  });
+
   addStep({
     id: "target",
     label: "Goal/Loop target wrapper",
@@ -10366,7 +11048,7 @@ async function buildProjectOnboardingChecklist(args: {
     nextAction: template ? "run-target" : "choose-target-template"
   });
 
-  const missingInputs = onboardingMissingInputs({ projectId, repository, provider, tokenRef, remoteRepository, draftDevops, template });
+  const missingInputs = onboardingMissingInputs({ projectId, repository, provider, tokenRef, remoteRepository, draftDevops, template, llmRequired, llmReadiness: llmResolution?.readiness, llmProfileId: requestedLlmProfileId ?? draftProject?.llm?.profileId });
   const blockers = steps
     .filter((step) => step.required && step.status === "FAIL")
     .flatMap((step) => step.evidence.map((item) => `${step.id}:${item}`));
@@ -10383,7 +11065,10 @@ async function buildProjectOnboardingChecklist(args: {
     tokenResolved,
     sourceCredentials,
     devops,
+    llm: llmResolution?.readiness,
     draftDevops,
+    llmProfileId: requestedLlmProfileId ?? draftProject?.llm?.profileId,
+    llmRequired,
     template,
     objective
   });
@@ -10401,6 +11086,7 @@ async function buildProjectOnboardingChecklist(args: {
     steps,
     sourceCredentials,
     devops,
+    llm: llmResolution?.readiness,
     missingInputs,
     blockers,
     commands,
@@ -10485,6 +11171,9 @@ function onboardingMissingInputs(args: {
   remoteRepository: boolean;
   draftDevops?: ProjectDevopsConfiguration;
   template?: string;
+  llmRequired?: boolean;
+  llmReadiness?: LlmProfileReadiness;
+  llmProfileId?: string;
 }): string[] {
   const missing: string[] = [];
   const readOnlyPublicMode = args.repository?.topology?.executionMode === "read-only-public";
@@ -10495,6 +11184,8 @@ function onboardingMissingInputs(args: {
     missing.push("server-side-token-ref");
   }
   if ((args.provider === "github" || args.provider === "gitlab") && !readOnlyPublicMode && !args.draftDevops) missing.push("repository-native-devops-contract");
+  if (args.llmRequired && !args.llmProfileId && args.llmReadiness?.source !== "global-default") missing.push("llm-profile");
+  if (args.llmRequired && args.llmReadiness?.nextAction === "store-llm-secret") missing.push("server-side-llm-api-key-ref");
   if (!args.template) missing.push("target-template(optional-for-registration)");
   return missing;
 }
@@ -10508,7 +11199,10 @@ function buildProjectOnboardingCommands(args: {
   tokenResolved: boolean;
   sourceCredentials?: SourceCredentialReadiness;
   devops?: ProjectDevopsReadiness;
+  llm?: LlmProfileReadiness;
   draftDevops?: ProjectDevopsConfiguration;
+  llmProfileId?: string;
+  llmRequired?: boolean;
   template?: string;
   objective?: string;
 }): ProjectOnboardingChecklist["commands"] {
@@ -10531,6 +11225,26 @@ function buildProjectOnboardingCommands(args: {
       title: "Register GitHub App installation metadata",
       command: "evopilot github-app installation set --id <installation-record-id> --installation-id <github-installation-id> --account <org-or-user> --repository <owner/repo> --private-key-secret-ref <secret-ref> --webhook-secret-ref <secret-ref> --permission contents=write --permission pull_requests=write --json",
       when: "Use when the enterprise onboarding path uses GitHub App governance metadata.",
+      requiresHuman: true
+    });
+  }
+  if (args.llmRequired && args.llm?.status !== "READY") {
+    const profileId = args.llmProfileId ?? "<LLM_PROFILE_ID>";
+    const secretRef = args.llm?.apiKeyRef ?? defaultOnboardingLlmSecretRef(profileId);
+    if (args.llm?.nextAction === "store-llm-secret") {
+      commands.push({
+        id: "store-llm-secret",
+        title: "Store the LLM API key server-side",
+        command: `evopilot secret set --id ${cliArg(secretRef)} --kind llm-key --from-env ${cliArg(secretRef)} --json`,
+        when: "Run once from a trusted shell before using this LLM profile.",
+        requiresHuman: true
+      });
+    }
+    commands.push({
+      id: "configure-llm-profile",
+      title: "Create or repair the LLM profile",
+      command: `evopilot llm profile set ${cliArg(profileId)} --provider openai-compatible --base-url <openai-compatible-base-url> --model <model-name> --api-key-ref ${cliArg(secretRef)} --json`,
+      when: "Run when onboarding requires an explicit public or private LLM profile.",
       requiresHuman: true
     });
   }
@@ -10558,12 +11272,20 @@ function buildProjectOnboardingCommands(args: {
       when: "Run when GitHub Actions or GitLab CI contract is missing or blocked."
     });
   }
+  if (args.project && args.llmRequired && args.llm?.status !== "READY") {
+    commands.push({
+      id: "repair-project-llm",
+      title: "Bind the project to the LLM profile",
+      command: `evopilot project llm set ${cliArg(args.project.id)} --profile ${cliArg(args.llmProfileId ?? "<LLM_PROFILE_ID>")} --require-llm-ready --json`,
+      when: "Run when project LLM preflight is blocked."
+    });
+  }
   if (args.projectId && args.template) {
     const strictReadinessFlags = args.repository?.topology?.executionMode === "read-only-public" ? "" : " --require-source-ready --require-devops-ready";
     commands.push({
       id: "target-run",
       title: "Run the Goal/Loop target strictly",
-      command: `evopilot target run --project ${cliArg(args.projectId)} --template ${cliArg(args.template)} --objective ${cliArg(args.objective ?? `Promote ${args.projectId} to ${args.template}`)} --until terminal --max-steps 20${strictReadinessFlags} --json`,
+      command: `evopilot target run --project ${cliArg(args.projectId)} --template ${cliArg(args.template)} --objective ${cliArg(args.objective ?? `Promote ${args.projectId} to ${args.template}`)} --until terminal --max-steps 20${args.llmProfileId ? ` --llm-profile ${cliArg(args.llmProfileId)}` : ""}${strictReadinessFlags}${args.llmRequired ? " --require-llm-ready" : ""} --json`,
       when: "Run after checklist status is READY_TO_RUN or immediately after a strict project onboard wrapper completes."
     });
   }
@@ -10578,12 +11300,27 @@ function defaultOnboardingTokenRef(provider: ProjectRepositoryProvider | "unknow
   return undefined;
 }
 
+function defaultOnboardingLlmSecretRef(profileId: string): string {
+  const normalized = profileId.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return `LLM_API_KEY_${normalized || "PROFILE"}`;
+}
+
+function llmProfileIdFromPayload(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const nested = isRecord(value.llm) ? value.llm : undefined;
+  return optionalTrimmedString(value.llmProfileId)
+    ?? optionalTrimmedString(value.llmProfile)
+    ?? optionalTrimmedString(nested?.profileId)
+    ?? optionalTrimmedString(nested?.llmProfileId);
+}
+
 function buildProjectOnboardCliCommand(args: {
   projectId?: string;
   provider: ProjectRepositoryProvider | "unknown";
   repository?: ProjectRepositoryRegistration;
   tokenRef?: string;
   draftDevops?: ProjectDevopsConfiguration;
+  llmProfileId?: string;
   template?: string;
   objective?: string;
 }): string {
@@ -10593,6 +11330,7 @@ function buildProjectOnboardCliCommand(args: {
   pushRepositoryCliOptions(parts, args.repository);
   if (!readOnlyPublicMode) pushCliOption(parts, "token-ref", args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId));
   pushDevopsCliOptions(parts, args.draftDevops);
+  pushCliOption(parts, "llm-profile", args.llmProfileId);
   pushCliOption(parts, "template", args.template);
   pushCliOption(parts, "objective", args.objective);
   if (!readOnlyPublicMode) parts.push("--require-source-ready", "--require-devops-ready");
@@ -10666,6 +11404,10 @@ function onboardingNextAction(status: ProjectOnboardingChecklist["status"], step
   if (failed?.id === "github-app") return "install-github-app";
   if (failed?.id === "project" || failed?.id === "repository" || failed?.id === "workspace") return "repair";
   if (failed?.id === "devops") return "configure-devops";
+  if (failed?.id === "llm") {
+    if (failed.nextAction === "store-llm-secret") return "store-llm-secret";
+    return "configure-llm";
+  }
   const projectStep = steps.find((step) => step.id === "project");
   if (projectStep?.nextAction === "register-project") return "register-project";
   return status === "READY_TO_ONBOARD" ? "register-project" : "repair";
@@ -11141,6 +11883,8 @@ function summarizeExecutorStepLlmUsage(loopId: string, iteration: number, step: 
     status: step.status,
     provider,
     model,
+    llmProfileId: optionalTrimmedString(field(step.output, "llmProfileId")),
+    llmSource: optionalTrimmedString(field(step.output, "llmSource")),
     inputTokens,
     outputTokens,
     totalTokens,
@@ -11851,7 +12595,9 @@ function createLlmContextExecutorAdapter(id: string): ExecutorAdapter {
           projectId: input.loop.projectId,
           executorGraphId: input.loop.executorGraphId,
           sourceProjectId: input.loop.sourceClosure.sourceProjectId,
-          sourceProvider: input.loop.sourceClosure.repositoryProvider
+          sourceProvider: input.loop.sourceClosure.repositoryProvider,
+          llmSource: input.loop.llm?.source ?? "none",
+          llmProfileId: input.loop.llm?.profileId ?? "global-default"
         },
         prompt: loopLlmExecutorPrompt(input)
       });
@@ -11875,6 +12621,8 @@ function createLlmContextExecutorAdapter(id: string): ExecutorAdapter {
         durationMs: response.durationMs,
         resolvedIntent: response.resolvedIntent,
         resolvedProfile: response.resolvedProfile,
+        llmProfileId: input.loop.llm?.profileId,
+        llmSource: input.loop.llm?.source ?? "none",
         llmRequestId: response.requestId,
         finishReason: response.finishReason,
         truncated: response.truncated === true
@@ -11892,6 +12640,8 @@ function createLlmContextExecutorAdapter(id: string): ExecutorAdapter {
           evidence: [
             ...executorAdapterEvidence(id, "llm", input),
             "llm.executionMode=provider",
+            `llm.profile=${input.loop.llm?.profileId ?? "global-default"}`,
+            `llm.source=${input.loop.llm?.source ?? "none"}`,
             `llm.provider=${response.provider ?? "unknown"}`,
             `llm.model=${response.model ?? "unknown"}`,
             `llm.totalTokens=${totalTokens}`,
@@ -11914,6 +12664,8 @@ function createLlmContextExecutorAdapter(id: string): ExecutorAdapter {
         evidence: [
           ...executorAdapterEvidence(id, "llm", input),
           "llm.executionMode=provider",
+          `llm.profile=${input.loop.llm?.profileId ?? "global-default"}`,
+          `llm.source=${input.loop.llm?.source ?? "none"}`,
           `llm.provider=${response.provider ?? "unknown"}`,
           `llm.model=${response.model ?? "unknown"}`,
           `llm.totalTokens=${totalTokens}`,
@@ -11997,6 +12749,7 @@ function executorOutputBase(id: string, input: ExecutorAdapterExecutionInput, ex
     credentialScope: input.sandbox.credentialScope,
     network: input.sandbox.network,
     sandboxEnforcement: input.sandboxEnforcement.status,
+    llm: input.loop.llm,
     sourceClosure: input.loop.sourceClosure
   };
 }
@@ -12010,6 +12763,10 @@ function executorAdapterEvidence(id: string, nodeType: ExecutorNodeType, input: 
     `sandboxRuntime=${input.sandbox.runtime}`,
     `sandboxNetwork=${input.sandbox.network}`,
     `sandboxEnforcement=${input.sandboxEnforcement.status}`,
+    `llm.source=${input.loop.llm?.source ?? "none"}`,
+    `llm.profile=${input.loop.llm?.profileId ?? "global-default"}`,
+    `llm.provider=${input.loop.llm?.provider ?? "runtime-default"}`,
+    `llm.model=${input.loop.llm?.model ?? "runtime-default"}`,
     `credentialScope=${input.sandbox.credentialScope}`,
     `sourceProjectId=${input.loop.sourceClosure.sourceProjectId}`,
     `sourceProvider=${input.loop.sourceClosure.repositoryProvider}`,
@@ -12059,6 +12816,10 @@ function loopLlmExecutorPrompt(input: ExecutorAdapterExecutionInput): string {
     `- sandboxNetwork: ${input.sandbox.network}`,
     `- credentialScope: ${input.sandbox.credentialScope}`,
     `- sandboxEnforcement: ${input.sandboxEnforcement.status}`,
+    `- llmSource: ${input.loop.llm?.source ?? "none"}`,
+    `- llmProfileId: ${input.loop.llm?.profileId ?? "global-default"}`,
+    `- llmProvider: ${input.loop.llm?.provider ?? "runtime-default"}`,
+    `- llmModel: ${input.loop.llm?.model ?? "runtime-default"}`,
     "",
     "## Required Output",
     "- Current code/product facts implied by the loop context.",
@@ -17117,6 +17878,49 @@ function maskProject(project: StoredProject, store?: FileStore): Omit<StoredProj
       tokenRef: repository.credentials?.tokenRef,
       tokenRefResolved: repository.credentials?.tokenRef ? Boolean(resolveTokenRef(store, repository.credentials.tokenRef, project)) : undefined
     } : undefined
+  };
+}
+
+function normalizeProjectLlmBinding(body: any, actor?: string): ProjectLlmBinding | undefined {
+  const nested = body.llm && typeof body.llm === "object" ? body.llm : undefined;
+  const profileId = optionalTrimmedString(body.llmProfileId) ?? optionalTrimmedString(body.llmProfile) ?? optionalTrimmedString(nested?.llmProfileId) ?? optionalTrimmedString(nested?.profileId) ?? optionalTrimmedString(nested?.profile);
+  if (!profileId) return undefined;
+  return {
+    schema: "evopilot-project-llm-binding/v1",
+    profileId: safeFileName(profileId),
+    required: nested?.required === undefined && body.requireLlmReady === undefined && body.llmRequired === undefined ? true : nested?.required !== false && body.requireLlmReady !== false && body.llmRequired !== false,
+    boundAt: new Date().toISOString(),
+    boundBy: actor
+  };
+}
+
+function hydrateProjectLlmBinding(value: unknown): ProjectLlmBinding | undefined {
+  if (!isRecord(value)) return undefined;
+  const profileId = optionalTrimmedString(value.profileId) ?? optionalTrimmedString(value.llmProfileId) ?? optionalTrimmedString(value.profile);
+  if (!profileId) return undefined;
+  return {
+    schema: "evopilot-project-llm-binding/v1",
+    profileId: safeFileName(profileId),
+    required: value.required === undefined ? true : value.required !== false,
+    boundAt: String(value.boundAt ?? value.createdAt ?? new Date().toISOString()),
+    boundBy: optionalTrimmedString(value.boundBy)
+  };
+}
+
+function hydrateLoopLlmSelection(value: unknown): LoopLlmSelection | undefined {
+  if (!isRecord(value)) return undefined;
+  const source = String(value.source ?? "none");
+  return {
+    schema: "evopilot-loop-llm-selection/v1",
+    source: source === "global-default" || source === "project-default" || source === "loop-override" || source === "none" ? source : "none",
+    configured: value.configured === true,
+    required: value.required === true,
+    profileId: optionalTrimmedString(value.profileId),
+    provider: optionalTrimmedString(value.provider),
+    model: optionalTrimmedString(value.model),
+    baseUrl: optionalTrimmedString(value.baseUrl),
+    apiKeyRef: optionalTrimmedString(value.apiKeyRef),
+    resolvedAt: String(value.resolvedAt ?? new Date().toISOString())
   };
 }
 

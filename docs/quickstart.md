@@ -73,6 +73,52 @@ npm run cli -- project onboard plan github \
 
 Then use `project onboard` after the server can resolve the tokenRef, or provide `--template` to continue directly into the target wrapper. See [CLI Workflows](cli/workflows.md).
 
+## Configure A Project LLM
+
+Use the server global LLM for quick local validation. For a real project, register an explicit LLM profile before running the target:
+
+```bash
+export LLM_API_KEY_MY_AGENT="<real-llm-api-key>"
+
+npm run cli -- secret set \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --id LLM_API_KEY_MY_AGENT \
+  --kind llm-key \
+  --from-env LLM_API_KEY_MY_AGENT \
+  --json
+
+npm run cli -- llm profile set my-agent-llm \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --provider openai-compatible \
+  --base-url https://llm.example.com/v1 \
+  --model qwen2.5-coder-32b \
+  --api-key-ref LLM_API_KEY_MY_AGENT \
+  --json
+
+npm run cli -- project llm set my-agent \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --profile my-agent-llm \
+  --require-llm-ready \
+  --json
+```
+
+Wrapper commands can then use the project default or override it:
+
+```bash
+npm run cli -- target run \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable" \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
+  --json
+```
+
 See [CLI](cli/README.md) for setup, [CLI Workflows](cli/workflows.md) for guided scenarios, and [CLI Commands](cli/commands.md) for the full command list.
 
 ## Connect A Dashboard

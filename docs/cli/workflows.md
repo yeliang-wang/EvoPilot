@@ -191,7 +191,57 @@ claimBoundary
 
 For `fork-validated-pr`, `claimBoundary=fork-ci-pr`. This means the workflow can prove fork CI and upstream PR readiness, but not upstream release completion.
 
-## 5. One Command To A Release Target
+## 5. Configure A Project LLM
+
+Use this when a project should run its loop target with a specific public model, private model, or enterprise OpenAI-compatible endpoint instead of the server global default LLM.
+
+Store the API key once in the EvoPilot server-side secret vault:
+
+```bash
+export LLM_API_KEY_MY_AGENT="<real-llm-api-key>"
+
+evopilot secret set \
+  --id LLM_API_KEY_MY_AGENT \
+  --kind llm-key \
+  --from-env LLM_API_KEY_MY_AGENT \
+  --json
+```
+
+Create and verify the LLM profile:
+
+```bash
+evopilot llm profile set my-agent-llm \
+  --provider openai-compatible \
+  --base-url https://llm.example.com/v1 \
+  --model qwen2.5-coder-32b \
+  --api-key-ref LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile preflight my-agent-llm --json
+```
+
+Bind it to the project:
+
+```bash
+evopilot project llm set my-agent \
+  --profile my-agent-llm \
+  --require-llm-ready \
+  --json
+```
+
+`project llm preflight` must return `READY` before an agent claims that a custom LLM is usable:
+
+```bash
+evopilot project llm preflight my-agent --json
+```
+
+Resolution order for wrappers is:
+
+```text
+run override --llm-profile -> project default LLM -> server global default LLM
+```
+
+## 6. One Command To A Release Target
 
 Use `target run` when the project does not already have a project-scoped release target. EvoPilot resolves or creates the target, creates or resumes a GlobalGoal, generates and approves the server plan, then advances GoalTargets one at a time.
 
@@ -204,6 +254,8 @@ evopilot target run \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -248,7 +300,7 @@ The wrapper result includes LLM and token visibility for summary, process, and e
 
 Human-readable wrapper output includes an `LLM Usage` section. Production HTTP logs include the same caller and request-level token delta in `metadata.client` and `metadata.llmUsage`, so an operator can line up CLI `requestId` values with server logs.
 
-## 6. One Command From New Project To Target
+## 7. One Command From New Project To Target
 
 Use `project onboard` when the project is not registered yet. This wrapper registers the project, verifies source credentials, configures repository-native DevOps when CI/CD flags are present, verifies DevOps readiness, then optionally runs the target template.
 
@@ -268,12 +320,14 @@ evopilot project onboard github \
   --cd-workflow deploy-prod.yml \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
+  --llm-profile my-agent-llm \
   --template ga \
   --objective "Promote my-agent to GA stable with source closure, native CI/CD, deployment evidence, release decision, and blocker review" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -294,19 +348,21 @@ evopilot project onboard gitlab \
   --cd-required-stage deploy \
   --deploy-environment production \
   --ready-url https://my-agent.example.com/ready \
+  --llm-profile my-agent-llm \
   --template rc \
   --objective "Promote my-agent to RC with source closure, GitLab CI evidence, deployment evidence, and blocker review" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
 
 Without `--template`, `project onboard` stops after registration and preflight, returning `evopilot-cli-project-onboard/v1`.
 
-## 7. Public Upstream With A Writable Fork
+## 8. Public Upstream With A Writable Fork
 
 Use this mode when the target project is an open-source upstream or any repository that the operator does not directly control. EvoPilot writes code and runs CI/CD in the fork. The upstream still owns merge and release authority.
 
@@ -322,12 +378,14 @@ evopilot project onboard github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
+  --llm-profile my-agent-llm \
   --template rc \
   --objective "Validate the fork and prepare upstream PR evidence" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -345,7 +403,7 @@ Expected DevOps readiness fields:
 
 Do not describe this as an upstream release unless the upstream maintainer later authorizes and merges the PR.
 
-## 8. Run Or Resume A GlobalGoal
+## 9. Run Or Resume A GlobalGoal
 
 Use `goal run` when the release target already exists or a previous GlobalGoal should continue.
 
@@ -354,6 +412,8 @@ evopilot goal run \
   --project my-agent \
   --target my-agent-ga \
   --objective "Promote my-agent to GA stable" \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --until terminal \
   --max-steps 20 \
   --client workbuddy \
@@ -363,7 +423,7 @@ evopilot goal run \
 For step-by-step control:
 
 ```bash
-evopilot goal create --project my-agent --target my-agent-ga --objective "Promote my-agent to GA stable" --json
+evopilot goal create --project my-agent --target my-agent-ga --objective "Promote my-agent to GA stable" --llm-profile my-agent-llm --json
 evopilot goal plan <goal-id> --json
 evopilot goal approve-plan <goal-id> --json
 evopilot goal advance <goal-id> --json
@@ -372,7 +432,7 @@ evopilot goal graph <goal-id> --json
 evopilot goal evidence-matrix <goal-id> --json
 ```
 
-## 9. Run One LoopRun
+## 10. Run One LoopRun
 
 Use `loop run` for a narrower loop target.
 
@@ -381,13 +441,15 @@ evopilot loop run \
   --project my-agent \
   --target my-agent-rc \
   --objective "Fix RC release blockers and collect validation evidence" \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
   --until blocked-or-complete \
   --max-iterations 10 \
   --client workbuddy \
   --json
 ```
 
-## 10. Source Closure
+## 11. Source Closure
 
 Always preflight before source writeback:
 
@@ -415,7 +477,7 @@ evopilot source-closure auto-merge <loop-id> --json
 
 Only run merge actions when server-side review and release policy are satisfied.
 
-## 11. Release Decision
+## 12. Release Decision
 
 Read release decisions from EvoPilot. Do not infer GA from local tests or CI alone.
 
@@ -425,7 +487,7 @@ evopilot release decisions --project my-agent --target my-agent-ga --json
 evopilot target decision my-agent-ga --project my-agent --json
 ```
 
-## 12. Repair
+## 13. Repair
 
 Inspect release-run repair candidates:
 

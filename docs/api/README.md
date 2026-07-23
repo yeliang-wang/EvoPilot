@@ -52,6 +52,86 @@ GET /api/v1/loops/{loopId}/trace-tree -> executor-step 节点中的 token/cost
 
 CLI、WorkBuddy 或 CI 调用 API 时可发送 `x-evopilot-client`、`x-evopilot-client-surface`、`x-evopilot-cli-command`、`x-evopilot-cli-step` 和 `x-evopilot-cli-version`。EvoPilot 结构化 HTTP 日志会在 `metadata.client` 中记录调用来源，并在 `metadata.llmUsage.request` 中记录本请求的 LLM token delta；通过响应 `requestId` 可以把 CLI step 与生产日志对齐。
 
+## LLM Profile 与项目绑定
+
+EvoPilot 支持 tenant/workspace 级 LLM Profile。Profile 用于声明公有或私有 OpenAI-compatible 模型的 provider、base URL、model、timeout、重试和 `apiKeyRef`。真实 API key 只保存在服务端环境变量或当前 tenant/workspace secret vault；API 响应不会回显明文。
+
+```http
+GET /api/v1/llm-profiles
+POST /api/v1/llm-profiles
+GET /api/v1/llm-profiles/{profileId}
+GET /api/v1/llm-profiles/{profileId}/preflight
+POST /api/v1/llm-profiles/{profileId}/preflight
+GET /api/v1/projects/{projectId}/llm
+POST /api/v1/projects/{projectId}/llm
+PUT /api/v1/projects/{projectId}/llm
+DELETE /api/v1/projects/{projectId}/llm
+GET /api/v1/projects/{projectId}/llm/preflight
+POST /api/v1/projects/{projectId}/llm/preflight
+```
+
+创建 profile 前先存储 LLM secret：
+
+```http
+POST /api/v1/secrets
+Content-Type: application/json
+
+{"id":"LLM_API_KEY_MY_AGENT","kind":"llm-key","value":"<raw-llm-key>"}
+```
+
+创建或更新 profile：
+
+```http
+POST /api/v1/llm-profiles
+Content-Type: application/json
+
+{
+  "id": "my-agent-llm",
+  "provider": "openai-compatible",
+  "providerName": "qwen-private",
+  "baseUrl": "https://llm.example.com/v1",
+  "modelName": "qwen2.5-coder-32b",
+  "apiKeyRef": "LLM_API_KEY_MY_AGENT",
+  "timeoutSeconds": 60,
+  "maxRetries": 2,
+  "temperature": 0.2
+}
+```
+
+`preflight` 会解析 `apiKeyRef` 并向 provider 发起一次最小探测调用，响应 schema 为 `evopilot-llm-profile-readiness/v1`：
+
+```json
+{
+  "schema": "evopilot-llm-profile-readiness/v1",
+  "profileId": "my-agent-llm",
+  "source": "profile",
+  "status": "READY",
+  "provider": "qwen-private",
+  "model": "qwen2.5-coder-32b",
+  "apiKeyRef": "LLM_API_KEY_MY_AGENT",
+  "checks": [],
+  "blockers": [],
+  "nextAction": "run-loop"
+}
+```
+
+绑定项目默认 LLM：
+
+```http
+POST /api/v1/projects/my-agent/llm
+Content-Type: application/json
+
+{"profileId":"my-agent-llm","required":true}
+```
+
+Goal/Loop 创建接口和 `POST /api/v1/loop-orchestration/instantiate` 都接受 `llmProfileId`。服务端解析顺序是：
+
+```text
+request.llmProfileId -> project.llm.profileId -> global default LLM from environment
+```
+
+如果请求显式传入 `llmProfileId` 但 profile preflight 不可用，服务端返回 `409 LLM_PROFILE_NOT_READY`。如果项目绑定了 `required=true` 且 profile 不可用，Loop 创建和一键 target wrapper 会在执行前停止。Loop、executor output、evidence、trace 和 CLI wrapper `llmUsage` 会记录 `llmProfileId`、`llmSource`、provider、model、token 与 credit 使用量。
+
 ## 健康检查
 
 ```http
@@ -155,6 +235,11 @@ GET /api/v1/workspaces/{workspaceId}/usage
 GET /api/v1/secrets
 POST /api/v1/secrets
 POST /api/v1/secrets/{secretId}/revoke
+GET /api/v1/llm-profiles
+POST /api/v1/llm-profiles
+GET /api/v1/llm-profiles/{profileId}
+GET /api/v1/llm-profiles/{profileId}/preflight
+POST /api/v1/llm-profiles/{profileId}/preflight
 GET /api/v1/github-app/installations
 POST /api/v1/github-app/installations
 GET /api/v1/github-app/installations/{installationId}
@@ -307,6 +392,19 @@ DevOps 请求可以显式携带执行边界：
 | `credentialPrincipal` | 可选的 token principal 标签，便于审计和 Agent 排障。 |
 
 `devops/preflight` 响应会返回 `executionMode`、`repositoryOwner`、`devopsOwner`、`workflowRepository`、`credentialRef`、`credentialPrincipal` 和 `claimBoundary`。这些字段是 Dashboard 和 AI Agent 展示/判断端到端能力边界的权威来源。
+
+项目 LLM 绑定是项目聚合的一部分。首次接入或运行 RC/GA target 前可以通过以下接口绑定和验证项目默认 LLM：
+
+```http
+GET /api/v1/projects/{projectId}/llm
+POST /api/v1/projects/{projectId}/llm
+PUT /api/v1/projects/{projectId}/llm
+DELETE /api/v1/projects/{projectId}/llm
+GET /api/v1/projects/{projectId}/llm/preflight
+POST /api/v1/projects/{projectId}/llm/preflight
+```
+
+响应会返回 project default selection、profile metadata 和 readiness，不回显 API key。Dashboard 和 AI Agent 必须以服务端返回的 `selection.source`、`profileId`、`provider`、`model` 和 `nextAction` 为准，而不是从 CLI 环境变量推断当前使用哪个模型。
 
 如果 DevOps token 缺失或无法解析，GitHub 项目返回 `nextAction=connect-github-account`，GitLab 项目返回 `nextAction=connect-gitlab-account`。这表示需要先补齐运行 GitHub Actions/GitLab CI 的账号、组织、group、service account、deploy token 或 GitHub App principal，而不是让 Agent 重试同一请求。
 

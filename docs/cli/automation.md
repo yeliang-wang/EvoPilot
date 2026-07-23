@@ -25,7 +25,8 @@ Automation must use `--json` and parse JSON fields:
 ```bash
 evopilot status --json
 evopilot project onboard plan github --repo owner/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner owner --ci-workflow ci.yml --ci-required-check build --template ga --json
-evopilot target run --project my-agent --template ga --objective "..." --client workbuddy --json
+evopilot project llm preflight my-agent --json
+evopilot target run --project my-agent --template ga --objective "..." --llm-profile my-agent-llm --require-llm-ready --client workbuddy --json
 ```
 
 Do not parse human-readable CLI output. Human output may change to improve operator readability.
@@ -41,8 +42,9 @@ For every `--json` command, automation should parse in this order:
 4. `status.blockers`, `blockers`, and `missingInputs`
 5. IDs: `projectId`, `releaseTargetId`, `goalId`, `activeTargetId`, `loopId`, `releaseRunId`, `releaseDecisionId`, `requestId`
 6. Execution boundary: `executionMode`, `devopsOwner`, `workflowRepository`, `credentialRef`, `credentialPrincipal`, `claimBoundary`
-7. Release decision fields from EvoPilot release APIs, never local inference
-8. `llmUsage.summary`, `llmUsage.process.responses[]`, and `llmUsage.server.steps[]`
+7. LLM boundary: `llm.profileId`, `llm.source`, `llm.provider`, `llm.model`, project LLM readiness, and run override `--llm-profile`
+8. Release decision fields from EvoPilot release APIs, never local inference
+9. `llmUsage.summary`, `llmUsage.process.responses[]`, and `llmUsage.server.steps[]`
 
 Do not continue just because a command printed a workflow graph. Continue only when the JSON status and `nextAction` allow it.
 
@@ -82,6 +84,61 @@ requestIds=<comma-separated-request-ids>
 ```
 
 If any LLM-backed run has `llm=not-visible` or `tokens=0/0/0` after it has executed an LLM step, report incomplete evidence.
+
+## LLM Profile Rules
+
+Automation must treat LLM configuration as a server-side project boundary, not as a CLI-local environment variable. A trusted operator stores the API key once, creates a profile, then binds the project:
+
+```bash
+evopilot secret set \
+  --id LLM_API_KEY_MY_AGENT \
+  --kind llm-key \
+  --from-env LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile set my-agent-llm \
+  --provider openai-compatible \
+  --base-url https://llm.example.com/v1 \
+  --model qwen2.5-coder-32b \
+  --api-key-ref LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile preflight my-agent-llm --json
+
+evopilot project llm set my-agent \
+  --profile my-agent-llm \
+  --require-llm-ready \
+  --json
+```
+
+Daily wrapper commands should pass only the profile id:
+
+```bash
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable" \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
+  --client workbuddy \
+  --json
+```
+
+Resolution order:
+
+```text
+run override --llm-profile -> project default LLM -> server global default LLM
+```
+
+If `llm profile preflight`, `project llm preflight`, or a wrapper LLM preflight returns `BLOCKED`, stop and report `nextAction`. Typical stop actions are:
+
+```text
+store-llm-secret
+configure-llm-profile
+repair-llm-provider
+```
+
+Automation must not pass raw LLM API keys in `target run`, `goal run`, `loop run`, or daily `project onboard` commands. It must report the selected profile id when available and must include `llmUsage.summary.provider`, `llmUsage.summary.model`, and token totals in the final run report.
 
 `project onboard plan` and `project onboard verify` are the onboarding control surface for automation. Both print `evopilot-project-onboarding-checklist/v1`; the checklist contains machine-readable `steps`, `missingInputs`, `blockers`, `commands`, and `nextAction`. `plan` does not mutate project state. `verify` reads persisted project state and should return `READY_TO_RUN` before an agent claims that source writeback and repository-native DevOps are ready.
 
@@ -137,6 +194,10 @@ connect-gitlab-account
 human-approval
 policy-review
 configure-source-credentials
+configure-llm
+store-llm-secret
+configure-llm-profile
+repair-llm-provider
 repair-project
 repair-deploy-target
 repair

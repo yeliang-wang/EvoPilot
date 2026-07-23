@@ -92,9 +92,10 @@ WorkBuddy, Codex, Claude Code, CI jobs, and other agents should treat this file 
 3. For a new project, run `evopilot project onboard plan ... --json` before mutating state.
 4. Store or repair server-side `tokenRef` values when the checklist asks for it.
 5. Verify with `project preflight`, `project devops preflight`, and `project onboard verify`.
-6. Run `target run`, `goal run`, `loop run`, or `project onboard ... --template ...` with `--json`.
-7. Stop on blockers, human gates, credential gaps, policy review, repair actions, `NO-GO`, `BLOCKED`, `FAILED`, timeouts, or max-step boundaries.
-8. Report the server-derived result, release verdict, IDs, LLM provider/model, token totals, and request IDs.
+6. When the project needs a non-default model, store the LLM key server-side, create an LLM profile, bind it to the project, and run `project llm preflight`.
+7. Run `target run`, `goal run`, `loop run`, or `project onboard ... --template ...` with `--json`.
+8. Stop on blockers, human gates, credential gaps, policy review, repair actions, `NO-GO`, `BLOCKED`, `FAILED`, timeouts, or max-step boundaries.
+9. Report the server-derived result, release verdict, IDs, LLM provider/model, token totals, and request IDs.
 
 An agent must not parse human-readable output when `--json` is available, must not pass raw GitHub/GitLab tokens in daily wrapper commands, and must not claim a stronger DevOps or release result than the server-returned `claimBoundary` and release decision.
 
@@ -121,6 +122,78 @@ llmUsage.server.steps[]
 Human-readable `target run`, `goal run`, `loop run`, and `project onboard` output includes an `LLM Usage` section plus inline token counts in recent `Steps`. Server HTTP logs include the same client surface and request-level LLM token delta under `metadata.client` and `metadata.llmUsage`.
 
 Production metrics are enabled by default. When the API server has `EVOPILOT_DATA_ROOT`, LLM metrics are written to `EVOPILOT_DATA_ROOT/llm-metrics.jsonl` unless `EVOPILOT_LLM_METRICS_PATH` overrides it. Token counts are observability data and remain visible in logs; API tokens, GitHub/GitLab tokens, passwords, API keys, and credential refs remain redacted.
+
+## Custom LLM Profiles
+
+EvoPilot no longer assumes every project must use the server's global default LLM. A tenant/workspace can register public or private OpenAI-compatible models as server-side LLM profiles, bind one profile as a project default, and optionally override it for a single Goal/Loop run.
+
+The raw LLM API key must be stored on the EvoPilot server or in the tenant/workspace secret vault. Daily wrapper commands pass only `--llm-profile <id>`.
+
+One-time setup from a trusted shell:
+
+```bash
+export LLM_API_KEY_MY_AGENT="<real-llm-api-key>"
+
+evopilot secret set \
+  --id LLM_API_KEY_MY_AGENT \
+  --kind llm-key \
+  --from-env LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile set my-agent-llm \
+  --provider openai-compatible \
+  --base-url https://llm.example.com/v1 \
+  --model qwen2.5-coder-32b \
+  --api-key-ref LLM_API_KEY_MY_AGENT \
+  --json
+
+evopilot llm profile preflight my-agent-llm --json
+```
+
+Bind the project default:
+
+```bash
+evopilot project llm set my-agent \
+  --profile my-agent-llm \
+  --require-llm-ready \
+  --json
+
+evopilot project llm inspect my-agent --json
+evopilot project llm preflight my-agent --json
+```
+
+Run with the project default LLM:
+
+```bash
+evopilot target run \
+  --project my-agent \
+  --template ga \
+  --objective "Promote my-agent to GA stable" \
+  --until terminal \
+  --max-steps 20 \
+  --require-llm-ready \
+  --json
+```
+
+Override the LLM for one run:
+
+```bash
+evopilot target run \
+  --project my-agent \
+  --template rc \
+  --objective "Run an RC target with a private model" \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
+  --json
+```
+
+Resolution order is:
+
+```text
+run override --llm-profile -> project default LLM binding -> server global default LLM
+```
+
+If `--require-llm-ready` is present and the profile secret cannot be resolved or the provider probe fails, the CLI stops before Loop execution and reports `nextAction=store-llm-secret`, `configure-llm-profile`, or `repair-llm-provider`.
 
 ## Wrapper JSON Contract
 
@@ -185,6 +258,8 @@ evopilot target run \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --llm-profile <llm-profile-id> \
+  --require-llm-ready \
   --client workbuddy \
   --json
 ```
@@ -220,6 +295,8 @@ evopilot project onboard plan github \
   --cd-workflow deploy-prod.yml \
   --deploy-environment production \
   --health-url https://<app>/health \
+  --llm-profile <llm-profile-id> \
+  --require-llm-ready \
   --template ga \
   --objective "Promote <project-id> to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
   --json
@@ -257,12 +334,14 @@ evopilot project onboard github \
   --cd-workflow deploy-prod.yml \
   --deploy-environment production \
   --health-url https://<app>/health \
+  --llm-profile <llm-profile-id> \
   --template ga \
   --objective "Promote <project-id> to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
+  --require-llm-ready \
   --json
 ```
 
