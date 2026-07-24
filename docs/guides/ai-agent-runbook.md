@@ -321,7 +321,7 @@ Expected result before a real PR run:
 }
 ```
 
-Only after `READY`, run the one-command target:
+Only after `READY` and after the phase plan has been reviewed and approved, run the one-command target. If no approved plan exists, go back to the Fast Path and run `target plan` first:
 
 ```bash
 evopilot target run \
@@ -471,7 +471,7 @@ evopilot project devops set my-agent \
   --json
 ```
 
-Common production checks before a one-command target:
+Common production checks before an approved one-command target. These checks do not replace mandatory phase-plan review and approval:
 
 ```bash
 evopilot project preflight my-agent --json

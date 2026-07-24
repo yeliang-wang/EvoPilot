@@ -166,7 +166,7 @@ evopilot project llm inspect my-agent --json
 evopilot project llm preflight my-agent --json
 ```
 
-Run with the project default LLM:
+After the Alpha/Beta/RC/GA phase plan has been reviewed and approved, run with the project default LLM:
 
 ```bash
 evopilot target run \
@@ -178,7 +178,7 @@ evopilot target run \
   --json
 ```
 
-Override the LLM for one run:
+After the Alpha/Beta/RC/GA phase plan has been reviewed and approved, override the LLM for one run:
 
 ```bash
 evopilot target run \

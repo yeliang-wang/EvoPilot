@@ -28,6 +28,8 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   assert.match(help, /evopilot target plan/);
   assert.match(help, /evopilot target plan approve/);
   assert.match(help, /--llm-profile/);
+  assert.match(help, /github-app installation set \[--id <id>\]/);
+  assert.match(help, /project onboard \/ target run \/ goal run \/ loop run fails fast unless LLM profile preflight is READY/);
   assert.doesNotMatch(help, /--auto-approve-plan/);
   assert.match(help, /--execution-mode/);
   assert.match(help, /--devops-owner/);
@@ -671,6 +673,17 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(goalRunJson.llmUsage.client.surface, "agent-or-script");
     assert.equal(goalRunJson.llmUsage.summary.totalTokens, 0);
 
+    const goalRunLlmPreflightJson = await runCli([
+      "goal", "run", goal.id,
+      "--max-steps", "0",
+      "--require-llm-ready",
+      "--config", configPath,
+      "--json"
+    ], { status: 2 });
+    const goalLlmPreflightStep = goalRunLlmPreflightJson.steps.find((step) => step.type === "project.llm.preflight");
+    assert.equal(goalLlmPreflightStep.status, "READY");
+    assert.equal(goalLlmPreflightStep.llmModel, "qwen-private-test");
+
     const goalTimeoutJson = await runCli(["goal", "run", goal.id, "--timeout", "0s", "--config", configPath, "--json"], { status: 2 });
     assert.equal(goalTimeoutJson.schema, "evopilot-cli-goal-run/v1");
     assert.ok(goalTimeoutJson.steps.some((step) => step.type === "goal.timeout-reached"));
@@ -723,11 +736,15 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
       "--project", "cli-agent",
       "--target", "cli-agent-ga",
       "--objective", "CLI wrapper loop run exposes timeout stop boundary",
+      "--require-llm-ready",
       "--timeout", "0s",
       "--config", configPath,
       "--json"
     ], { status: 2 });
     assert.equal(loopTimeoutJson.schema, "evopilot-cli-loop-run/v1");
+    const loopLlmPreflightStep = loopTimeoutJson.steps.find((step) => step.type === "project.llm.preflight");
+    assert.equal(loopLlmPreflightStep.status, "READY");
+    assert.equal(loopLlmPreflightStep.llmModel, "qwen-private-test");
     assert.ok(loopTimeoutJson.steps.some((step) => step.type === "loop.timeout-reached"));
 
     const loopRunJson = await runCli([

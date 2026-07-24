@@ -1430,9 +1430,17 @@ async function loopRun(ctx: RuntimeContext, id?: string): Promise<number> {
     const contextFile = stringOption(ctx.args, "context");
     const sourceClosureFile = stringOption(ctx.args, "source-closure");
     const targetId = requiredOption(ctx.args, "target");
+    const projectId = requiredOption(ctx.args, "project");
+    if (shouldPreflightRunLlm(ctx.args)) {
+      const llmPreflight = await tryLlmReadinessPreflight(ctx, projectId, "loop-run");
+      steps.push(llmPreflight);
+      if (hasFlag(ctx.args, "require-llm-ready") && llmPreflight.status !== "READY") {
+        throw usage(`Project LLM is not READY: ${llmPreflight.status}`);
+      }
+    }
     const createResponse = await ctx.client.post("/api/v1/loops", {
       id: stringOption(ctx.args, "id"),
-      projectId: requiredOption(ctx.args, "project"),
+      projectId,
       objective: requiredOption(ctx.args, "objective"),
       llmProfileId: stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id"),
       source: stringOption(ctx.args, "source") ?? "release-target",
@@ -1811,12 +1819,19 @@ async function tryProjectDevopsPreflight(ctx: RuntimeContext, projectId: string)
   }
 }
 
-async function tryLlmReadinessPreflight(ctx: RuntimeContext, projectId: string): Promise<Record<string, unknown>> {
+function shouldPreflightRunLlm(args: ParsedArgs): boolean {
+  return hasFlag(args, "require-llm-ready")
+    || stringOption(args, "llm-profile") !== undefined
+    || stringOption(args, "llm-profile-id") !== undefined;
+}
+
+async function tryLlmReadinessPreflight(ctx: RuntimeContext, projectId: string, labelPrefix = "target-run"): Promise<Record<string, unknown>> {
   const profileId = stringOption(ctx.args, "llm-profile") ?? stringOption(ctx.args, "llm-profile-id");
+  const label = profileId ? `${labelPrefix}-llm-profile-preflight` : `${labelPrefix}-project-llm-preflight`;
   try {
     const response = profileId
-      ? await ctx.client.post(`/api/v1/llm-profiles/${encodeURIComponent(profileId)}/preflight`, {}, derivedRequestOptions(ctx, "target-run-llm-profile-preflight"))
-      : await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm/preflight`, {}, derivedRequestOptions(ctx, "target-run-project-llm-preflight"));
+      ? await ctx.client.post(`/api/v1/llm-profiles/${encodeURIComponent(profileId)}/preflight`, {}, derivedRequestOptions(ctx, label))
+      : await ctx.client.post(`/api/v1/projects/${encodeURIComponent(projectId)}/llm/preflight`, {}, derivedRequestOptions(ctx, label));
     const readiness = isRecord(response.data) ? response.data : undefined;
     return attachStepLlmUsage(ctx, {
       type: profileId ? "llm.profile.preflight" : "project.llm.preflight",
@@ -1829,7 +1844,7 @@ async function tryLlmReadinessPreflight(ctx: RuntimeContext, projectId: string):
       llmProvider: field(readiness, "provider"),
       llmModel: field(readiness, "model"),
       blockers: field(readiness, "blockers")
-    }, profileId ? "target-run-llm-profile-preflight" : "target-run-project-llm-preflight", response);
+    }, label, response);
   } catch (error) {
     return {
       type: "project.llm.preflight",
@@ -1870,6 +1885,16 @@ async function runGoalWrapper(ctx: RuntimeContext, input: {
   }
 
   let status = await readGoalRunStatus(ctx, goalId);
+  if (shouldPreflightRunLlm(ctx.args) && !steps.some((step) => step.type === "llm.profile.preflight" || step.type === "project.llm.preflight")) {
+    const projectId = String(input.projectId ?? nestedField(status, ["goal", "projectId"]) ?? "");
+    if (projectId) {
+      const llmPreflight = await tryLlmReadinessPreflight(ctx, projectId, input.command.replace(/\s+/g, "-"));
+      steps.push(llmPreflight);
+      if (hasFlag(ctx.args, "require-llm-ready") && llmPreflight.status !== "READY") {
+        return finishGoalRun(ctx, input.command, status, steps, quiet, 2);
+      }
+    }
+  }
   printGoalRunStatus(ctx, input.command, status, steps, quiet);
 
   if (hasTimedOut(startedAt, timeoutMs) && shouldContinueGoalRun(status, until)) {
@@ -3031,7 +3056,7 @@ Usage:
   evopilot maturity standards list
   evopilot maturity standards inspect <alpha|beta|rc|ga|standard-id>
   evopilot github-app installation list
-  evopilot github-app installation set --installation-id <id> --account <org> [--repository <owner/repo>] [--permission <name=value>]
+  evopilot github-app installation set [--id <id>] --installation-id <id> --account <org> [--repository <owner/repo>] [--permission <name=value>]
   evopilot github-app installation preflight <id>
   evopilot evidence push --project <id> --file <events.json>
   evopilot target list
@@ -3102,9 +3127,9 @@ Global options:
   --idempotency-key <key>     Idempotency key for mutating commands
   --timeout <duration>        Wrapper stop boundary, for example 30s, 10m, or 2h
   --until <policy>            Wrapper stop policy: terminal or blocked-or-complete; default is terminal for target/goal/loop run
-  --require-source-ready      project onboard fails fast unless source credential preflight is READY
+  --require-source-ready      project onboard / target run fails fast unless source credential preflight is READY
   --require-devops-ready      target run fails fast unless project DevOps preflight is READY
-  --require-llm-ready         project onboard / target run fails fast unless LLM profile preflight is READY
+  --require-llm-ready         project onboard / target run / goal run / loop run fails fast unless LLM profile preflight is READY
   --llm-profile <id>          LLM profile for this project onboarding or new Goal/Loop run
   --execution-mode <mode>     DevOps boundary: owned-repository, fork-validated-pr, upstream-authorized, or read-only-public
   --upstream-repo <repo>      Upstream GitHub/GitLab repository for public read-only or fork-validated PR mode

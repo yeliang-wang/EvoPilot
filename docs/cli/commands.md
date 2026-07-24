@@ -23,7 +23,7 @@ The CLI uses EvoPilot HTTP APIs. Global flags can be used with any command:
 --devops-token-ref <ref>    Optional server-side DevOps tokenRef, otherwise source tokenRef is used
 --credential-principal <id> Optional operator-readable principal expected behind the DevOps tokenRef
 --llm-profile <id>          LLM profile for project onboarding or this Goal/Loop run
---require-llm-ready         project onboard / target run fails fast unless the selected LLM profile is READY
+--require-llm-ready         project onboard / target run / goal run / loop run fails fast unless the selected LLM profile is READY
 --json                      Print JSON response data
 --config <file>             Config path, defaults to ~/.evopilot/config.json
 ```

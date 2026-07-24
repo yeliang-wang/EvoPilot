@@ -44,5 +44,6 @@ Dashboard 页面级操作和数字人排障入口在 `yeliang-wang/evopilot-dash
 npm run check
 node -e 'JSON.parse(require("fs").readFileSync("docs/api/openapi.json", "utf8")); console.log("openapi ok")'
 npm run cli -- status --json
+# If nextAction=approve-plan, stop and show the phase plan to the user or project owner before approval.
 npm run cli -- target run --project <project-id> --objective "..." --client workbuddy --max-steps 1 --json
 ```

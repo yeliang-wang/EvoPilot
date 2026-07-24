@@ -233,12 +233,132 @@ const agentFacingDocFiles = [
 for (const file of agentFacingDocFiles) {
   const content = fs.readFileSync(file, "utf8");
   assert.doesNotMatch(content, /--template/, `${file} must not document removed target template CLI options`);
+  assert.doesNotMatch(content, /--target-level/, `${file} must not document removed target level CLI options`);
+  assert.doesNotMatch(content, /--auto-approve-plan/, `${file} must not document removed auto phase approval options`);
   assert.doesNotMatch(content, /target templates/, `${file} must not document removed target template listing`);
 }
 
 const cliSource = fs.readFileSync("packages/cli/src/index.ts", "utf8");
 assert.doesNotMatch(cliSource, /evopilot target (?:plan|run)[^\n]*--template/, "CLI help must not expose target plan/run --template");
 assert.doesNotMatch(cliSource, /evopilot project onboard[^\n]*--template/, "CLI help must not expose project onboard --template");
+
+const cliHelp = execFileSync(process.execPath, ["packages/cli/dist/index.js", "--help"], { encoding: "utf8" });
+assert.doesNotMatch(cliHelp, /--template/, "CLI help must not expose removed target template options");
+assert.doesNotMatch(cliHelp, /--target-level/, "CLI help must not expose removed target level options");
+assert.doesNotMatch(cliHelp, /--auto-approve-plan/, "CLI help must not expose removed auto phase approval options");
+assert.match(cliHelp, /github-app installation set \[--id <id>\]/, "CLI help must document optional GitHub App installation id");
+assert.match(cliHelp, /project onboard \/ target run \/ goal run \/ loop run fails fast unless LLM profile preflight is READY/, "CLI help must describe the LLM readiness scope");
+
+const cliDocCommandFiles = [
+  "README.md",
+  "packages/cli/README.md",
+  "docs/quickstart.md",
+  "docs/cli/README.md",
+  "docs/cli/commands.md",
+  "docs/cli/workflows.md",
+  "docs/cli/automation.md",
+  "docs/guides/ai-agent-runbook.md",
+  "docs/guides/user-guide.md",
+  "docs/operations/troubleshooting.md"
+];
+const helpCommandKeys = commandKeysFromHelp(cliHelp);
+const documentedCommandKeys = commandKeysFromMarkdown(cliDocCommandFiles, helpCommandKeys);
+const missingCommandDocs = [...helpCommandKeys].filter((command) => !documentedCommandKeys.has(command));
+assert.deepEqual(missingCommandDocs, [], `CLI help commands missing from CLI docs: ${missingCommandDocs.join(", ")}`);
+
+for (const file of cliDocCommandFiles) {
+  const content = fs.readFileSync(file, "utf8");
+  const matches = [...content.matchAll(/(?:evopilot|npm run cli --)\s+target\s+run\b/g)];
+  for (const match of matches) {
+    const windowStart = Math.max(0, match.index - 700);
+    const windowEnd = Math.min(content.length, match.index + 500);
+    const context = content.slice(windowStart, windowEnd);
+    assert.match(context, /phase plan|target plan approve|approve-plan|approved|confirmation/i, `${file} target run example must keep mandatory phase-plan approval context`);
+  }
+}
+
+function commandKeysFromHelp(help) {
+  const keys = new Set();
+  let inUsage = false;
+  for (const line of help.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === "Usage:") {
+      inUsage = true;
+      continue;
+    }
+    if (inUsage && trimmed === "") break;
+    if (!inUsage) continue;
+    if (!trimmed.startsWith("evopilot ")) continue;
+    const key = commandKeyFromTokens(trimmed.slice("evopilot ".length).split(/\s+/));
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function commandKeysFromMarkdown(files, knownKeys) {
+  const keys = new Set();
+  const invocationPattern = /(?:evopilot|npm run cli --)\s+([^`|#\n]+)/g;
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf8");
+    for (const line of content.split(/\r?\n/)) {
+      for (const match of line.matchAll(invocationPattern)) {
+        const tokens = stripLeadingGlobalOptions(match[1].trim().split(/\s+/).filter(Boolean));
+        const knownKey = longestKnownCommandPrefix(tokens, knownKeys);
+        if (knownKey) keys.add(knownKey);
+      }
+    }
+  }
+  return keys;
+}
+
+function stripLeadingGlobalOptions(tokens) {
+  const valueOptions = new Set([
+    "server",
+    "token",
+    "tenant",
+    "tenant-id",
+    "workspace",
+    "workspace-id",
+    "actor",
+    "client",
+    "idempotency-key",
+    "timeout",
+    "until",
+    "llm-profile",
+    "llm-profile-id",
+    "config"
+  ]);
+  const result = [...tokens];
+  while (result[0]?.startsWith("--")) {
+    const raw = result.shift() ?? "";
+    const option = raw.replace(/^--/, "").split("=")[0] ?? "";
+    if (valueOptions.has(option) && !raw.includes("=") && result[0] && !result[0].startsWith("--")) {
+      result.shift();
+    }
+  }
+  return result;
+}
+
+function longestKnownCommandPrefix(tokens, knownKeys) {
+  const commandTokens = tokens
+    .filter((token) => token !== "\\")
+    .slice(0, 5);
+  let best = "";
+  for (let index = 1; index <= commandTokens.length; index += 1) {
+    const candidate = commandTokens.slice(0, index).join(" ");
+    if (knownKeys.has(candidate)) best = candidate;
+  }
+  return best;
+}
+
+function commandKeyFromTokens(tokens) {
+  const commandTokens = [];
+  for (const token of stripLeadingGlobalOptions(tokens)) {
+    if (!token || token === "\\" || token.startsWith("[") || token.startsWith("<") || token.startsWith("--")) break;
+    commandTokens.push(token);
+  }
+  return commandTokens.join(" ");
+}
 
 const envExample = fs.readFileSync(".env.example", "utf8");
 assert.match(envExample, /EVOPILOT_LOG_LEVEL=info/);

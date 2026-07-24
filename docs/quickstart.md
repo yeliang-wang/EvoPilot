@@ -121,7 +121,7 @@ npm run cli -- project llm set my-agent \
   --json
 ```
 
-Wrapper commands can then use the project default or override it:
+After the phase plan has been reviewed and approved, wrapper commands can use the project default or override it:
 
 ```bash
 npm run cli -- target run \
