@@ -75,6 +75,18 @@ interface LlmUsageMeta {
 }
 
 const DEFAULT_SERVER = "http://127.0.0.1:19876";
+const TERMINAL_MATURITY_ID = "ga";
+
+function defaultProjectReleaseTargetId(projectId: string): string {
+  return `${projectId}-${TERMINAL_MATURITY_ID}`;
+}
+
+function rejectRemovedTargetTemplateOptions(args: ParsedArgs, command: string, extraOptions: string[] = []): void {
+  const removedOptions = ["template", "release-target-template", ...extraOptions];
+  const used = removedOptions.filter((option) => args.options[option] !== undefined);
+  if (used.length === 0) return;
+  throw usage(`${command} does not accept ${used.map((option) => `--${option}`).join(", ")}. EvoPilot now plans every Goal/Loop target through the server-generated Alpha -> Beta -> RC -> GA ladder. Use --objective with target plan/run; GA is the fixed terminal maturity.`);
+}
 
 async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
@@ -170,8 +182,6 @@ async function main(argv: string[]): Promise<number> {
         throw usage("Use: evopilot github-app installation <list|set|preflight> [options]");
       case "evidence:push":
         return await evidencePush(ctx);
-      case "target:templates":
-        return await targetTemplates(ctx);
       case "target:plan":
         return await targetPlanCommand(ctx, maybeId);
       case "target:list":
@@ -388,6 +398,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     throw usage("Use: evopilot project onboard <github|gitlab|local-git> [options]");
   }
   enforceProjectDevopsBoundaryOptions(ctx.args, provider, "project onboard");
+  rejectRemovedTargetTemplateOptions(ctx.args, "project onboard", ["run-target"]);
   const projectId = stringOption(ctx.args, "id") ?? deriveProjectId(ctx.args, provider);
   const steps: Array<Record<string, unknown>> = [];
   const register = await ctx.client.post("/api/v1/projects", projectRegistrationBody(ctx.args, projectId, provider), derivedRequestOptions(ctx, "project-onboard-register"));
@@ -493,27 +504,6 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
     }
   }
 
-  const templateId = stringOption(ctx.args, "template");
-  if (templateId || hasFlag(ctx.args, "run-target")) {
-    if (!templateId) throw usage("project onboard target execution requires --template.");
-    const targetId = stringOption(ctx.args, "target") ?? `${projectId}-${templateId}`;
-    const existing = await readReleaseTarget(ctx, targetId);
-    if (existing) {
-      steps.push({ type: "target.resolved", targetId, status: field(existing, "scope") ?? "project" });
-    } else {
-      const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
-      steps.push({ type: "target.created", targetId: field(created, "id"), templateId });
-    }
-    const objective = requiredOption(ctx.args, "objective");
-    return await runGoalWrapper(ctx, {
-      command: "project onboard",
-      projectId,
-      targetId,
-      objective,
-      initialSteps: steps
-    });
-  }
-
   return finishProjectOnboard(ctx, projectId, project, sourceReadiness, devopsReadiness, llmReadiness, steps, 0);
 }
 
@@ -523,6 +513,7 @@ async function projectOnboardPlan(ctx: RuntimeContext, providerArg?: string): Pr
     throw usage("Use: evopilot project onboard plan <github|gitlab|local-git> [options]");
   }
   enforceProjectDevopsBoundaryOptions(ctx.args, provider, "project onboard plan");
+  rejectRemovedTargetTemplateOptions(ctx.args, "project onboard plan");
   const body = projectOnboardingChecklistBody(ctx.args, provider);
   const response = await ctx.client.post("/api/v1/onboarding/project/checklist", body, requestOptions(ctx));
   const checklist = response.data ?? response.body;
@@ -531,11 +522,11 @@ async function projectOnboardPlan(ctx: RuntimeContext, providerArg?: string): Pr
 }
 
 async function projectOnboardVerify(ctx: RuntimeContext, id?: string): Promise<number> {
+  rejectRemovedTargetTemplateOptions(ctx.args, "project onboard verify");
   const projectId = id ?? requiredOption(ctx.args, "project");
   const response = await ctx.client.get(`/api/v1/projects/${encodeURIComponent(projectId)}/onboarding-checklist`, {
     ...requestOptions(ctx),
     query: {
-      template: stringOption(ctx.args, "template"),
       objective: stringOption(ctx.args, "objective")
     }
   });
@@ -567,8 +558,6 @@ function projectOnboardingChecklistBody(args: ParsedArgs, provider: string): Rec
     repository: projectRepositoryBody(args, provider),
     llmProfileId: stringOption(args, "llm-profile") ?? stringOption(args, "llm-profile-id"),
     requireLlmReady: hasFlag(args, "require-llm-ready"),
-    template: stringOption(args, "template"),
-    releaseTargetTemplate: stringOption(args, "release-target-template"),
     objective: stringOption(args, "objective"),
     githubAppInstallationId: stringOption(args, "github-app-installation-id") ?? stringOption(args, "github-app-id") ?? stringOption(args, "installation-id")
   };
@@ -1055,16 +1044,6 @@ async function maturityStandardsInspect(ctx: RuntimeContext, id?: string): Promi
   return 0;
 }
 
-async function targetTemplates(ctx: RuntimeContext): Promise<number> {
-  const response = await ctx.client.expectOk(ctx.client.get("/api/v1/release/targets"));
-  const data = response.data;
-  const templates = Array.isArray(data)
-    ? data.filter((item: unknown) => isRecord(item) && item.scope !== "project")
-    : response.data;
-  printOutput(ctx, templates, listSummary(templates, "id"));
-  return 0;
-}
-
 async function targetPlanCommand(ctx: RuntimeContext, action?: string): Promise<number> {
   if (action === "export") return await targetPlanExport(ctx, ctx.args.positionals[3]);
   if (action === "apply") return await targetPlanApply(ctx, ctx.args.positionals[3]);
@@ -1075,18 +1054,18 @@ async function targetPlanCommand(ctx: RuntimeContext, action?: string): Promise<
 }
 
 async function targetPlan(ctx: RuntimeContext): Promise<number> {
+  rejectRemovedTargetTemplateOptions(ctx.args, "target plan");
   const projectId = requiredOption(ctx.args, "project");
   const objective = requiredOption(ctx.args, "objective");
-  const templateId = stringOption(ctx.args, "template") ?? "ga";
-  let targetId = stringOption(ctx.args, "target") ?? `${projectId}-${templateId}`;
+  let targetId = stringOption(ctx.args, "target") ?? defaultProjectReleaseTargetId(projectId);
   const steps: Array<Record<string, unknown>> = [];
   const existing = await readReleaseTarget(ctx, targetId);
   if (existing) {
     steps.push({ type: "target.resolved", targetId, status: field(existing, "scope") ?? "project" });
   } else {
-    const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
+    const created = await createProjectReleaseTarget(ctx, projectId, TERMINAL_MATURITY_ID, targetId);
     targetId = String(field(created, "id") ?? targetId);
-    steps.push({ type: "target.created", targetId, templateId });
+    steps.push({ type: "target.created", targetId, terminalMaturity: TERMINAL_MATURITY_ID });
   }
   const existingGoal = hasFlag(ctx.args, "new") ? undefined : await findReusableGoal(ctx, projectId, targetId, objective);
   let goalId: string;
@@ -1185,47 +1164,38 @@ async function targetList(ctx: RuntimeContext): Promise<number> {
 }
 
 async function targetCreate(ctx: RuntimeContext): Promise<number> {
+  rejectRemovedTargetTemplateOptions(ctx.args, "target create");
   const criteriaFile = stringOption(ctx.args, "criteria");
   const projectId = stringOption(ctx.args, "project");
-  const templateId = stringOption(ctx.args, "template");
   let body: Record<string, unknown> = criteriaFile ? readJson(criteriaFile) as Record<string, unknown> : {};
-  if (templateId) {
-    const templates = await ctx.client.expectOk(ctx.client.get("/api/v1/release/targets"));
-    const data = templates.data;
-    const template = Array.isArray(data)
-      ? data.find((item: unknown) => isRecord(item) && item.id === templateId)
-      : undefined;
-    if (!isRecord(template)) throw usage(`Release target template not found: ${templateId}`);
-    body = { ...template, ...body, templateId };
-  }
-  const id = stringOption(ctx.args, "id") ?? (projectId && templateId ? `${projectId}-${templateId}` : undefined) ?? stringField(body, "id");
+  const id = stringOption(ctx.args, "id") ?? (projectId ? defaultProjectReleaseTargetId(projectId) : undefined) ?? stringField(body, "id");
   body = {
     ...body,
     id,
     name: stringOption(ctx.args, "name") ?? stringField(body, "name") ?? id,
     scope: stringOption(ctx.args, "scope") ?? (projectId ? "project" : stringField(body, "scope")),
     projectId: projectId ?? stringField(body, "projectId"),
-    templateId: templateId ?? stringField(body, "templateId")
+    templateId: stringField(body, "templateId") ?? (projectId ? TERMINAL_MATURITY_ID : undefined)
   };
-  if (!body.id) throw usage("target create requires --id or --project with --template.");
+  if (!body.id) throw usage("target create requires --id, --project, or --criteria with an id.");
   const response = await ctx.client.expectOk(ctx.client.post("/api/v1/release/targets", body, requestOptions(ctx)));
   printOutput(ctx, response.data, `target=${field(response.data, "id")} scope=${field(response.data, "scope")}`);
   return 0;
 }
 
 async function targetRun(ctx: RuntimeContext): Promise<number> {
+  rejectRemovedTargetTemplateOptions(ctx.args, "target run");
   const projectId = requiredOption(ctx.args, "project");
-  const templateId = stringOption(ctx.args, "template") ?? "ga";
   let targetId = stringOption(ctx.args, "target");
   const steps: Array<Record<string, unknown>> = [];
   if (!targetId) {
-    targetId = `${projectId}-${templateId}`;
+    targetId = defaultProjectReleaseTargetId(projectId);
     const existing = await readReleaseTarget(ctx, targetId);
     if (existing) {
       steps.push({ type: "target.resolved", targetId, status: field(existing, "scope") ?? "project" });
     } else {
-      const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
-      steps.push({ type: "target.created", targetId: field(created, "id"), templateId });
+      const created = await createProjectReleaseTarget(ctx, projectId, TERMINAL_MATURITY_ID, targetId);
+      steps.push({ type: "target.created", targetId: field(created, "id"), terminalMaturity: TERMINAL_MATURITY_ID });
     }
   }
   const sourcePreflight = await tryProjectSourceCredentialPreflight(ctx, projectId);
@@ -2003,19 +1973,19 @@ async function readReleaseTarget(ctx: RuntimeContext, targetId: string): Promise
   return response.data;
 }
 
-async function createProjectReleaseTarget(ctx: RuntimeContext, projectId: string, templateId: string, targetId: string): Promise<unknown> {
-  const templates = await ctx.client.expectOk(ctx.client.get("/api/v1/release/targets"));
-  const template = Array.isArray(templates.data)
-    ? templates.data.find((item: unknown) => isRecord(item) && item.id === templateId)
+async function createProjectReleaseTarget(ctx: RuntimeContext, projectId: string, profileId: string, targetId: string): Promise<unknown> {
+  const profiles = await ctx.client.expectOk(ctx.client.get("/api/v1/release/targets"));
+  const profile = Array.isArray(profiles.data)
+    ? profiles.data.find((item: unknown) => isRecord(item) && item.id === profileId)
     : undefined;
-  if (!isRecord(template)) throw usage(`Release target template not found: ${templateId}`);
+  if (!isRecord(profile)) throw usage(`Release target profile not found: ${profileId}`);
   const response = await ctx.client.post("/api/v1/release/targets", {
-    ...template,
+    ...profile,
     id: targetId,
-    name: `${projectId} ${String(field(template, "name") ?? templateId)}`,
+    name: `${projectId} ${String(field(profile, "name") ?? profileId)}`,
     scope: "project",
     projectId,
-    templateId
+    templateId: profileId
   }, derivedRequestOptions(ctx, "target-run-create-target"));
   recordResponseLlmUsage(ctx, "target-run-create-target", response);
   if (!response.ok) throw apiErrorFromResponse(response);
@@ -3065,15 +3035,14 @@ Usage:
   evopilot github-app installation set --installation-id <id> --account <org> [--repository <owner/repo>] [--permission <name=value>]
   evopilot github-app installation preflight <id>
   evopilot evidence push --project <id> --file <events.json>
-  evopilot target templates
   evopilot target list
-  evopilot target create --project <id> --template <experimental|alpha|beta|rc|ga>
-  evopilot target plan --project <id> --objective <business-goal> [--template ga]
+  evopilot target create --project <id> [--id <target-id>] [--criteria <target.json>]
+  evopilot target plan --project <id> --objective <business-goal>
   evopilot target plan export <goal-id> [--format <json|yaml>]
   evopilot target plan apply <goal-id> --file <plan.json>
   evopilot target plan diff <goal-id> --file <plan.json>
   evopilot target plan approve <goal-id>
-  evopilot target run --project <id> --objective <business-goal> [--template ga] [--auto-approve-plan] [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
+  evopilot target run --project <id> --objective <business-goal> [--auto-approve-plan] [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
   evopilot target decision <target-id> [--project <id>]
   evopilot goal create --project <id> --target <target-id> --objective <text>
   evopilot goal run [<goal-id>] [--project <id> --target <target-id> --objective <text>] [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
@@ -3149,14 +3118,14 @@ Global options:
   --config <file>             Config path, defaults to ~/.evopilot/config.json
 
 Project DevOps examples:
-  evopilot project onboard plan github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --json
-  evopilot project onboard verify my-agent --template ga --json
+  evopilot project onboard plan github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --json
+  evopilot project onboard verify my-agent --json
   evopilot target plan --project my-agent --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --json
   evopilot target plan export <goal-id> --format json > plan.json
   evopilot target plan apply <goal-id> --file plan.json --json
   evopilot target plan approve <goal-id> --json
-  evopilot project onboard github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --require-source-ready --require-devops-ready
-  evopilot project onboard github --repo apache/skywalking --upstream-repo apache/skywalking --working-repo my-org/skywalking-fork --id skywalking-fork --token-ref GITHUB_TOKEN_SKYWALKING_FORK --execution-mode fork-validated-pr --devops-owner my-org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Provide fork-validated upstream PR readiness with native CI evidence and blocker reporting" --json
+  evopilot project onboard github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --require-source-ready --require-devops-ready
+  evopilot project onboard github --repo apache/skywalking --upstream-repo apache/skywalking --working-repo my-org/skywalking-fork --id skywalking-fork --token-ref GITHUB_TOKEN_SKYWALKING_FORK --execution-mode fork-validated-pr --devops-owner my-org --ci-workflow ci.yml --ci-required-check build --json
   evopilot secret set --id LLM_API_KEY_QWEN_PRIVATE --kind llm-key --from-env LLM_API_KEY_QWEN_PRIVATE --json
   evopilot llm profile set qwen-private --provider openai-compatible --base-url https://llm.example.com/v1 --model qwen2.5-coder-32b --api-key-ref LLM_API_KEY_QWEN_PRIVATE --json
   evopilot project llm set my-agent --profile qwen-private --require-llm-ready --json

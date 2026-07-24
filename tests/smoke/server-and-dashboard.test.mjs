@@ -158,7 +158,7 @@ test("dashboard login exchanges username and password for scoped session token",
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-login-"));
   const server = createServer({
     dataRoot,
-    apiToken: "legacy-admin-token",
+    apiToken: "bootstrap-admin-token",
     users: [
       {
         username: "tenant-admin",
@@ -368,7 +368,7 @@ test("bootstrap admin, password change, and tenant user management are enforced"
   }
 });
 
-test("server can explicitly serve a standalone dashboard build directory for compatibility", async () => {
+test("server can explicitly serve a standalone dashboard build directory when configured", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-dashboard-"));
   const dashboardRoot = fs.mkdtempSync(path.join(os.tmpdir(), "evopilot-dashboard-root-"));
   fs.mkdirSync(path.join(dashboardRoot, "assets"), { recursive: true });

@@ -95,7 +95,7 @@ WorkBuddy, Codex, Claude Code, CI jobs, and other agents should treat this file 
 6. When the project needs a non-default model, store the LLM key server-side, create an LLM profile, bind it to the project, and run `project llm preflight`.
 7. Generate the Goal phase plan with `target plan` or the first `target run`.
 8. Export, review, optionally edit, diff, apply, and approve the Alpha -> Beta -> RC -> GA phase plan.
-9. Run `target run`, `goal run`, `loop run`, or `project onboard ... --template ga` with `--json`.
+9. Run `target run`, `goal run`, or `loop run` with `--json`.
 10. Stop on blockers, human gates, credential gaps, policy review, repair actions, `NO-GO`, `BLOCKED`, `FAILED`, timeouts, or max-step boundaries.
 11. Report the server-derived result, release verdict, IDs, LLM provider/model, token totals, and request IDs.
 
@@ -169,7 +169,6 @@ Run with the project default LLM:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -182,7 +181,6 @@ Override the LLM for one run:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and repair guidance with a private model" \
   --llm-profile my-agent-llm \
   --require-llm-ready \
@@ -206,8 +204,7 @@ Wrapper commands return a stable machine-readable envelope:
 | `target run` | `evopilot-cli-goal-run/v1` | One-command release target execution. |
 | `goal run` | `evopilot-cli-goal-run/v1` | Create, resume, or advance a GlobalGoal. |
 | `loop run` | `evopilot-cli-loop-run/v1` | Run or resume one LoopRun. |
-| `project onboard ...` without `--template` | `evopilot-cli-project-onboard/v1` | Register a new project, preflight it, and configure native DevOps without starting a target. |
-| `project onboard ... --template ...` | `evopilot-cli-goal-run/v1` | Register and preflight the project, then continue into the same Goal/Loop wrapper used by `target run`. |
+| `project onboard ...` | `evopilot-cli-project-onboard/v1` | Register a new project, preflight it, and configure native DevOps. It does not start Goal/Loop execution. |
 | `project onboard plan` / `verify` | `evopilot-project-onboarding-checklist/v1` | Non-mutating or persisted project readiness checklist. |
 
 Agents should read these paths before claiming success:
@@ -276,12 +273,11 @@ evopilot maturity standards inspect ga --json
 
 ## Fast Path
 
-For an already registered project, run toward GA with one wrapper command:
+For an already registered project, generate the server-owned Alpha/Beta/RC/GA plan first:
 
 ```bash
 evopilot target plan \
   --project <project-id> \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for this project" \
   --client workbuddy \
   --json
@@ -303,7 +299,6 @@ Then resume the wrapper:
 ```bash
 evopilot target run \
   --project <project-id> \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for this project" \
   --until terminal \
   --max-steps 20 \
@@ -348,7 +343,6 @@ evopilot project onboard plan github \
   --health-url https://<app>/health \
   --llm-profile <llm-profile-id> \
   --require-llm-ready \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for <project-id>" \
   --json
 ```
@@ -366,10 +360,10 @@ evopilot secret set \
 After registration, verify the same checklist against persisted project state:
 
 ```bash
-evopilot project onboard verify <project-id> --template ga --json
+evopilot project onboard verify <project-id> --json
 ```
 
-For a new GitHub project, onboard the project, bind server-side source credentials, configure GitHub Actions, preflight both boundaries, and run GA in one wrapper:
+For a new GitHub project, onboard the project, bind server-side source credentials, configure GitHub Actions, and preflight both boundaries:
 
 ```bash
 evopilot project onboard github \
@@ -386,15 +380,13 @@ evopilot project onboard github \
   --deploy-environment production \
   --health-url https://<app>/health \
   --llm-profile <llm-profile-id> \
-  --template ga \
-  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for <project-id>" \
-  --until terminal \
-  --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
   --require-llm-ready \
   --json
 ```
+
+After `project onboard verify` returns `READY_TO_RUN`, use the `target plan` and `target run` flow above with the user's business objective.
 
 For a public upstream with a writable fork:
 
@@ -412,8 +404,6 @@ evopilot project onboard github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
-  --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --require-source-ready \
   --require-devops-ready \
   --json

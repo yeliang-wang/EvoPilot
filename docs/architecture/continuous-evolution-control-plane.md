@@ -80,7 +80,7 @@ From a DDD perspective:
 | `ReleaseTarget` profile | Defines project/release thresholds and scenario context. It is not itself a running goal, a phase skip instruction, or a release verdict. |
 | `ReleaseDecision` aggregate | Remains the authoritative `GO` / `CONDITIONAL-GO` / `NO-GO` verdict, exposed through `/api/v1/release/decisions`. |
 
-For project-scoped targets, `ReleaseTarget.templateId` is a compatibility profile and threshold source. A target id such as `my-agent-ga` is only an identity and routing key. The planner always emits the Alpha -> Beta -> RC -> GA ladder for governed GlobalGoals; template values must not be interpreted by CLI or Dashboard as "skip to that level."
+For project-scoped targets, `ReleaseTarget.templateId` is release profile metadata and a threshold source. A target id such as `my-agent-ga` is only an identity and routing key. The planner always emits the Alpha -> Beta -> RC -> GA ladder for governed GlobalGoals; profile metadata must not be interpreted by CLI or Dashboard as "skip to that level."
 
 The key design tradeoff is an extra control-plane layer instead of overloading LoopRun. This makes the dashboard and CLI white-box for multi-step goals without turning CLI commands into semantic orchestration. The CLI remains an adapter over atomic use cases such as create goal, plan goal, export/diff/apply/approve plan, read phases, read phase package, advance one step, read snapshot, read graph, read evidence matrix, and read final report.
 

@@ -102,7 +102,6 @@ evopilot llm profile set my-agent-llm --provider openai-compatible --base-url ht
 evopilot project llm set <project-id> --profile my-agent-llm --require-llm-ready --json
 evopilot target plan \
   --project <project-id> \
-  --template ga \
   --objective "Enable tenant-level onboarding, full lifecycle Dashboard visibility, and operator repair guidance for the project" \
   --client workbuddy \
   --json
@@ -114,7 +113,6 @@ evopilot target plan approve <goal-id> --json
 
 evopilot target run \
   --project <project-id> \
-  --template ga \
   --objective "Enable tenant-level onboarding, full lifecycle Dashboard visibility, and operator repair guidance for the project" \
   --until terminal \
   --max-steps 20 \
@@ -126,7 +124,7 @@ evopilot target run \
   --json
 ```
 
-The raw LLM API key is stored once in the EvoPilot server-side secret vault. Daily `target run`, `goal run`, and `loop run` commands pass only the LLM profile id. If `--llm-profile` is omitted, EvoPilot uses the project default LLM binding, then falls back to the server's global default LLM for backward compatibility.
+The raw LLM API key is stored once in the EvoPilot server-side secret vault. Daily `target run`, `goal run`, and `loop run` commands pass only the LLM profile id. If `--llm-profile` is omitted, EvoPilot uses the project default LLM binding, then the server's configured global default LLM.
 
 `--objective` is the user's business objective, not a maturity label. The terminal maturity is GA by default, and EvoPilot decomposes every governed goal through Alpha, Beta, RC, and GA. Wrapper commands stop at `PENDING_PLAN_APPROVAL` unless `--auto-approve-plan` is explicitly supplied, so WorkBuddy or a human operator can review, edit, diff, apply, and approve the generated phase plan before execution.
 
@@ -233,7 +231,7 @@ Start with the [documentation index](docs/README.md). The main entry points are:
 
 ```text
 packages/core/                          lifecycle, evidence, planning, review, delivery, release models
-packages/server/                        control-plane API and optional compatibility static host
+packages/server/                        control-plane API server
 packages/llm/                           LLM gateway, routing, compression, metrics
 packages/adapter-github/                GitHub adapter
 packages/adapter-gitlab/                GitLab adapter

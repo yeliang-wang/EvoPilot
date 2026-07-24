@@ -24,11 +24,11 @@ Automation must use `--json` and parse JSON fields:
 
 ```bash
 evopilot status --json
-evopilot project onboard plan github --repo owner/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner owner --ci-workflow ci.yml --ci-required-check build --template ga --json
+evopilot project onboard plan github --repo owner/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner owner --ci-workflow ci.yml --ci-required-check build --json
 evopilot project llm preflight my-agent --json
-evopilot target plan --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --llm-profile my-agent-llm --client workbuddy --json
+evopilot target plan --project my-agent --objective "Enable tenant onboarding and lifecycle workflow visibility" --llm-profile my-agent-llm --client workbuddy --json
 evopilot target plan approve <goal-id> --json
-evopilot target run --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --llm-profile my-agent-llm --require-llm-ready --client workbuddy --json
+evopilot target run --project my-agent --objective "Enable tenant onboarding and lifecycle workflow visibility" --llm-profile my-agent-llm --require-llm-ready --client workbuddy --json
 ```
 
 Do not parse human-readable CLI output. Human output may change to improve operator readability.
@@ -119,7 +119,6 @@ Daily wrapper commands should pass only the profile id:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --llm-profile my-agent-llm \
   --require-llm-ready \
@@ -192,12 +191,12 @@ Mutating wrapper commands should use stable job or task identifiers when availab
 Automation must treat the generated phase plan as a governed artifact. The normal path is:
 
 ```bash
-evopilot target plan --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --json
+evopilot target plan --project my-agent --objective "Enable tenant onboarding and lifecycle workflow visibility" --json
 evopilot target plan export <goal-id> --format json > /tmp/my-agent-phase-plan.json
 evopilot target plan diff <goal-id> --file /tmp/my-agent-phase-plan.json --json
 evopilot target plan apply <goal-id> --file /tmp/my-agent-phase-plan.json --json
 evopilot target plan approve <goal-id> --json
-evopilot target run --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --json
+evopilot target run --project my-agent --objective "Enable tenant onboarding and lifecycle workflow visibility" --json
 ```
 
 `target run` stops with `result.exitCode=2` and `nextAction=approve-plan` when the plan is still pending. Agents should show the phase plan to the user, not retry blindly. `--auto-approve-plan` is allowed only when the user or organization policy explicitly authorizes unattended acceptance of the generated Alpha -> Beta -> RC -> GA plan.
@@ -280,7 +279,6 @@ evopilot project onboard plan github \
   --devops-owner owner \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --json
 ```
 
@@ -295,12 +293,12 @@ evopilot project onboard github \
   --devops-owner owner \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
-  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --require-source-ready \
   --require-devops-ready \
   --json
 ```
+
+After `project onboard verify my-agent --json` returns `READY_TO_RUN`, generate the phase plan with `target plan`, approve it after user review, and continue with `target run`.
 
 ## Native DevOps Rules
 

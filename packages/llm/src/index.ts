@@ -96,7 +96,7 @@ export interface LlmProxyConfig {
   models: Record<string, LlmModelConfig>;
   profiles?: Record<string, LlmProfileConfig>;
   routes?: Record<string, LlmRouteConfig>;
-  legacyIntentMappings?: Record<string, string>;
+  intentAliases?: Record<string, string>;
   metrics?: LlmMetricsConfig;
   contextCompression?: LlmContextCompressionConfig;
 }
@@ -286,10 +286,10 @@ export class ProfileRouteResolver {
 
   resolveIntent(request: LlmGenerateRequest): string {
     const intent = trim(request.intent);
-    if (intent) return this.config.legacyIntentMappings?.[intent] ?? intent;
+    if (intent) return this.config.intentAliases?.[intent] ?? intent;
     const taskType = trim(request.taskType);
     if (taskType) {
-      const mapped = this.config.legacyIntentMappings?.[taskType];
+      const mapped = this.config.intentAliases?.[taskType];
       if (mapped) return mapped;
       if (this.config.routes?.[taskType]) return taskType;
     }
@@ -457,7 +457,7 @@ export function createLlmConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Ll
       "agent.brainstorm": { profile: "deep-reasoning" },
       auto: { preflightProfile: "fast-classifier", fallbackProfile: "document-generation" }
     },
-    legacyIntentMappings: {
+    intentAliases: {
       "execution.skill": "report.generation",
       "execution.structured": "structured.extraction",
       "execution.document": "report.generation",

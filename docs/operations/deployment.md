@@ -25,7 +25,7 @@ Dashboard 已拆分到独立仓库 `yeliang-wang/evopilot-dashboard`。生产部
 /api/*  -> evopilot-server:19876
 ```
 
-短期兼容模式下，可以显式设置 `EVOPILOT_DASHBOARD_ROOT=/path/to/dashboard/dist` 让 EvoPilot server 托管静态 Dashboard；默认生产镜像不再包含 Dashboard 资源。
+Dashboard 是独立服务，应由 `evopilot-dashboard` 项目单独构建和部署。EvoPilot 生产镜像只提供 API Server、CLI 通讯、Loop 控制面和后台能力；不要把 Dashboard 资源放回 EvoPilot 主服务。
 
 ## 独立 Dashboard 服务
 
@@ -79,7 +79,7 @@ Compose 会启动 `evopilot-server`、`evopilot-code-upgrader`、`evopilot-loop-
 
 - `evopilot-server` 只负责 API、持久化状态和控制面。
 - `evopilot-code-upgrader` 通过 `npm run code-upgrader` 暴露 `/health` 和 `/api/v1/conversations`，在生产模式下会读取 `EVOPILOT_DATA_ROOT/llm.env` 并要求真实 LLM。
-- `evopilot-loop-worker` 通过 `/api/v1/loop-workers/claim` 领取可执行 loop，写入 heartbeat lease，再调用 `start` 或 `resume` 推进下一轮。若配置了 `EVOPILOT_LOOP_WORKER_LOOP_ID`，worker 会优先推进该 loop；当该 loop 已完成、不可领取或不存在时，默认回退领取队列中的下一条可执行 loop，避免生产队列被旧 preferred loop 饿死。
+- `evopilot-loop-worker` 通过 `/api/v1/loop-workers/claim` 领取可执行 loop，写入 heartbeat lease，再调用 `start` 或 `resume` 推进下一轮。若配置了 `EVOPILOT_LOOP_WORKER_LOOP_ID`，worker 会优先推进该 loop；当该 loop 已完成、不可领取或不存在时，默认回退领取队列中的下一条可执行 loop，避免生产队列被已失效的 preferred loop 饿死。
 - 如果只运行 server，Loop 会停在 `RUNNING / claimable=true / nextAction=claim`，这表示状态可恢复、可领取，但不是后台正在执行。
 
 SaaS 多租户 GA 还要求 Loop Store 使用 Postgres-backed readiness。Compose 默认给 `evopilot-server` 和 `evopilot-loop-worker` 配置：
@@ -187,7 +187,7 @@ EVOPILOT_RUN_MODE=prod
 生产模式要求：
 
 - Dashboard 面向用户使用用户名/密码登录。服务端会确保存在持久化 bootstrap 平台高级管理员 `admin/admin`，首次登录后必须改密；生产环境也可以额外配置 `EVOPILOT_USERS` 作为用户种子。
-- `EVOPILOT_TOKENS` 或 `EVOPILOT_API_TOKEN` 主要用于自动化和兼容 API 调用，不作为最终用户登录方式。
+- `EVOPILOT_TOKENS` 或 `EVOPILOT_API_TOKEN` 主要用于自动化 API 调用，不作为最终用户登录方式。
 - `EVOPILOT_REQUIRE_LLM` 默认等于 `true`，必须配置真实 LLM provider；缺少 `EVOPILOT_LLM_BASE_URL`、`EVOPILOT_LLM_MODEL_NAME` 或 `EVOPILOT_LLM_API_KEY` 时，生产服务会拒绝启动并返回 `EVOPILOT_PROD_REQUIRES_LLM_PROVIDER`。
 - Loop Runtime 的 `llm` executor 会调用真实 LLM Gateway，成功后把 `provider`、`model`、`totalTokens`、`costUsd` 写入 executor output、evidence 和 trace；调用失败时节点失败，不允许在生产模式下空跑成功。
 - 不允许无鉴权 admin。

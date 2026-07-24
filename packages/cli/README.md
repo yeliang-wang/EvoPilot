@@ -25,8 +25,7 @@ export EVOPILOT_ACTOR="workbuddy"
 
 evopilot target run \
   --project <project-id> \
-  --template ga \
-  --objective "Promote the project to GA with source closure, native DevOps evidence, deploy evidence, and release decision" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for the project" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
@@ -45,7 +44,6 @@ evopilot project onboard plan github \
   --devops-owner <owner> \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --json
 ```
 
@@ -60,8 +58,6 @@ evopilot project onboard github \
   --devops-owner <owner> \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
-  --objective "Promote <project-id> to GA stable" \
   --require-source-ready \
   --require-devops-ready \
   --json
@@ -70,7 +66,8 @@ evopilot project onboard github \
 After registration, verify persisted readiness:
 
 ```bash
-evopilot project onboard verify <project-id> --template ga --json
+evopilot project onboard verify <project-id> --json
+evopilot target plan --project <project-id> --objective "Enable the requested business capability and lifecycle evidence" --json
 ```
 
 ## Documentation

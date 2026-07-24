@@ -46,7 +46,6 @@ npm run cli -- target plan \
   --server http://127.0.0.1:19876 \
   --token change-me-admin-token \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 
@@ -63,7 +62,6 @@ npm run cli -- target run \
   --server http://127.0.0.1:19876 \
   --token change-me-admin-token \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --max-steps 20 \
   --require-source-ready \
@@ -84,12 +82,11 @@ npm run cli -- project onboard plan github \
   --devops-owner owner \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 ```
 
-Then use `project onboard` after the server can resolve the tokenRef, or provide `--template` to continue directly into the target wrapper. See [CLI Workflows](cli/workflows.md).
+Then run `project onboard` after the server can resolve the tokenRef, verify with `project onboard verify`, and start Goal/Loop execution with `target plan` followed by `target run`. See [CLI Workflows](cli/workflows.md).
 
 ## Configure A Project LLM
 
@@ -130,7 +127,6 @@ npm run cli -- target run \
   --server http://127.0.0.1:19876 \
   --token change-me-admin-token \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --llm-profile my-agent-llm \
   --require-llm-ready \

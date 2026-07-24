@@ -48,7 +48,6 @@ evopilot project onboard plan github \
   --cd-workflow deploy-prod.yml \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 ```
@@ -79,7 +78,7 @@ Then verify source credentials:
 
 ```bash
 evopilot project preflight my-agent --json
-evopilot project onboard verify my-agent --template ga --json
+evopilot project onboard verify my-agent --json
 ```
 
 `READY` means source writeback can proceed. `READ_ONLY` or `BLOCKED` means the agent must stop and repair credentials before claiming PR, merge, or source-closure readiness.
@@ -104,7 +103,6 @@ evopilot project onboard plan gitlab \
   --cd-required-stage deploy \
   --deploy-environment production \
   --ready-url https://my-agent.example.com/ready \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 ```
@@ -246,12 +244,11 @@ run override --llm-profile -> project default LLM -> server global default LLM
 
 Use `target run` when the project does not already have a project-scoped release target. EvoPilot resolves or creates the target, creates or resumes a GlobalGoal, generates the server plan, then stops for plan approval unless `--auto-approve-plan` is explicitly supplied.
 
-The CLI does not invent the phase list. `--objective` is the user's business intent, such as enabling a capability or improving a Dashboard lifecycle workflow. EvoPilot treats GA as the terminal maturity and generates a fixed progressive ladder: Alpha -> Beta -> RC -> GA. `--template ga` is the normal compatibility flag for creating the project-scoped release target profile; older template values do not make EvoPilot skip phases or stop before GA.
+The CLI does not invent the phase list. `--objective` is the user's business intent, such as enabling a capability or improving a Dashboard lifecycle workflow. EvoPilot treats GA as the fixed terminal maturity and generates a progressive ladder: Alpha -> Beta -> RC -> GA.
 
 ```bash
 evopilot target plan \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --client workbuddy \
   --json
@@ -273,7 +270,6 @@ Then resume execution:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -283,12 +279,6 @@ evopilot target run \
   --require-llm-ready \
   --client workbuddy \
   --json
-```
-
-Common templates:
-
-```text
-ga
 ```
 
 The maturity standards behind the generated plan are visible through:
@@ -333,7 +323,7 @@ Human-readable wrapper output includes an `LLM Usage` section. Production HTTP l
 
 ## 7. One Command From New Project To Target
 
-Use `project onboard` when the project is not registered yet. This wrapper registers the project, verifies source credentials, configures repository-native DevOps when CI/CD flags are present, verifies DevOps readiness, then optionally runs the target template.
+Use `project onboard` when the project is not registered yet. This wrapper registers the project, verifies source credentials, configures repository-native DevOps when CI/CD flags are present, and verifies DevOps readiness. It does not start Goal/Loop execution.
 
 GitHub:
 
@@ -352,10 +342,6 @@ evopilot project onboard github \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
   --llm-profile my-agent-llm \
-  --template ga \
-  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
-  --until terminal \
-  --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
   --require-llm-ready \
@@ -380,10 +366,6 @@ evopilot project onboard gitlab \
   --deploy-environment production \
   --ready-url https://my-agent.example.com/ready \
   --llm-profile my-agent-llm \
-  --template ga \
-  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
-  --until terminal \
-  --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
   --require-llm-ready \
@@ -391,7 +373,7 @@ evopilot project onboard gitlab \
   --json
 ```
 
-Without `--template`, `project onboard` stops after registration and preflight, returning `evopilot-cli-project-onboard/v1`.
+After onboarding, run `project onboard verify my-agent --json`. When the checklist returns `READY_TO_RUN`, use the `target plan` and `target run` flow from section 6 with the user's business objective.
 
 ## 8. Public Upstream With A Writable Fork
 
@@ -410,10 +392,6 @@ evopilot project onboard github \
   --ci-workflow ci.yml \
   --ci-required-check build \
   --llm-profile my-agent-llm \
-  --template ga \
-  --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
-  --until terminal \
-  --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
   --require-llm-ready \

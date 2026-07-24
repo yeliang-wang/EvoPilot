@@ -38,8 +38,7 @@ Use `--json` for AI agents and CI. Human-readable output is for operators and ca
 | `status --json` | `evopilot-cli-status/v1` | `health`, `ready`, `api`, `summary`, `client`, `llmUsage` |
 | `project onboard plan ... --json` | `evopilot-project-onboarding-checklist/v1` | `status`, `nextAction`, `missingInputs`, `blockers`, `commands`, `sourceCredentials`, `devops`, `llm`, `requestId` |
 | `project onboard verify ... --json` | `evopilot-project-onboarding-checklist/v1` | Persisted project readiness, same fields as `plan`, including project LLM readiness |
-| `project onboard ... --json` without `--template` | `evopilot-cli-project-onboard/v1` | `projectId`, `sourceCredentials`, `devops`, `steps`, `result`, `llmUsage` |
-| `project onboard ... --template ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage`; includes onboarding/preflight steps before Goal/Loop execution |
+| `project onboard ... --json` | `evopilot-cli-project-onboard/v1` | `projectId`, `sourceCredentials`, `devops`, `steps`, `result`, `llmUsage`; onboarding does not start Goal/Loop execution |
 | `target plan ... --json` | `evopilot-cli-target-plan/v1` | `projectId`, `targetId`, `goalId`, `terminalMaturity`, `phasePlan.phases`, `phasePlan.targets`, `editablePlan`, `llmUsage` |
 | `target plan diff ... --json` | `evopilot-cli-target-plan-diff/v1` | `addedTargets`, `removedTargets`, `changedTargets`, `changedPhases`, `baselineGuard` |
 | `target run ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage` |
@@ -141,17 +140,16 @@ evopilot project onboard plan github \
   --devops-owner owner \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --json
 ```
 
 `project onboard verify` replays the same checklist against a persisted project through `GET /api/v1/projects/{projectId}/onboarding-checklist`.
 
 ```bash
-evopilot project onboard verify my-agent --template ga --json
+evopilot project onboard verify my-agent --json
 ```
 
-`project onboard` is the mutating wrapper for a new project. It registers the repository, runs source credential preflight, optionally configures repository-native DevOps, runs DevOps preflight, and can continue into `target run` when `--template` is supplied.
+`project onboard` is the mutating wrapper for a new project. It registers the repository, runs source credential preflight, optionally configures repository-native DevOps, and runs DevOps preflight. It does not start Goal/Loop execution; use `target plan` and `target run` after the project checklist is `READY_TO_RUN`.
 
 By default, `project onboard` returns a white-box result and next action after registration and preflight. Add `--require-source-ready --require-devops-ready` for strict end-to-end automation that must stop before Goal/Loop execution when source writeback or repository-native DevOps is not ready.
 
@@ -180,8 +178,6 @@ Common onboard options:
 --deploy-environment <environment>
 --health-url <url>
 --ready-url <url>
---template <experimental|alpha|beta|rc|ga>
---objective <text>
 ```
 
 ## Project DevOps
@@ -375,15 +371,14 @@ evopilot maturity standards inspect <alpha|beta|rc|ga|standard-id>
 ## Target
 
 ```bash
-evopilot target templates
 evopilot target list [--project <project-id>]
-evopilot target create --project <project-id> --template <experimental|alpha|beta|rc|ga>
-evopilot target plan --project <project-id> --objective <business-goal> [--template ga]
+evopilot target create --project <project-id> [--id <target-id>] [--criteria <target.json>]
+evopilot target plan --project <project-id> --objective <business-goal>
 evopilot target plan export <goal-id> [--format json|yaml]
 evopilot target plan diff <goal-id> --file <plan.json>
 evopilot target plan apply <goal-id> --file <plan.json>
 evopilot target plan approve <goal-id>
-evopilot target run --project <project-id> --template ga --objective <business-goal>
+evopilot target run --project <project-id> --objective <business-goal>
 evopilot target decision <target-id> [--project <project-id>]
 ```
 
@@ -394,7 +389,7 @@ evopilot target decision <target-id> [--project <project-id>]
 Use `--require-source-ready --require-devops-ready` when the run must fail before Goal/Loop execution if PR/merge or repository-native DevOps is not ready.
 Use `--llm-profile <id>` to override the project default LLM for this run, and `--require-llm-ready` to stop before Loop execution if the selected profile is blocked.
 
-`--template ga` is the normal compatibility flag for creating the project-scoped release target profile. Older template values such as `alpha`, `beta`, or `rc` may still be accepted for legacy target ids and threshold profiles, but they do not make EvoPilot skip phases or stop at that maturity.
+The CLI does not accept maturity-template parameters for `target plan`, `target run`, or `project onboard`. GA is the fixed terminal maturity. The server generates the Alpha -> Beta -> RC -> GA phase plan from the business `--objective`, the active maturity standard set, and project release evidence.
 
 `target run`, `goal run`, `loop run`, and `project onboard` wrapper output includes command-level and step-level LLM visibility:
 

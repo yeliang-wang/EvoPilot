@@ -41,6 +41,8 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   assert.match(help, /evopilot loop list/);
   assert.match(help, /evopilot loop run/);
   assert.match(help, /evopilot release decisions/);
+  assert.doesNotMatch(help, /--template/);
+  assert.doesNotMatch(help, /target templates/);
 
   const version = await runCliText(["--version"]);
   assert.equal(version.trim(), "0.1.0");
@@ -113,7 +115,6 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--cd-workflow", "deploy-prod.yml",
       "--deploy-environment", "production",
       "--health-url", `${github.baseUrl}/health`,
-      "--template", "ga",
       "--objective", "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility",
       "--config", configPath,
       "--json"
@@ -132,7 +133,8 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
     assert.ok(plan.steps.some((step) => step.id === "source-credentials" && step.status === "PASS"));
     assert.ok(plan.steps.some((step) => step.id === "devops" && step.status === "PASS"));
     assert.ok(plan.commands.some((command) => command.id === "project-onboard" && command.command.includes("evopilot project onboard github") && command.command.includes("--devops-owner org")));
-    assert.ok(plan.commands.some((command) => command.id === "target-run" && command.command.includes("evopilot target run")));
+    assert.equal(plan.commands.some((command) => command.command.includes("--template")), false);
+    assert.equal(plan.commands.some((command) => command.id === "target-run"), false);
 
     const forkPlan = await runCli([
       "project", "onboard", "plan", "github",
@@ -147,7 +149,6 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--devops-owner", "yeliang-wang",
       "--ci-workflow", "ci.yml",
       "--ci-required-check", "build",
-      "--template", "ga",
       "--objective", "Provide fork-validated upstream PR readiness with native CI evidence and blocker reporting",
       "--config", configPath,
       "--json"
@@ -171,7 +172,6 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--devops-owner", "yeliang-wang",
       "--ci-workflow", "ci.yml",
       "--ci-required-check", "build",
-      "--template", "ga",
       "--objective", "Provide fork-validated upstream PR readiness with native CI evidence and blocker reporting",
       "--config", configPath,
       "--json"
@@ -188,7 +188,6 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--base-url", github.baseUrl,
       "--repo", "apache/skywalking",
       "--execution-mode", "read-only-public",
-      "--template", "ga",
       "--objective", "Inspect SkyWalking and report blockers without writeback",
       "--config", configPath,
       "--json"
@@ -227,7 +226,6 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--ci-workflow", "ci.yml",
       "--ci-required-check", "build",
       "--ci-required-check", "test",
-      "--template", "ga",
       "--config", configPath
     ]);
     assert.match(planText, /EvoPilot Project Onboarding/);
@@ -269,7 +267,6 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
 
     const verify = await runCli([
       "project", "onboard", "verify", "github-cli-agent",
-      "--template", "ga",
       "--objective", "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility",
       "--config", configPath,
       "--json"
@@ -279,7 +276,9 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
     assert.equal(verify.status, "READY_TO_RUN");
     assert.equal(verify.nextAction, "run-target");
     assert.ok(verify.steps.some((step) => step.id === "project" && step.status === "PASS"));
+    assert.ok(verify.commands.some((command) => command.id === "target-plan" && command.command.includes("evopilot target plan")));
     assert.ok(verify.commands.some((command) => command.id === "target-run" && command.command.includes("--require-source-ready")));
+    assert.equal(verify.commands.some((command) => command.command.includes("--template")), false);
 
     const preflightText = await runCliText([
       "project", "devops", "preflight", "github-cli-agent",
@@ -533,28 +532,46 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(evidence.ingestedEvents, 1);
     assert.equal(evidence.ingestSource, "agent-sdk");
 
-    const target = await runCli(["target", "create", "--project", "cli-agent", "--template", "beta", "--config", configPath, "--json"]);
-    assert.equal(target.id, "cli-agent-beta");
+    const removedTemplateTargetRun = await runCliErrorText([
+      "target", "run",
+      "--project", "cli-agent",
+      "--template", "ga",
+      "--objective", "Old template parameter should be rejected",
+      "--config", configPath
+    ], 64);
+    assert.match(removedTemplateTargetRun, /target run does not accept --template/);
+
+    const removedTemplateOnboard = await runCliErrorText([
+      "project", "onboard", "github",
+      "--repo", "org/repo",
+      "--id", "github-cli-agent",
+      "--template", "ga",
+      "--config", configPath
+    ], 64);
+    assert.match(removedTemplateOnboard, /project onboard does not accept --template/);
+
+    const target = await runCli(["target", "create", "--project", "cli-agent", "--config", configPath, "--json"]);
+    assert.equal(target.id, "cli-agent-ga");
     assert.equal(target.scope, "project");
     assert.equal(target.projectId, "cli-agent");
-    assert.equal(target.templateId, "beta");
+    assert.equal(target.templateId, "ga");
 
     const goal = await runCli([
       "goal", "create",
-      "--id", "cli-agent-beta-global-goal",
+      "--id", "cli-agent-ga-global-goal",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "CLI Agent provides visible GoalTargets for tenant operators and AI agents",
-      "--idempotency-key", "goal-cli-agent-beta",
+      "--idempotency-key", "goal-cli-agent-ga",
       "--config", configPath,
       "--json"
     ]);
     assert.equal(goal.schema, "evopilot-global-goal/v1");
-    assert.equal(goal.id, "cli-agent-beta-global-goal");
+    assert.equal(goal.id, "cli-agent-ga-global-goal");
     assert.equal(goal.status, "DRAFT");
     assert.equal(goal.plan.status, "MISSING");
 
-    const goals = await runCli(["goal", "list", "--project", "cli-agent", "--target", "cli-agent-beta", "--config", configPath, "--json"]);
+    const goals = await runCli(["goal", "list", "--project", "cli-agent", "--target", "cli-agent-ga", "--config", configPath, "--json"]);
     assert.ok(goals.some((item) => item.id === goal.id));
 
     const inspectedGoal = await runCli(["goal", "inspect", goal.id, "--config", configPath, "--json"]);
@@ -710,7 +727,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const loopTimeoutJson = await runCli([
       "loop", "run",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "CLI wrapper loop run exposes timeout stop boundary",
       "--timeout", "0s",
       "--config", configPath,
@@ -722,7 +739,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const loopRunJson = await runCli([
       "loop", "run",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "CLI wrapper loop run succeeds visibly",
       "--force-decision", "SUCCEED",
       "--max-iterations", "1",
@@ -745,7 +762,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const loopRunText = await runCliText([
       "loop", "run",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "CLI wrapper loop run prints visible token usage",
       "--force-decision", "SUCCEED",
       "--max-iterations", "1",
@@ -761,7 +778,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const blockedLoopRunJson = await runCli([
       "loop", "run",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "CLI wrapper loop run stops when blocked-or-complete is requested",
       "--force-decision", "BLOCK",
       "--until", "blocked-or-complete",
@@ -780,7 +797,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
       repositoryProvider: "local-git",
       sourceUrl: repoRoot,
       sourceBranch: "main",
-      targetVersion: "cli-beta",
+      targetVersion: "cli-ga",
       releaseStrategy: "local-git-commit",
       requiredGates: ["code-change", "push"],
       deploymentEnvironment: "test"
@@ -789,15 +806,15 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const loop = await runCli([
       "loop", "create",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "Drive CLI beta source closure",
       "--source-closure", sourceClosureFile,
-      "--idempotency-key", "cli-beta-loop",
+      "--idempotency-key", "cli-ga-loop",
       "--config", configPath,
       "--json"
     ]);
     assert.equal(loop.projectId, "cli-agent");
-    assert.equal(loop.context.releaseTargetId, "cli-agent-beta");
+    assert.equal(loop.context.releaseTargetId, "cli-agent-ga");
     assert.equal(loop.sourceClosure.sourceProjectId, "cli-agent");
 
     const started = await runCli(["loop", "start", loop.id, "--config", configPath, "--json"]);
@@ -811,7 +828,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     fs.writeFileSync(releaseEvidence, "# CLI release evidence\n\nSource closure evidence from the CLI functional test.\n");
     const closure = await runCli([
       "source-closure", "execute", loop.id,
-      "--branch", "evopilot/cli-beta",
+      "--branch", "evopilot/cli-ga",
       "--message", "EvoPilot CLI source closure",
       "--write-file", `docs/release-evidence.md:${releaseEvidence}`,
       "--config", configPath,
@@ -850,7 +867,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const workerLoop = await runCli([
       "loop", "create",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--objective", "Claim CLI worker queue",
       "--idempotency-key", "cli-worker-loop",
       "--config", configPath,
@@ -941,7 +958,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const releaseGate = await runCli([
       "release", "gate",
       "--project", "cli-agent",
-      "--target", "cli-agent-beta",
+      "--target", "cli-agent-ga",
       "--scenario", "beta-core-flow=PASS",
       "--scenario", "ci-cd-pass=PASS",
       "--scenario", "manual-approval=PASS",
@@ -949,10 +966,10 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
       "--json"
     ]);
     assert.equal(releaseGate.projectId, "cli-agent");
-    assert.equal(releaseGate.releaseTargetId, "cli-agent-beta");
+    assert.equal(releaseGate.releaseTargetId, "cli-agent-ga");
     assert.ok(releaseGate.releaseDecisionId);
 
-    const decisions = await runCli(["release", "decisions", "--project", "cli-agent", "--target", "cli-agent-beta", "--config", configPath, "--json"]);
+    const decisions = await runCli(["release", "decisions", "--project", "cli-agent", "--target", "cli-agent-ga", "--config", configPath, "--json"]);
     assert.ok(decisions.some((decision) => decision.id === releaseGate.releaseDecisionId));
   } finally {
     await new Promise((resolve) => server.close(resolve));

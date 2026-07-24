@@ -20,7 +20,7 @@
 | `project preflight` returns `READ_ONLY` | Public repository can be inspected but cannot be written | Continue only for `read-only-public` analysis; do not claim PR, CI/CD, merge, deploy, or release readiness. |
 | CLI exits with `DevOps ownership is ambiguous` | A GitHub/GitLab DevOps command did not declare who owns CI/CD execution | Add `--execution-mode` and `--devops-owner`; for open-source upstream work also add `--upstream-repo` and `--working-repo`. |
 | `project devops preflight` blocks on `devops-owner` | The declared DevOps owner does not match the workflow repository namespace | Inspect `executionMode`, `devopsOwner`, `workflowRepository`, and `claimBoundary`; repair the project DevOps config before running a target wrapper. |
-| `status --json` has no `api` object | The CLI reached an older server without `/api/v1/version` | Verify the deployed EvoPilot version before running wrapper commands. |
+| `status --json` has no `api` object | The CLI reached a server that does not expose `/api/v1/version` | Verify the deployed EvoPilot version before running wrapper commands. |
 | `llmUsage.summary.provider` or `llmUsage.summary.model` is missing after a wrapper run | No LLM step ran, or the server did not return loop-level usage evidence | Inspect `llmUsage.server.steps[]`, `llmUsage.process.responses[]`, and server logs by `requestId` before claiming completion. |
 | WorkBuddy runs are not distinguishable from terminal runs in logs | The CLI caller did not set a client surface | Set `EVOPILOT_CLI_CLIENT=workbuddy` or pass `--client workbuddy`; then check HTTP logs under `metadata.client.surface`. |
 | `goal run` stops at `human-approval` | Server governance requires manual approval | Review evidence and rerun with approved recovery path. |
@@ -44,5 +44,5 @@ Dashboard 页面级操作和数字人排障入口在 `yeliang-wang/evopilot-dash
 npm run check
 node -e 'JSON.parse(require("fs").readFileSync("docs/api/openapi.json", "utf8")); console.log("openapi ok")'
 npm run cli -- status --json
-npm run cli -- target run --project <project-id> --template ga --objective "..." --client workbuddy --max-steps 1 --json
+npm run cli -- target run --project <project-id> --objective "..." --client workbuddy --max-steps 1 --json
 ```

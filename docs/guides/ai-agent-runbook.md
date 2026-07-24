@@ -60,7 +60,6 @@ evopilot project onboard plan github \
   --cd-workflow deploy-prod.yml \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 ```
@@ -88,7 +87,7 @@ The agent must not claim more than `claimBoundary`. In particular, `fork-ci-pr` 
 
 Writable GitHub/GitLab modes require an execution principal owned by the operator, user, or organization. For third-party open-source upstreams, use an operator-owned fork with `fork-validated-pr`, or use `upstream-authorized` only with maintainer credentials. If no GitHub/GitLab account or group exists, use `read-only-public` and do not claim PR, CI/CD, merge, deploy, or release readiness.
 
-If `nextAction=store-secret`, use the suggested `secret set` command from the checklist only from a trusted shell where the token environment variable is available. If `nextAction=connect-github-account` or `nextAction=connect-gitlab-account`, stop until the operator connects or creates the matching SCM account/group/principal and stores the server-side tokenRef. If `nextAction=register-project`, continue with `project onboard`. If `nextAction=run-target`, continue with `target run`. If `status=BLOCKED`, stop and report `blockers`.
+If `nextAction=store-secret`, use the suggested `secret set` command from the checklist only from a trusted shell where the token environment variable is available. If `nextAction=connect-github-account` or `nextAction=connect-gitlab-account`, stop until the operator connects or creates the matching SCM account/group/principal and stores the server-side tokenRef. If `nextAction=register-project`, continue with `project onboard`. If `nextAction=run-target`, generate or inspect the phase plan with `target plan`, approve it when the user accepts it, then continue with `target run`. If `status=BLOCKED`, stop and report `blockers`.
 
 For an already registered project, verify source credentials and native DevOps before invoking a one-command target:
 
@@ -96,7 +95,7 @@ For an already registered project, verify source credentials and native DevOps b
 evopilot project preflight my-agent --json
 evopilot project devops preflight my-agent --json
 evopilot project llm preflight my-agent --json
-evopilot project onboard verify my-agent --template ga --json
+evopilot project onboard verify my-agent --json
 ```
 
 If the project must use a custom public or private LLM, create the server-side LLM profile before the first loop target. This is normally a one-time trusted setup step:
@@ -136,7 +135,6 @@ Generate the project phase plan before execution:
 ```bash
 evopilot target plan \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --llm-profile my-agent-llm \
   --require-llm-ready \
@@ -160,7 +158,6 @@ Run the approved project goal:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -208,7 +205,6 @@ evopilot project onboard github \
   --cd-workflow deploy-prod.yml \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -298,7 +294,6 @@ evopilot project onboard plan github \
   --devops-owner yeliang-wang \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --json
 ```
 
@@ -313,7 +308,7 @@ evopilot project register \
   --json
 
 evopilot project preflight my-agent --json
-evopilot project onboard verify my-agent --template ga --json
+evopilot project onboard verify my-agent --json
 ```
 
 Expected result before a real PR run:
@@ -330,7 +325,6 @@ Only after `READY`, run the one-command target:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -356,7 +350,6 @@ evopilot project onboard plan github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --json
 ```
@@ -375,7 +368,6 @@ evopilot project onboard github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --require-source-ready \
   --require-devops-ready \
@@ -410,7 +402,6 @@ evopilot project onboard github \
   --devops-owner apache \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --objective "Add the requested upstream capability and collect maintainer-authorized source and CI evidence" \
   --require-source-ready \
   --require-devops-ready \
@@ -422,7 +413,7 @@ The agent may claim upstream release readiness only after source and DevOps pref
 
 ### Scenario 5: Repair An Existing Registered Project
 
-Use this when `project list` shows `credentialsConfigured=false`, or `project preflight` returns `READ_ONLY`, `connect-github-account`, `connect-gitlab-account`, or legacy `configure-token-ref`.
+Use this when `project list` shows `credentialsConfigured=false`, or `project preflight` returns `READ_ONLY`, `connect-github-account`, `connect-gitlab-account`, or `configure-token-ref`.
 
 ```bash
 evopilot project credentials set my-agent \
@@ -488,7 +479,6 @@ evopilot project llm preflight my-agent --json
 evopilot connector deploy list --json
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -598,7 +588,6 @@ Use this path when a wrapper stops or when the agent needs white-box step contro
 ```bash
 evopilot target create \
   --project my-agent \
-  --template ga \
   --idempotency-key target-my-agent-ga \
   --json
 

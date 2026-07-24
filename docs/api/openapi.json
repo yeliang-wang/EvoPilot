@@ -732,7 +732,7 @@
     "/api/v1/release/targets": {
       "get": {
         "summary": "列出发布目标",
-        "description": "返回 EvoPilot 产品自身定义的 AI 可执行发布目标。默认包含 GA Release 目标，外部工具和 sub agent 应以该目标为准执行场景验证 loop。",
+        "description": "返回 EvoPilot 服务端 release target profiles。它们用于发布证据阈值和场景上下文，不是 CLI 可选择的成熟度模板；CLI、Dashboard 和外部 AI Agent 应通过 GlobalGoal 的 Alpha -> Beta -> RC -> GA 计划执行业务目标。",
         "security": [
           {
             "bearerAuth": []
@@ -749,7 +749,7 @@
       },
       "post": {
         "summary": "创建或更新发布目标",
-        "description": "管理员可调整 GA 或自定义发布目标，包括最少接入项目数、持续验证时长、成功进化闭环数量和必跑场景矩阵。",
+        "description": "管理员可调整 GA 或自定义发布目标 profile，包括最少接入项目数、持续验证时长、成功进化闭环数量和必跑场景矩阵。客户端不得把该接口当作成熟度选择入口。",
         "security": [
           {
             "bearerAuth": []
@@ -795,7 +795,7 @@
     },
     "/api/v1/maturity/standards": {
       "get": {
-        "summary": "列出成熟度标准模板",
+        "summary": "列出成熟度标准",
         "description": "返回 EvoPilot 当前启用的 Alpha -> Beta -> RC -> GA 标准集。Dashboard、CLI 和 AI Agent 用它展示标准、验收、证据、review capabilities 和包输出。",
         "security": [
           {
@@ -804,7 +804,7 @@
         ],
         "responses": {
           "200": {
-            "description": "成熟度标准模板列表"
+            "description": "成熟度标准列表"
           },
           "403": {
             "description": "需要只读或更高角色"
@@ -814,7 +814,7 @@
     },
     "/api/v1/maturity/standards/{phaseOrStandardId}": {
       "get": {
-        "summary": "获取单个成熟度标准模板",
+        "summary": "获取单个成熟度标准",
         "description": "phaseOrStandardId 可为 alpha、beta、rc、ga，或完整 standard id。",
         "security": [
           {
@@ -833,10 +833,10 @@
         ],
         "responses": {
           "200": {
-            "description": "成熟度标准模板"
+            "description": "成熟度标准"
           },
           "404": {
-            "description": "标准模板不存在"
+            "description": "成熟度标准不存在"
           }
         }
       }
@@ -5006,7 +5006,7 @@
     "/api/v1/onboarding/project/checklist": {
       "post": {
         "summary": "生成项目首次接入 checklist",
-        "description": "无副作用计划接口。用于 CLI、Dashboard 和 AI Agent 在项目注册前检查 workspace、repository、server-side tokenRef、GitHub App、source writeback、GitHub Actions/GitLab CI、DevOps executionMode/devopsOwner/claimBoundary、目标模板和下一步命令。响应 schema 为 evopilot-project-onboarding-checklist/v1。open-source upstream 场景应传 upstreamRepo、workingRepo、executionMode=fork-validated-pr 和 devopsOwner，并由用户/组织自己的 GitHub/GitLab principal 执行 fork DevOps；如果缺少 principal，nextAction 为 connect-github-account 或 connect-gitlab-account；无账号场景只能使用 read-only-public。",
+        "description": "无副作用计划接口。用于 CLI、Dashboard 和 AI Agent 在项目注册前检查 workspace、repository、server-side tokenRef、GitHub App、source writeback、GitHub Actions/GitLab CI、DevOps executionMode/devopsOwner/claimBoundary、GA 终态 Goal/Loop 交接和下一步命令。响应 schema 为 evopilot-project-onboarding-checklist/v1。open-source upstream 场景应传 upstreamRepo、workingRepo、executionMode=fork-validated-pr 和 devopsOwner，并由用户/组织自己的 GitHub/GitLab principal 执行 fork DevOps；如果缺少 principal，nextAction 为 connect-github-account 或 connect-gitlab-account；无账号场景只能使用 read-only-public。",
         "security": [
           {
             "bearerAuth": []
@@ -5059,19 +5059,10 @@
             }
           },
           {
-            "name": "template",
-            "in": "query",
-            "required": false,
-            "description": "可选 release target template，例如 ga、rc、alpha",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "objective",
             "in": "query",
             "required": false,
-            "description": "可选目标描述，用于 suggested target run command",
+            "description": "可选业务目标描述，用于 suggested target plan/run command",
             "schema": {
               "type": "string"
             }

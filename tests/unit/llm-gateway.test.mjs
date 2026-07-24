@@ -70,17 +70,17 @@ test("LLM gateway retries truncated output according to output contract", async 
   assert.equal(response.finalMaxOutputTokens, 4096);
 });
 
-test("LLM route resolver maps legacy intent and masker hides secrets", () => {
+test("LLM route resolver maps intent aliases and masker hides secrets", () => {
   const resolver = new ProfileRouteResolver({
     defaultIntent: "auto",
     defaultModel: "general",
     models: { general: { id: "general", baseUrl: "http://llm.local", apiKey: "unit-key", modelName: "unit-model" } },
     profiles: { "json-extractor": { model: "general", maxOutputTokens: 256 } },
     routes: { "structured.extraction": { profile: "json-extractor" } },
-    legacyIntentMappings: { old_json_task: "structured.extraction" }
+    intentAliases: { json_task: "structured.extraction" }
   });
 
-  const resolved = resolver.resolve({ taskType: "old_json_task", prompt: "{}" });
+  const resolved = resolver.resolve({ taskType: "json_task", prompt: "{}" });
   assert.equal(resolved.intent, "structured.extraction");
   assert.equal(resolved.profile, "json-extractor");
   assert.equal(resolved.maxOutputTokens, 256);
@@ -107,9 +107,9 @@ test("LLM env config aligns domainforge generic routes and thinking profiles", (
   assert.equal(extraction.thinkingType, "disabled");
   assert.equal(extraction.maxOutputTokens, 1536);
 
-  const legacy = resolver.resolve({ taskType: "evolution.proposal", prompt: "生成方案" });
-  assert.equal(legacy.intent, "plan.generation");
-  assert.equal(legacy.profile, "deep-reasoning");
+  const aliased = resolver.resolve({ taskType: "evolution.proposal", prompt: "生成方案" });
+  assert.equal(aliased.intent, "plan.generation");
+  assert.equal(aliased.profile, "deep-reasoning");
 });
 
 test("LLM env config defaults metrics path under data root", () => {

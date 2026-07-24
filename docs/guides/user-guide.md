@@ -73,7 +73,7 @@ evopilot --server "$EVOPILOT_SERVER" --token "$EVOPILOT_API_TOKEN" status --json
 | Preflight DevOps | `evopilot project devops preflight <project-id> --json` |
 | Review phase plan | `evopilot target plan --project <id> --objective <business-goal> --json` |
 | Approve phase plan | `evopilot target plan approve <goal-id> --json` |
-| Run one target wrapper | `evopilot target run --project <id> --template ga ... --json` |
+| Run one target wrapper | `evopilot target run --project <id> ... --json` |
 | Inspect release decision | `evopilot release decisions --project <id> --json` |
 | Inspect audit | `evopilot audit list --limit 10 --json` |
 
@@ -86,7 +86,6 @@ Use wrapper commands when WorkBuddy or CI should drive a project toward a target
 ```bash
 evopilot target plan \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --client workbuddy \
   --json
@@ -98,7 +97,6 @@ evopilot target plan approve <goal-id> --json
 
 evopilot target run \
   --project my-agent \
-  --template ga \
   --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
@@ -125,7 +123,6 @@ evopilot project onboard plan github \
   --devops-owner owner \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --json
 ```
 
@@ -142,7 +139,6 @@ evopilot project onboard plan github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template ga \
   --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --json
 ```

@@ -1156,7 +1156,7 @@ interface GoalTarget {
 interface GoalPlan {
   schema: "evopilot-goal-plan/v1";
   status: GoalPlanStatus;
-  decompositionStrategy: "ga-maturity-ladder" | "release-target-template" | "manual" | "none";
+  decompositionStrategy: "ga-maturity-ladder" | "manual" | "none";
   terminalMaturity?: "ga";
   maturityStandardSetId?: string;
   standardVersion?: string;
@@ -2369,7 +2369,7 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
           apiContractVersion: EVOPILOT_API_CONTRACT_VERSION,
           minimumCliVersion: EVOPILOT_MINIMUM_CLI_VERSION,
           recommendedCliPackage: "@evopilot/cli",
-          dashboardMode: options.dashboardRoot ? "compat-static-host" : "standalone-api-client"
+          dashboardMode: options.dashboardRoot ? "api-server-static-dashboard" : "standalone-api-client"
         }));
       }
       if (request.method === "GET" && url.pathname === "/api/v1/auth/bootstrap") {
@@ -5962,9 +5962,9 @@ class FileStore {
       workspaceId: safeFileName(String(project.workspaceId ?? DEFAULT_WORKSPACE_ID)),
       llm: hydrateProjectLlmBinding(project.llm),
       validation: project.validation ?? {
-        status: "VERIFIED",
+        status: "FAILED",
         checkedAt: project.createdAt ?? new Date().toISOString(),
-        message: "旧版项目记录已按兼容规则视为已验证"
+        message: "project validation is missing; re-register the project or repair repository credentials before Goal/Loop execution"
       },
       updatedAt: project.updatedAt ?? project.createdAt ?? new Date().toISOString()
     } as StoredProject;
@@ -8911,7 +8911,7 @@ function loopOrchestrationTargetDefinitions(): Array<Omit<LoopOrchestrationTarge
       presetId: "codex-target-loop",
       objective: "Make every GitHub, GitLab, and local Git project belong to an explicit workspace with scoped credentials, loops, source closures, release evidence, and audit history.",
       acceptanceCriteria: [
-        "Project registration requires a workspace boundary and preserves compatibility for existing single-tenant self-hosted projects.",
+        "Project registration requires a workspace boundary for every self-hosted and SaaS project.",
         "Project lists, credentials, loop runs, release runs, and audit history are filtered by workspace scope.",
         "Moving, archiving, or deleting a project preserves release evidence and produces auditable ownership evidence."
       ]
@@ -10919,7 +10919,7 @@ function normalizeGoalPlanStatus(value: unknown): GoalPlanStatus {
 
 function normalizeGoalPlanStrategy(value: unknown): GoalPlan["decompositionStrategy"] {
   const strategy = String(value ?? "none");
-  if (strategy === "ga-maturity-ladder" || strategy === "release-target-template" || strategy === "manual" || strategy === "none") return strategy;
+  if (strategy === "ga-maturity-ladder" || strategy === "manual" || strategy === "none") return strategy;
   return "none";
 }
 
@@ -11827,8 +11827,7 @@ async function buildProjectOnboardingChecklist(args: {
   const provider = repository?.provider ?? "unknown";
   const projectId = args.project?.id ?? optionalTrimmedString(args.body.id) ?? optionalTrimmedString(args.body.project) ?? onboardingDerivedProjectId(repository, args.body);
   const projectName = args.project?.name ?? optionalTrimmedString(args.body.name) ?? projectId ?? "Project";
-  const template = optionalTrimmedString(args.body.template) ?? optionalTrimmedString(args.body.releaseTargetTemplate);
-  const objective = optionalTrimmedString(args.body.objective) ?? (projectId && template ? `Promote ${projectId} to ${template} with source closure, native CI/CD, deployment evidence, release decision, and blocker review` : undefined);
+  const objective = optionalTrimmedString(args.body.objective);
   const requestedLlmProfileId = llmProfileIdFromPayload(args.body);
   const steps: ProjectOnboardingChecklist["steps"] = [];
   const addStep = (step: ProjectOnboardingChecklist["steps"][number]) => steps.push(step);
@@ -11964,14 +11963,18 @@ async function buildProjectOnboardingChecklist(args: {
 
   addStep({
     id: "target",
-    label: "Goal/Loop target wrapper",
-    status: template ? "PASS" : "WARN",
+    label: "Goal/Loop plan handoff",
+    status: args.project ? "PASS" : "SKIP",
     required: false,
-    evidence: template ? [`template=${template}`, objective ? `objective=${objective}` : "objective=default"] : ["template=missing", "project onboarding can stop before Goal/Loop execution"],
-    nextAction: template ? "run-target" : "choose-target-template"
+    evidence: [
+      "terminalMaturity=ga",
+      "phaseLadder=Alpha -> Beta -> RC -> GA",
+      objective ? `objective=${objective}` : "objective=provided-by-target-plan-or-run"
+    ],
+    nextAction: args.project ? "run-target" : "register-project"
   });
 
-  const missingInputs = onboardingMissingInputs({ projectId, repository, provider, tokenRef, remoteRepository, draftDevops, template, llmRequired, llmReadiness: llmResolution?.readiness, llmProfileId: requestedLlmProfileId ?? draftProject?.llm?.profileId });
+  const missingInputs = onboardingMissingInputs({ projectId, repository, provider, tokenRef, remoteRepository, draftDevops, llmRequired, llmReadiness: llmResolution?.readiness, llmProfileId: requestedLlmProfileId ?? draftProject?.llm?.profileId });
   const blockers = steps
     .filter((step) => step.required && step.status === "FAIL")
     .flatMap((step) => step.evidence.map((item) => `${step.id}:${item}`));
@@ -11992,7 +11995,6 @@ async function buildProjectOnboardingChecklist(args: {
     draftDevops,
     llmProfileId: requestedLlmProfileId ?? draftProject?.llm?.profileId,
     llmRequired,
-    template,
     objective
   });
   const nextAction = onboardingNextAction(status, steps);
@@ -12093,7 +12095,6 @@ function onboardingMissingInputs(args: {
   tokenRef?: string;
   remoteRepository: boolean;
   draftDevops?: ProjectDevopsConfiguration;
-  template?: string;
   llmRequired?: boolean;
   llmReadiness?: LlmProfileReadiness;
   llmProfileId?: string;
@@ -12109,7 +12110,6 @@ function onboardingMissingInputs(args: {
   if ((args.provider === "github" || args.provider === "gitlab") && !readOnlyPublicMode && !args.draftDevops) missing.push("repository-native-devops-contract");
   if (args.llmRequired && !args.llmProfileId && args.llmReadiness?.source !== "global-default") missing.push("llm-profile");
   if (args.llmRequired && args.llmReadiness?.nextAction === "store-llm-secret") missing.push("server-side-llm-api-key-ref");
-  if (!args.template) missing.push("target-template(optional-for-registration)");
   return missing;
 }
 
@@ -12126,7 +12126,6 @@ function buildProjectOnboardingCommands(args: {
   draftDevops?: ProjectDevopsConfiguration;
   llmProfileId?: string;
   llmRequired?: boolean;
-  template?: string;
   objective?: string;
 }): ProjectOnboardingChecklist["commands"] {
   const commands: ProjectOnboardingChecklist["commands"] = [];
@@ -12203,13 +12202,20 @@ function buildProjectOnboardingCommands(args: {
       when: "Run when project LLM preflight is blocked."
     });
   }
-  if (args.projectId && args.template) {
+  if (args.project && args.projectId) {
+    const objective = args.objective ?? "<business-goal>";
     const strictReadinessFlags = args.repository?.topology?.executionMode === "read-only-public" ? "" : " --require-source-ready --require-devops-ready";
+    commands.push({
+      id: "target-plan",
+      title: "Generate the Alpha/Beta/RC/GA Goal/Loop plan",
+      command: `evopilot target plan --project ${cliArg(args.projectId)} --objective ${cliArg(objective)}${args.llmProfileId ? ` --llm-profile ${cliArg(args.llmProfileId)}` : ""} --json`,
+      when: "Run after checklist status is READY_TO_RUN. Review, export, diff, apply, and approve the generated plan before execution."
+    });
     commands.push({
       id: "target-run",
       title: "Run the Goal/Loop target strictly",
-      command: `evopilot target run --project ${cliArg(args.projectId)} --template ${cliArg(args.template)} --objective ${cliArg(args.objective ?? `Promote ${args.projectId} to ${args.template}`)} --until terminal --max-steps 20${args.llmProfileId ? ` --llm-profile ${cliArg(args.llmProfileId)}` : ""}${strictReadinessFlags}${args.llmRequired ? " --require-llm-ready" : ""} --json`,
-      when: "Run after checklist status is READY_TO_RUN or immediately after a strict project onboard wrapper completes."
+      command: `evopilot target run --project ${cliArg(args.projectId)} --objective ${cliArg(objective)} --until terminal --max-steps 20${args.llmProfileId ? ` --llm-profile ${cliArg(args.llmProfileId)}` : ""}${strictReadinessFlags}${args.llmRequired ? " --require-llm-ready" : ""} --json`,
+      when: "Run after the generated plan is approved. Use --auto-approve-plan only when the operator policy allows automatic plan approval."
     });
   }
   return commands;
@@ -12244,8 +12250,6 @@ function buildProjectOnboardCliCommand(args: {
   tokenRef?: string;
   draftDevops?: ProjectDevopsConfiguration;
   llmProfileId?: string;
-  template?: string;
-  objective?: string;
 }): string {
   const parts = ["evopilot", "project", "onboard", args.provider];
   const readOnlyPublicMode = args.repository?.topology?.executionMode === "read-only-public";
@@ -12254,8 +12258,6 @@ function buildProjectOnboardCliCommand(args: {
   if (!readOnlyPublicMode) pushCliOption(parts, "token-ref", args.tokenRef ?? defaultOnboardingTokenRef(args.provider, args.projectId));
   pushDevopsCliOptions(parts, args.draftDevops);
   pushCliOption(parts, "llm-profile", args.llmProfileId);
-  pushCliOption(parts, "template", args.template);
-  pushCliOption(parts, "objective", args.objective);
   if (!readOnlyPublicMode) parts.push("--require-source-ready", "--require-devops-ready");
   parts.push("--json");
   return parts.join(" ");
@@ -16626,7 +16628,7 @@ function alignScenarioMatrixToReleaseTarget(matrix: ReleaseScenarioResult[], tar
       evidence: [
         ...item.evidence,
         `notApplicableForTarget=${target.id}`,
-        "legacy GA scenario is retained for audit history but is not a release blocker for the current SaaS multi-tenant target"
+        "GA scenario evidence is retained for audit history but is not a release blocker for the current target"
       ],
       updatedAt: item.updatedAt ?? now
     };

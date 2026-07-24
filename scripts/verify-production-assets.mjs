@@ -65,7 +65,7 @@ assert.ok(fs.existsSync(".evopilot/source-closures"), "source closure examples m
 
 const openapi = JSON.parse(fs.readFileSync("docs/api/openapi.json", "utf8"));
 assert.equal(openapi.openapi, "3.1.0");
-assert.ok(!openapi.paths["/api/v1/connectors/jen" + "kins"], "legacy CI/CD connector path must not be published");
+assert.ok(!openapi.paths["/api/v1/connectors/jen" + "kins"], "removed CI/CD connector path must not be published");
 assert.ok(openapi.paths["/api/v1/runs"]);
 assert.ok(openapi.paths["/api/v1/version"]);
 assert.ok(openapi.paths["/api/v1/evidence/events"]);
@@ -216,6 +216,30 @@ assert.match(cliAutomation, /llmUsage\.summary\.provider/);
 assert.match(cliAutomation, /Do not parse human-readable CLI output/);
 assert.match(cliAutomation, /Only EvoPilot release decisions/);
 
+const agentFacingDocFiles = [
+  "README.md",
+  "packages/cli/README.md",
+  "docs/quickstart.md",
+  "docs/api/README.md",
+  "docs/api/openapi.json",
+  "docs/cli/README.md",
+  "docs/cli/commands.md",
+  "docs/cli/workflows.md",
+  "docs/cli/automation.md",
+  "docs/guides/ai-agent-runbook.md",
+  "docs/guides/user-guide.md",
+  "docs/operations/troubleshooting.md"
+];
+for (const file of agentFacingDocFiles) {
+  const content = fs.readFileSync(file, "utf8");
+  assert.doesNotMatch(content, /--template/, `${file} must not document removed target template CLI options`);
+  assert.doesNotMatch(content, /target templates/, `${file} must not document removed target template listing`);
+}
+
+const cliSource = fs.readFileSync("packages/cli/src/index.ts", "utf8");
+assert.doesNotMatch(cliSource, /evopilot target (?:plan|run)[^\n]*--template/, "CLI help must not expose target plan/run --template");
+assert.doesNotMatch(cliSource, /evopilot project onboard[^\n]*--template/, "CLI help must not expose project onboard --template");
+
 const envExample = fs.readFileSync(".env.example", "utf8");
 assert.match(envExample, /EVOPILOT_LOG_LEVEL=info/);
 assert.match(envExample, /EVOPILOT_LOG_STACK=true/);
@@ -275,7 +299,7 @@ assert.equal(lock.schemaVersion, 1);
 assert.ok(lock.runtimes.some((item) => item.implementation === "OpenHands"));
 assert.ok(lock.runtimes.every((item) => item.role !== "project-ci-cd"), "Project CI/CD must remain repository-native GitHub Actions/GitLab CI, not an EvoPilot managed runtime");
 
-const legacyCiWords = [
+const removedCiWords = [
   ["Jen", "kins"].join(""),
   ["jen", "kins"].join(""),
   ["adapter-", "jen", "kins"].join(""),
@@ -289,17 +313,17 @@ const oldCliDocWords = [
   ["CLI ", "Reference"].join("")
 ];
 const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
-const legacyCiMatches = [];
+const removedCiMatches = [];
 const oldCliDocMatches = [];
 for (const file of trackedFiles) {
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) continue;
   const buffer = fs.readFileSync(file);
   if (buffer.includes(0)) continue;
   const content = buffer.toString("utf8");
-  if (legacyCiWords.some((word) => content.includes(word))) legacyCiMatches.push(file);
+  if (removedCiWords.some((word) => content.includes(word))) removedCiMatches.push(file);
   if (oldCliDocWords.some((word) => content.includes(word))) oldCliDocMatches.push(file);
 }
-assert.deepEqual(legacyCiMatches, [], `legacy CI/CD references must be removed from tracked files: ${legacyCiMatches.join(", ")}`);
+assert.deepEqual(removedCiMatches, [], `removed CI/CD references must be absent from tracked files: ${removedCiMatches.join(", ")}`);
 assert.deepEqual(oldCliDocMatches, [], `old CLI doc references must be removed from tracked files: ${oldCliDocMatches.join(", ")}`);
 
 console.log("production assets verified");
