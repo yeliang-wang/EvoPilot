@@ -1,0 +1,47 @@
+{
+  "schema": "evopilot-maturity-standard-template/v1",
+  "id": "evopilot-default/v1/alpha",
+  "standardSetId": "evopilot-default/v1",
+  "version": "1.0.0",
+  "phase": "alpha",
+  "name": "Alpha Readiness",
+  "purpose": "Prove the project can be understood, onboarded, built or explicitly blocked, and minimally smoke-tested without making a release claim.",
+  "baselineRules": [
+    "Alpha is not a release claim.",
+    "The repository, branch, dependency path, and ownership boundary must be explicit.",
+    "Unknown build or smoke blockers must be recorded instead of hidden."
+  ],
+  "acceptanceCriteria": [
+    "Project source is registered, readable, and scoped to the tenant/workspace.",
+    "Build, install, or runtime bootstrap path is known, reproducible, or explicitly blocked with owner and next action.",
+    "A minimal smoke path passes or the blocker is recorded with concrete repair guidance.",
+    "Architecture map and risk register exist for the requested business objective."
+  ],
+  "requiredEvidence": [
+    "project-registration",
+    "source-readiness-preflight",
+    "build-or-bootstrap-evidence",
+    "smoke-or-blocker-evidence",
+    "architecture-map",
+    "risk-register"
+  ],
+  "reviewCapabilities": [
+    "architecture"
+  ],
+  "packageOutputs": [
+    "alpha-readiness-report",
+    "architecture-map",
+    "risk-register",
+    "known-blockers"
+  ],
+  "goNoGoRules": [
+    "GO only if every required Alpha GoalTarget is DONE.",
+    "NO-GO if source access, bootstrap, or smoke evidence is unavailable and no explicit blocker package exists."
+  ],
+  "overridePolicy": {
+    "canAddGoalTargets": true,
+    "canStrengthenCriteria": true,
+    "canRemoveBaselineCriteria": false,
+    "weakerPlanVerdict": "CONDITIONAL-GO"
+  }
+}

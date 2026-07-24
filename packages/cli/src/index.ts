@@ -153,6 +153,10 @@ async function main(argv: string[]): Promise<number> {
         if (maybeId === "inspect") return await llmProfileInspect(ctx, args.positionals[3]);
         if (maybeId === "preflight") return await llmProfilePreflight(ctx, args.positionals[3]);
         throw usage("Use: evopilot llm profile <list|set|inspect|preflight> [profile-id] [options]");
+      case "maturity:standards":
+        if (maybeId === "list" || maybeId === undefined) return await maturityStandardsList(ctx);
+        if (maybeId === "inspect") return await maturityStandardsInspect(ctx, args.positionals[3]);
+        throw usage("Use: evopilot maturity standards <list|inspect> [phase-or-standard-id]");
       case "secret:list":
         return await secretList(ctx);
       case "secret:set":
@@ -168,6 +172,8 @@ async function main(argv: string[]): Promise<number> {
         return await evidencePush(ctx);
       case "target:templates":
         return await targetTemplates(ctx);
+      case "target:plan":
+        return await targetPlanCommand(ctx, maybeId);
       case "target:list":
         return await targetList(ctx);
       case "target:create":
@@ -194,6 +200,10 @@ async function main(argv: string[]): Promise<number> {
         return await goalRun(ctx, maybeId);
       case "goal:snapshot":
         return await goalSnapshot(ctx, maybeId);
+      case "goal:phases":
+        return await goalPhases(ctx, maybeId);
+      case "goal:phase-package":
+        return await goalPhasePackage(ctx, maybeId);
       case "goal:graph":
         return await goalGraph(ctx, maybeId);
       case "goal:timeline":
@@ -494,7 +504,7 @@ async function projectOnboard(ctx: RuntimeContext, providerArg?: string): Promis
       const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
       steps.push({ type: "target.created", targetId: field(created, "id"), templateId });
     }
-    const objective = stringOption(ctx.args, "objective") ?? `Promote ${projectId} to ${templateId} with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review.`;
+    const objective = requiredOption(ctx.args, "objective");
     return await runGoalWrapper(ctx, {
       command: "project onboard",
       projectId,
@@ -1032,6 +1042,19 @@ async function evidencePush(ctx: RuntimeContext): Promise<number> {
   return 0;
 }
 
+async function maturityStandardsList(ctx: RuntimeContext): Promise<number> {
+  const response = await ctx.client.expectOk(ctx.client.get("/api/v1/maturity/standards"));
+  printOutput(ctx, response.data, `standards=${arrayLength(field(response.data, "templates"))} terminal=${field(response.data, "terminalMaturity") ?? "ga"}`);
+  return 0;
+}
+
+async function maturityStandardsInspect(ctx: RuntimeContext, id?: string): Promise<number> {
+  const standardId = id ?? requiredOption(ctx.args, "id");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/maturity/standards/${encodeURIComponent(standardId)}`));
+  printOutput(ctx, response.data, `standard=${field(response.data, "id")} phase=${field(response.data, "phase")}`);
+  return 0;
+}
+
 async function targetTemplates(ctx: RuntimeContext): Promise<number> {
   const response = await ctx.client.expectOk(ctx.client.get("/api/v1/release/targets"));
   const data = response.data;
@@ -1040,6 +1063,114 @@ async function targetTemplates(ctx: RuntimeContext): Promise<number> {
     : response.data;
   printOutput(ctx, templates, listSummary(templates, "id"));
   return 0;
+}
+
+async function targetPlanCommand(ctx: RuntimeContext, action?: string): Promise<number> {
+  if (action === "export") return await targetPlanExport(ctx, ctx.args.positionals[3]);
+  if (action === "apply") return await targetPlanApply(ctx, ctx.args.positionals[3]);
+  if (action === "diff") return await targetPlanDiff(ctx, ctx.args.positionals[3]);
+  if (action === "approve") return await targetPlanApprove(ctx, ctx.args.positionals[3]);
+  if (action !== undefined) throw usage("Use: evopilot target plan [--project <id> --objective <text>] or evopilot target plan <export|apply|diff|approve> <goal-id> [options]");
+  return await targetPlan(ctx);
+}
+
+async function targetPlan(ctx: RuntimeContext): Promise<number> {
+  const projectId = requiredOption(ctx.args, "project");
+  const objective = requiredOption(ctx.args, "objective");
+  const templateId = stringOption(ctx.args, "template") ?? "ga";
+  let targetId = stringOption(ctx.args, "target") ?? `${projectId}-${templateId}`;
+  const steps: Array<Record<string, unknown>> = [];
+  const existing = await readReleaseTarget(ctx, targetId);
+  if (existing) {
+    steps.push({ type: "target.resolved", targetId, status: field(existing, "scope") ?? "project" });
+  } else {
+    const created = await createProjectReleaseTarget(ctx, projectId, templateId, targetId);
+    targetId = String(field(created, "id") ?? targetId);
+    steps.push({ type: "target.created", targetId, templateId });
+  }
+  const existingGoal = hasFlag(ctx.args, "new") ? undefined : await findReusableGoal(ctx, projectId, targetId, objective);
+  let goalId: string;
+  if (existingGoal) {
+    goalId = String(field(existingGoal, "id"));
+    steps.push({ type: "goal.resolved", goalId, status: field(existingGoal, "status") });
+  } else {
+    const created = await createGoalForRun(ctx, projectId, targetId, objective);
+    goalId = String(field(created, "id"));
+    steps.push({ type: "goal.created", goalId, status: field(created, "status") });
+  }
+  let status = await readGoalRunStatus(ctx, goalId);
+  if (field(status, "nextAction") === "plan-goal" || hasFlag(ctx.args, "force-plan")) {
+    const planned = await ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/plan`, {
+      force: hasFlag(ctx.args, "force-plan")
+    }, derivedRequestOptions(ctx, "target-plan-generate"));
+    if (!planned.ok) throw apiErrorFromResponse(planned);
+    steps.push(attachStepLlmUsage(ctx, { type: "goal.plan-generated", goalId, requestId: planned.requestId, targetCount: nestedField(planned.data, ["plan", "targetCount"]) }, "target-plan-generate", planned));
+    status = await readGoalRunStatus(ctx, goalId);
+  }
+  const phasePlan = await readGoalPhasePlan(ctx, goalId);
+  const result = {
+    schema: "evopilot-cli-target-plan/v1",
+    command: "target plan",
+    projectId,
+    targetId,
+    goalId,
+    objective,
+    terminalMaturity: "ga",
+    status,
+    phasePlan,
+    steps,
+    result: {
+      exitCode: 0,
+      status: field(status, "status"),
+      nextAction: "approve-plan",
+      goalId
+    },
+    llmUsage: cliLlmUsageReport(ctx, field(status, "llmUsage")),
+    generatedAt: new Date().toISOString()
+  };
+  if (ctx.json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    process.stdout.write(formatTargetPlan(result));
+  }
+  return 0;
+}
+
+async function targetPlanExport(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const phasePlan = await readGoalPhasePlan(ctx, goalId);
+  const format = stringOption(ctx.args, "format") ?? "json";
+  if (format === "yaml") {
+    process.stdout.write(`${toYaml(phasePlan)}\n`);
+    return 0;
+  }
+  if (format !== "json") throw usage("target plan export --format must be json or yaml.");
+  process.stdout.write(`${JSON.stringify(phasePlan, null, 2)}\n`);
+  return 0;
+}
+
+async function targetPlanApply(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const file = requiredOption(ctx.args, "file");
+  const plan = readJson(file);
+  const response = await ctx.client.expectOk(ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/plan/apply`, plan, requestOptions(ctx)));
+  printOutput(ctx, response.data, `goal=${field(response.data, "id")} plan=${nestedField(response.data, ["plan", "status"])} next=approve-plan`);
+  return 0;
+}
+
+async function targetPlanDiff(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const file = requiredOption(ctx.args, "file");
+  const proposed = readJson(file);
+  const current = await readGoalPhasePlan(ctx, goalId);
+  const diff = diffPhasePlans(current, proposed);
+  printOutput(ctx, diff, `goal=${goalId} added=${arrayLength(field(diff, "addedTargets"))} removed=${arrayLength(field(diff, "removedTargets"))} changed=${arrayLength(field(diff, "changedTargets"))}`);
+  return 0;
+}
+
+async function targetPlanApprove(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  return await goalApprovePlan(ctx, goalId);
 }
 
 async function targetList(ctx: RuntimeContext): Promise<number> {
@@ -1084,11 +1215,10 @@ async function targetCreate(ctx: RuntimeContext): Promise<number> {
 
 async function targetRun(ctx: RuntimeContext): Promise<number> {
   const projectId = requiredOption(ctx.args, "project");
-  const templateId = stringOption(ctx.args, "template");
+  const templateId = stringOption(ctx.args, "template") ?? "ga";
   let targetId = stringOption(ctx.args, "target");
   const steps: Array<Record<string, unknown>> = [];
   if (!targetId) {
-    if (!templateId) throw usage("target run requires --target or --template.");
     targetId = `${projectId}-${templateId}`;
     const existing = await readReleaseTarget(ctx, targetId);
     if (existing) {
@@ -1113,7 +1243,7 @@ async function targetRun(ctx: RuntimeContext): Promise<number> {
   if (hasFlag(ctx.args, "require-llm-ready") && llmPreflight.status !== "READY") {
     throw usage(`Project LLM is not READY: ${llmPreflight.status}`);
   }
-  const objective = stringOption(ctx.args, "objective") ?? `Promote ${projectId} to ${templateId ?? targetId} through source closure, deployment evidence, release decision, and blocker review.`;
+  const objective = requiredOption(ctx.args, "objective");
   return await runGoalWrapper(ctx, {
     command: "target run",
     projectId,
@@ -1229,6 +1359,21 @@ async function goalSnapshot(ctx: RuntimeContext, id?: string): Promise<number> {
   const goalId = id ?? requiredOption(ctx.args, "goal");
   const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/snapshot`));
   printOutput(ctx, response.data, `goal=${nestedField(response.data, ["goal", "id"])} status=${field(response.data, "status")} progress=${nestedField(response.data, ["progress", "percent"])}%`);
+  return 0;
+}
+
+async function goalPhases(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/phases`));
+  printOutput(ctx, response.data, listSummary(response.data, "phase"));
+  return 0;
+}
+
+async function goalPhasePackage(ctx: RuntimeContext, id?: string): Promise<number> {
+  const goalId = id ?? requiredOption(ctx.args, "goal");
+  const phase = requiredOption(ctx.args, "phase");
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/phase-packages/${encodeURIComponent(phase)}`));
+  printOutput(ctx, response.data, `goal=${field(response.data, "goalId")} phase=${field(response.data, "phase")} status=${field(response.data, "status")}`);
   return 0;
 }
 
@@ -1772,8 +1917,8 @@ async function runGoalWrapper(ctx: RuntimeContext, input: {
   }
 
   if (field(status, "nextAction") === "approve-plan" && shouldContinueGoalRun(status, until)) {
-    if (hasFlag(ctx.args, "no-auto-approve-plan") || hasFlag(ctx.args, "require-plan-approval")) {
-      steps.push({ type: "goal.plan-approval-required", goalId, status: "WAITING_HUMAN" });
+    if (!hasFlag(ctx.args, "auto-approve-plan")) {
+      steps.push({ type: "goal.plan-approval-required", goalId, status: "PENDING_PLAN_APPROVAL", nextAction: "approve-plan" });
       return finishGoalRun(ctx, input.command, status, steps, quiet, 2);
     }
     const approved = await ctx.client.post(`/api/v1/goals/${encodeURIComponent(goalId)}/approve-plan`, {}, derivedRequestOptions(ctx, "goal-run-approve-plan"));
@@ -1835,6 +1980,12 @@ async function finishGoalRun(ctx: RuntimeContext, command: string, status: unkno
 async function readGoalRunStatus(ctx: RuntimeContext, goalId: string): Promise<unknown> {
   const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/run-status`));
   recordResponseLlmUsage(ctx, "goal-run-status", response);
+  return response.data;
+}
+
+async function readGoalPhasePlan(ctx: RuntimeContext, goalId: string): Promise<unknown> {
+  const response = await ctx.client.expectOk(ctx.client.get(`/api/v1/goals/${encodeURIComponent(goalId)}/phase-plan`));
+  recordResponseLlmUsage(ctx, "goal-phase-plan", response);
   return response.data;
 }
 
@@ -1995,6 +2146,134 @@ function goalRunResult(status: unknown, exitCode: number): Record<string, unknow
     latestLoopId: nestedField(status, ["latestLoop", "id"]),
     releaseDecision: nestedField(status, ["releaseDecision", "status"]) ?? "PENDING"
   };
+}
+
+function formatTargetPlan(result: Record<string, unknown>): string {
+  const status = field(result, "status");
+  const phasePlan = field(result, "phasePlan");
+  const phases = Array.isArray(field(phasePlan, "phases")) ? field(phasePlan, "phases") as unknown[] : [];
+  const targets = Array.isArray(field(phasePlan, "targets")) ? field(phasePlan, "targets") as unknown[] : [];
+  const lines = [
+    "EvoPilot Target Plan",
+    `Project    ${field(result, "projectId") ?? "-"}`,
+    `Target     ${field(result, "targetId") ?? "-"}`,
+    `Goal       ${field(result, "goalId") ?? "-"}`,
+    `Terminal   ${field(result, "terminalMaturity") ?? "ga"}`,
+    `Status     ${field(status, "status") ?? "-"}`,
+    "",
+    "Phase Workflow",
+    ...phases.map((phase) => `- ${String(field(phase, "phase") ?? "").toUpperCase()} status=${field(phase, "status") ?? "PENDING"} targets=${arrayLength(field(phase, "goalTargetIds"))} decision=${nestedField(phase, ["decision", "status"]) ?? "PENDING"}`),
+    "",
+    "GoalTargets",
+    ...targets.map((target) => `- ${String(field(target, "phase") ?? "-").toUpperCase()} ${field(target, "id") ?? "-"} :: ${field(target, "title") ?? "-"}`),
+    "",
+    "Editable Boundary",
+    ...formatEditablePlan(field(phasePlan, "editablePlan")),
+    "",
+    "Next Action",
+    String(nestedField(result, ["result", "nextAction"]) ?? field(status, "nextAction") ?? "approve-plan"),
+    "",
+    "Steps",
+    ...formatSteps(Array.isArray(field(result, "steps")) ? field(result, "steps") as Array<Record<string, unknown>> : []),
+    ""
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function formatEditablePlan(value: unknown): string[] {
+  if (!isRecord(value)) return ["- plan can be reviewed and approved before execution"];
+  const allowed = Array.isArray(field(value, "allowed")) ? field(value, "allowed") as unknown[] : [];
+  const denied = Array.isArray(field(value, "denied")) ? field(value, "denied") as unknown[] : [];
+  return [
+    `Status     ${field(value, "status") ?? "PENDING_USER_CONFIRMATION"}`,
+    "Allowed",
+    ...(allowed.length > 0 ? allowed.map((item) => `- ${String(item)}`) : ["- add project-specific checks"]),
+    "Denied",
+    ...(denied.length > 0 ? denied.map((item) => `- ${String(item)}`) : ["- skip Alpha/Beta/RC/GA"])
+  ];
+}
+
+function diffPhasePlans(current: unknown, proposedInput: unknown): Record<string, unknown> {
+  const proposed = isRecord(proposedInput) && isRecord(proposedInput.plan) ? proposedInput.plan : proposedInput;
+  const currentTargets = targetsById(field(current, "targets"));
+  const proposedTargets = targetsById(field(proposed, "targets"));
+  const currentIds = new Set(Object.keys(currentTargets));
+  const proposedIds = new Set(Object.keys(proposedTargets));
+  const addedTargets = [...proposedIds].filter((id) => !currentIds.has(id));
+  const removedTargets = [...currentIds].filter((id) => !proposedIds.has(id));
+  const changedTargets = [...proposedIds]
+    .filter((id) => currentIds.has(id))
+    .filter((id) => stableJson(currentTargets[id]) !== stableJson(proposedTargets[id]));
+  const currentPhases = phaseCriteriaById(field(current, "phases") ?? field(current, "phaseTargets"));
+  const proposedPhases = phaseCriteriaById(field(proposed, "phases") ?? field(proposed, "phaseTargets"));
+  const changedPhases = Object.keys(proposedPhases).filter((phase) => stableJson(proposedPhases[phase]) !== stableJson(currentPhases[phase]));
+  return {
+    schema: "evopilot-cli-target-plan-diff/v1",
+    addedTargets,
+    removedTargets,
+    changedTargets,
+    changedPhases,
+    baselineGuard: {
+      alphaBetaRcGaRequired: true,
+      removeBaselineCriteriaAllowed: false,
+      skipPhaseAllowed: false
+    }
+  };
+}
+
+function targetsById(value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!Array.isArray(value)) return result;
+  for (const item of value) {
+    const id = field(item, "id");
+    if (id) result[String(id)] = item;
+  }
+  return result;
+}
+
+function phaseCriteriaById(value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!Array.isArray(value)) return result;
+  for (const item of value) {
+    const phase = field(item, "phase");
+    if (phase) {
+      result[String(phase)] = {
+        acceptanceCriteria: field(item, "acceptanceCriteria"),
+        requiredEvidence: field(item, "requiredEvidence"),
+        reviewCapabilities: field(item, "reviewCapabilities"),
+        packageOutputs: field(item, "packageOutputs")
+      };
+    }
+  }
+  return result;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function toYaml(value: unknown, indent = 0): string {
+  const pad = " ".repeat(indent);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return value.map((item) => `${pad}- ${isRecord(item) || Array.isArray(item) ? `\n${toYaml(item, indent + 2)}` : yamlScalar(item)}`).join("\n");
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return "{}";
+    return entries.map(([key, item]) => `${pad}${key}: ${isRecord(item) || Array.isArray(item) ? `\n${toYaml(item, indent + 2)}` : yamlScalar(item)}`).join("\n");
+  }
+  return `${pad}${yamlScalar(value)}`;
+}
+
+function yamlScalar(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(String(value));
 }
 
 function loopRunResult(loop: unknown): Record<string, unknown> {
@@ -2780,6 +3059,8 @@ Usage:
   evopilot llm profile set <profile-id> --provider openai-compatible --base-url <url> --model <name> --api-key-ref <secret-ref>
   evopilot llm profile inspect <profile-id>
   evopilot llm profile preflight <profile-id>
+  evopilot maturity standards list
+  evopilot maturity standards inspect <alpha|beta|rc|ga|standard-id>
   evopilot github-app installation list
   evopilot github-app installation set --installation-id <id> --account <org> [--repository <owner/repo>] [--permission <name=value>]
   evopilot github-app installation preflight <id>
@@ -2787,7 +3068,12 @@ Usage:
   evopilot target templates
   evopilot target list
   evopilot target create --project <id> --template <experimental|alpha|beta|rc|ga>
-  evopilot target run --project <id> --template <experimental|alpha|beta|rc|ga> --objective <text> [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
+  evopilot target plan --project <id> --objective <business-goal> [--template ga]
+  evopilot target plan export <goal-id> [--format <json|yaml>]
+  evopilot target plan apply <goal-id> --file <plan.json>
+  evopilot target plan diff <goal-id> --file <plan.json>
+  evopilot target plan approve <goal-id>
+  evopilot target run --project <id> --objective <business-goal> [--template ga] [--auto-approve-plan] [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
   evopilot target decision <target-id> [--project <id>]
   evopilot goal create --project <id> --target <target-id> --objective <text>
   evopilot goal run [<goal-id>] [--project <id> --target <target-id> --objective <text>] [--llm-profile <id>] [--max-steps <n>] [--timeout <duration>]
@@ -2798,6 +3084,8 @@ Usage:
   evopilot goal targets <goal-id>
   evopilot goal advance <goal-id> [--no-auto-start] [--approve-human-gate]
   evopilot goal snapshot <goal-id>
+  evopilot goal phases <goal-id>
+  evopilot goal phase-package <goal-id> --phase <alpha|beta|rc|ga>
   evopilot goal graph <goal-id>
   evopilot goal timeline <goal-id>
   evopilot goal evidence-matrix <goal-id>
@@ -2846,6 +3134,7 @@ Global options:
   --idempotency-key <key>     Idempotency key for mutating commands
   --timeout <duration>        Wrapper stop boundary, for example 30s, 10m, or 2h
   --until <policy>            Wrapper stop policy: terminal or blocked-or-complete
+  --auto-approve-plan         Explicitly approve a generated Alpha/Beta/RC/GA plan before wrapper execution
   --require-source-ready      project onboard fails fast unless source credential preflight is READY
   --require-devops-ready      target run fails fast unless project DevOps preflight is READY
   --require-llm-ready         project onboard / target run fails fast unless LLM profile preflight is READY
@@ -2860,14 +3149,18 @@ Global options:
   --config <file>             Config path, defaults to ~/.evopilot/config.json
 
 Project DevOps examples:
-  evopilot project onboard plan github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Promote my-agent to GA stable" --json
+  evopilot project onboard plan github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --json
   evopilot project onboard verify my-agent --template ga --json
-  evopilot project onboard github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Promote my-agent to GA stable" --require-source-ready --require-devops-ready
-  evopilot project onboard github --repo apache/skywalking --upstream-repo apache/skywalking --working-repo my-org/skywalking-fork --id skywalking-fork --token-ref GITHUB_TOKEN_SKYWALKING_FORK --execution-mode fork-validated-pr --devops-owner my-org --ci-workflow ci.yml --ci-required-check build --template rc --objective "Validate fork before upstream PR" --json
+  evopilot target plan --project my-agent --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --json
+  evopilot target plan export <goal-id> --format json > plan.json
+  evopilot target plan apply <goal-id> --file plan.json --json
+  evopilot target plan approve <goal-id> --json
+  evopilot project onboard github --repo org/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --require-source-ready --require-devops-ready
+  evopilot project onboard github --repo apache/skywalking --upstream-repo apache/skywalking --working-repo my-org/skywalking-fork --id skywalking-fork --token-ref GITHUB_TOKEN_SKYWALKING_FORK --execution-mode fork-validated-pr --devops-owner my-org --ci-workflow ci.yml --ci-required-check build --template ga --objective "Provide fork-validated upstream PR readiness with native CI evidence and blocker reporting" --json
   evopilot secret set --id LLM_API_KEY_QWEN_PRIVATE --kind llm-key --from-env LLM_API_KEY_QWEN_PRIVATE --json
   evopilot llm profile set qwen-private --provider openai-compatible --base-url https://llm.example.com/v1 --model qwen2.5-coder-32b --api-key-ref LLM_API_KEY_QWEN_PRIVATE --json
   evopilot project llm set my-agent --profile qwen-private --require-llm-ready --json
-  evopilot target run --project my-agent --template ga --objective "Promote my-agent to GA stable" --llm-profile qwen-private --require-llm-ready --json
+  evopilot target run --project my-agent --objective "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility" --auto-approve-plan --llm-profile qwen-private --require-llm-ready --json
   evopilot project devops set my-agent --provider github-actions --execution-mode owned-repository --devops-owner org --ci-workflow ci.yml --ci-required-check build --ci-required-check test --cd-workflow deploy-prod.yml --deploy-environment production --health-url https://app.example.com/health
   evopilot project devops set my-agent --provider gitlab-ci --execution-mode owned-repository --devops-owner group --ci-required-stage test --ci-required-job build --cd-required-stage deploy --deploy-environment production --ready-url https://app.example.com/ready
 `);

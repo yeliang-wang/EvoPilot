@@ -10,7 +10,7 @@ EvoPilot documentation is organized by reader task. Start from the section that 
 ## AI Agents And CLI Automation
 
 - [CLI](cli/README.md) - install and connect the EvoPilot CLI to a remote control-plane server.
-- [CLI Workflows](cli/workflows.md) - one-command Goal/Loop Target scenarios for GA, RC, project DevOps, and project LLM profile selection.
+- [CLI Workflows](cli/workflows.md) - one-command Goal/Loop scenarios with plan approval, Alpha/Beta/RC/GA phase packages, project DevOps, and project LLM profile selection.
 - [CLI Commands](cli/commands.md) - atomic command reference.
 - [CLI Automation](cli/automation.md) - WorkBuddy, Codex, Claude Code, and CI usage rules.
 - [AI Agent Runbook](guides/ai-agent-runbook.md) - end-to-end production operating flow and failure handling.

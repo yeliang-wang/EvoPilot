@@ -71,6 +71,8 @@ evopilot --server "$EVOPILOT_SERVER" --token "$EVOPILOT_API_TOKEN" status --json
 | Verify onboarding | `evopilot project onboard verify <project-id> --json` |
 | Configure DevOps | `evopilot project devops set <project-id> ... --json` |
 | Preflight DevOps | `evopilot project devops preflight <project-id> --json` |
+| Review phase plan | `evopilot target plan --project <id> --objective <business-goal> --json` |
+| Approve phase plan | `evopilot target plan approve <goal-id> --json` |
 | Run one target wrapper | `evopilot target run --project <id> --template ga ... --json` |
 | Inspect release decision | `evopilot release decisions --project <id> --json` |
 | Inspect audit | `evopilot audit list --limit 10 --json` |
@@ -79,13 +81,25 @@ Full command reference: [CLI Commands](../cli/commands.md).
 
 ## One-Command Target Workflow
 
-Use wrapper commands when WorkBuddy or CI should drive a project toward a target:
+Use wrapper commands when WorkBuddy or CI should drive a project toward a target. The user writes a business `--objective`; EvoPilot decomposes it through Alpha -> Beta -> RC -> GA and stops for plan approval before execution.
 
 ```bash
+evopilot target plan \
+  --project my-agent \
+  --template ga \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
+  --client workbuddy \
+  --json
+
+evopilot target plan export <goal-id> --format json > /tmp/my-agent-phase-plan.json
+evopilot target plan diff <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan apply <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan approve <goal-id> --json
+
 evopilot target run \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, CI/CD, deployment evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
@@ -128,7 +142,8 @@ evopilot project onboard plan github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template rc \
+  --template ga \
+  --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --json
 ```
 

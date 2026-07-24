@@ -51,9 +51,10 @@ The token and role determine which read and write actions are allowed. A Dashboa
 | Projects | `GET /api/v1/projects`, `POST /api/v1/projects`, `POST /api/v1/onboarding/project/checklist`, `GET /api/v1/projects/{projectId}/onboarding-checklist`, `POST /api/v1/projects/{projectId}/source-credentials`, `GET/POST /api/v1/projects/{projectId}/source-credentials/preflight` |
 | Deploy connectors | `GET/POST /api/v1/connectors/deploy` |
 | Release targets | `GET /api/v1/release/targets`, `POST /api/v1/release/targets` |
+| Maturity standards | `GET /api/v1/maturity/standards`, `GET /api/v1/maturity/standards/{phaseOrStandardId}` |
 | Global goals | `GET /api/v1/goals`, `POST /api/v1/goals` |
-| Goal workflow | `GET /api/v1/goals/{goalId}/run-status`, `snapshot`, `graph`, `timeline`, `evidence-matrix`, `llmUsage` |
-| Goal execution | `POST /api/v1/goals/{goalId}/plan`, `approve-plan`, `advance` |
+| Goal workflow | `GET /api/v1/goals/{goalId}/run-status`, `phase-plan`, `phases`, `phase-packages`, `snapshot`, `graph`, `timeline`, `evidence-matrix`, `llmUsage` |
+| Goal execution | `POST /api/v1/goals/{goalId}/plan`, `plan/apply`, `approve-plan`, `advance` |
 | Loop runtime | `GET /api/v1/loops`, `POST /api/v1/loops`, `POST /api/v1/loops/{loopId}/start`, `resume`, `approve`, `GET /api/v1/loops/{loopId}/executor-graph`, `trace-tree`, `events` |
 | Loop orchestration | `GET /api/v1/loop-orchestration/presets`, `targets`, `POST /api/v1/loop-orchestration/instantiate`, `advance`, `autopilot` |
 | Loop target runtime | `GET /api/v1/loop-target-runtime/summary`, `POST /api/v1/loop-target-runtime/discovery/run`, `adversarial-evaluations`, `schedules`, `guardrails/{loopId}/evaluate` |
@@ -83,6 +84,8 @@ Use the response fields as UI contract:
 | Field | UI Use |
 |---|---|
 | `chain` | Workflow graph nodes |
+| `phasePackages` | Alpha/Beta/RC/GA package status, acceptance criteria, required evidence, blockers, package outputs, and GO/NO-GO decision |
+| `phasePlan` through `/phase-plan` | User-reviewable and editable plan before execution |
 | `nextAction` | Primary call to action |
 | `blockers` | Stop reasons and required human action |
 | `activeTarget` | Current GoalTarget |
@@ -93,6 +96,14 @@ Use the response fields as UI contract:
 | `llmUsage` | LLM provider/model, command-visible token totals, credits, and executor-step usage |
 
 Dashboards must display or expose server-projected LLM/token usage when it is present. Do not calculate token totals in browser code. If an LLM-backed workflow reaches a terminal claim but `llmUsage.summary.provider`, `llmUsage.summary.model`, or token totals are missing, treat the evidence as incomplete and route the user to logs or CLI/API diagnostics.
+
+For plan review screens, read `/api/v1/goals/{goalId}/phase-plan` and show the fixed maturity ladder:
+
+```text
+Alpha -> Beta -> RC -> GA
+```
+
+The Dashboard may let users add project-specific GoalTargets, strengthen acceptance criteria, add required evidence, or add architecture/security/testing/documentation/operations/release review requirements. It must not offer controls that delete Alpha/Beta/RC/GA, skip a phase, or remove baseline criteria while claiming standard GA. Save user changes with `POST /api/v1/goals/{goalId}/plan/apply`, then approve with `POST /api/v1/goals/{goalId}/approve-plan`.
 
 ## Deployment Modes
 

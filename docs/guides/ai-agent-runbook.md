@@ -6,6 +6,24 @@ Use this file as the agent entrypoint. It gives the shortest safe path first, th
 
 EvoPilot is the system of record. The CLI submits server-governed requests; it does not bypass RBAC, tenant/workspace scope, approval gates, source-closure preflight, release policy, deployment gates, audit records, or final release decisions.
 
+## Goal And Phase Semantics
+
+The user provides a business objective, not a maturity label. A good `--objective` describes the product outcome, for example:
+
+```text
+Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent.
+```
+
+EvoPilot sets terminal maturity to GA and decomposes the objective through the fixed progression:
+
+```text
+Alpha -> Beta -> RC -> GA
+```
+
+Each phase has baseline standards, acceptance criteria, required evidence, review capabilities, package outputs, and a GO/NO-GO decision. The active standard set is `evopilot-default/v1`, visible through `evopilot maturity standards list --json` and `evopilot maturity standards inspect <alpha|beta|rc|ga> --json`.
+
+WorkBuddy must show the generated plan to the user before execution. Users may add project-specific GoalTargets or strengthen evidence and review requirements, but they must not delete Alpha/Beta/RC/GA, skip a phase, or remove baseline criteria while claiming standard GA.
+
 ## Fast Path
 
 Configure access with environment variables. Prefer env vars over saved config for automated agents.
@@ -43,7 +61,7 @@ evopilot project onboard plan github \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 ```
 
@@ -113,13 +131,37 @@ Daily WorkBuddy commands should pass only the LLM profile id, never the raw API 
 run override --llm-profile -> project default LLM -> server global default LLM
 ```
 
-Run one project toward GA with one command:
+Generate the project phase plan before execution:
+
+```bash
+evopilot target plan \
+  --project my-agent \
+  --template ga \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
+  --llm-profile my-agent-llm \
+  --require-llm-ready \
+  --client workbuddy \
+  --json
+```
+
+EvoPilot returns `evopilot-cli-target-plan/v1` with `goalId`, `terminalMaturity=ga`, `phasePlan.phases[]`, `phasePlan.targets[]`, and `editablePlan`. WorkBuddy should show this plan to the user. If the user wants changes, export, edit, diff, and apply before approval:
+
+```bash
+evopilot target plan export <goal-id> --format json > /tmp/my-agent-phase-plan.json
+evopilot target plan diff <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan apply <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan approve <goal-id> --json
+```
+
+The plan must still keep Alpha, Beta, RC, and GA. Users can add GoalTargets or strengthen acceptance criteria, required evidence, and review requirements; they cannot skip a phase or remove baseline criteria and still claim standard GA.
+
+Run the approved project goal:
 
 ```bash
 evopilot target run \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
@@ -129,6 +171,8 @@ evopilot target run \
   --client workbuddy \
   --json
 ```
+
+If `target run` is called before approval, it returns `PENDING_PLAN_APPROVAL`, `nextAction=approve-plan`, and exit code `2`. Use `--auto-approve-plan` only when the operator has explicitly allowed unattended acceptance of the generated plan.
 
 After every wrapper command, collect LLM usage before making a success claim:
 
@@ -165,41 +209,11 @@ evopilot project onboard github \
   --deploy-environment production \
   --health-url https://my-agent.example.com/health \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
-  --llm-profile my-agent-llm \
-  --require-llm-ready \
-  --client workbuddy \
-  --json
-```
-
-Run one project toward RC:
-
-```bash
-evopilot target run \
-  --project my-agent \
-  --template rc \
-  --objective "Move my-agent to RC with source-readiness, source closure, deploy evidence, and release blocker review" \
-  --until terminal \
-  --max-steps 20 \
-  --llm-profile my-agent-llm \
-  --require-llm-ready \
-  --client workbuddy \
-  --json
-```
-
-Run an alpha target:
-
-```bash
-evopilot target run \
-  --project my-agent \
-  --template alpha \
-  --objective "Reach alpha readiness with a visible goal plan, loop evidence, and blockers listed" \
-  --until terminal \
-  --max-steps 10 \
   --llm-profile my-agent-llm \
   --require-llm-ready \
   --client workbuddy \
@@ -317,7 +331,7 @@ Only after `READY`, run the one-command target:
 evopilot target run \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
   --client workbuddy \
@@ -342,8 +356,8 @@ evopilot project onboard plan github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template rc \
-  --objective "Validate fork CI and prepare upstream PR evidence" \
+  --template ga \
+  --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --json
 ```
 
@@ -361,8 +375,8 @@ evopilot project onboard github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template rc \
-  --objective "Validate fork CI and prepare upstream PR evidence" \
+  --template ga \
+  --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --require-source-ready \
   --require-devops-ready \
   --client workbuddy \
@@ -396,8 +410,8 @@ evopilot project onboard github \
   --devops-owner apache \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template rc \
-  --objective "Run an upstream-authorized RC target with maintainer credentials" \
+  --template ga \
+  --objective "Add the requested upstream capability and collect maintainer-authorized source and CI evidence" \
   --require-source-ready \
   --require-devops-ready \
   --client workbuddy \
@@ -475,7 +489,7 @@ evopilot connector deploy list --json
 evopilot target run \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
   --require-devops-ready \
@@ -594,12 +608,17 @@ evopilot project devops preflight my-agent --json
 evopilot goal create \
   --project my-agent \
   --target my-agent-ga \
-  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --idempotency-key goal-my-agent-ga \
   --json
 
 evopilot goal plan <goal-id> --json
+evopilot target plan export <goal-id> --format json > /tmp/my-agent-phase-plan.json
+evopilot target plan diff <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan apply <goal-id> --file /tmp/my-agent-phase-plan.json --json
 evopilot goal approve-plan <goal-id> --json
+evopilot goal phases <goal-id> --json
+evopilot goal phase-package <goal-id> --phase alpha --json
 
 evopilot goal snapshot <goal-id> --json
 evopilot goal graph <goal-id> --json

@@ -39,7 +39,24 @@ npm run cli -- status \
   --json
 ```
 
-Run a project toward a release target with the wrapper command:
+Generate and approve the phase plan before running a project:
+
+```bash
+npm run cli -- target plan \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --project my-agent \
+  --template ga \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
+  --json
+
+npm run cli -- target plan approve <goal-id> \
+  --server http://127.0.0.1:19876 \
+  --token change-me-admin-token \
+  --json
+```
+
+Then run the approved goal. If the plan is not approved yet, the wrapper stops at `PENDING_PLAN_APPROVAL`:
 
 ```bash
 npm run cli -- target run \
@@ -47,7 +64,7 @@ npm run cli -- target run \
   --token change-me-admin-token \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable with source closure, deployment evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --max-steps 20 \
   --require-source-ready \
   --require-devops-ready \
@@ -68,6 +85,7 @@ npm run cli -- project onboard plan github \
   --ci-workflow ci.yml \
   --ci-required-check build \
   --template ga \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --json
 ```
 
@@ -113,7 +131,7 @@ npm run cli -- target run \
   --token change-me-admin-token \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --llm-profile my-agent-llm \
   --require-llm-ready \
   --json

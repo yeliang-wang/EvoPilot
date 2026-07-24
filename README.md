@@ -43,7 +43,7 @@ Detailed release evidence and deployment checklists live in [docs/reference/rele
 | Capability | What EvoPilot provides |
 |---|---|
 | Loop Engineering | Durable loop state, executor graphs, checkpoints, replay, watchdog recovery, worker leases, sandbox proof, and timeline audit. |
-| GlobalGoal planning | A white-box goal layer above LoopRun that decomposes RC/GA objectives into ordered GoalTargets, binds each target to governed loops, and exposes progress, blockers, timeline, graph, evidence matrix, and final report. |
+| GlobalGoal planning | A white-box goal layer above LoopRun that takes a business objective, decomposes it through Alpha -> Beta -> RC -> GA GoalTargets, waits for plan approval, binds each target to governed loops, and exposes progress, blockers, timeline, graph, evidence matrix, phase packages, and final report. |
 | Evidence ingestion | Runtime events, traces, logs, evaluations, release signals, APM-derived data, and user feedback. |
 | Human approval | Reviewable proposals before high-risk evolution, source writeback, merge, or release actions. |
 | Code upgrades | Bounded code-upgrader execution with allowed paths, validation commands, branch/commit evidence, and source closure. |
@@ -100,10 +100,22 @@ evopilot status --json
 evopilot secret set --id LLM_API_KEY_MY_AGENT --kind llm-key --from-env LLM_API_KEY_MY_AGENT --json
 evopilot llm profile set my-agent-llm --provider openai-compatible --base-url https://llm.example.com/v1 --model qwen2.5-coder-32b --api-key-ref LLM_API_KEY_MY_AGENT --json
 evopilot project llm set <project-id> --profile my-agent-llm --require-llm-ready --json
+evopilot target plan \
+  --project <project-id> \
+  --template ga \
+  --objective "Enable tenant-level onboarding, full lifecycle Dashboard visibility, and operator repair guidance for the project" \
+  --client workbuddy \
+  --json
+
+evopilot target plan export <goal-id> --format json > /tmp/evopilot-phase-plan.json
+evopilot target plan diff <goal-id> --file /tmp/evopilot-phase-plan.json --json
+evopilot target plan apply <goal-id> --file /tmp/evopilot-phase-plan.json --json
+evopilot target plan approve <goal-id> --json
+
 evopilot target run \
   --project <project-id> \
   --template ga \
-  --objective "Promote the project to GA with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --objective "Enable tenant-level onboarding, full lifecycle Dashboard visibility, and operator repair guidance for the project" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
@@ -115,6 +127,8 @@ evopilot target run \
 ```
 
 The raw LLM API key is stored once in the EvoPilot server-side secret vault. Daily `target run`, `goal run`, and `loop run` commands pass only the LLM profile id. If `--llm-profile` is omitted, EvoPilot uses the project default LLM binding, then falls back to the server's global default LLM for backward compatibility.
+
+`--objective` is the user's business objective, not a maturity label. The terminal maturity is GA by default, and EvoPilot decomposes every governed goal through Alpha, Beta, RC, and GA. Wrapper commands stop at `PENDING_PLAN_APPROVAL` unless `--auto-approve-plan` is explicitly supplied, so WorkBuddy or a human operator can review, edit, diff, apply, and approve the generated phase plan before execution.
 
 Wrapper JSON output includes `llmUsage.summary.provider`, `llmUsage.summary.model`, input/output/total token counts, credits consumed, process `requestId` values, and server-side Loop executor usage. Start with [docs/cli/README.md](docs/cli/README.md) for CLI setup, [docs/cli/automation.md](docs/cli/automation.md) for WorkBuddy parsing rules, and [docs/guides/ai-agent-runbook.md](docs/guides/ai-agent-runbook.md) for the full production runbook.
 
@@ -132,7 +146,7 @@ The full browser operation guide lives in the standalone Dashboard repository un
 
 ## Architecture
 
-EvoPilot applies Loop Engineering to product evolution. For larger RC/GA objectives, the GlobalGoal layer sits above LoopRun and turns one global objective into multiple GoalTargets before each target is executed through the governed loop runtime:
+EvoPilot applies Loop Engineering to product evolution. For larger business objectives, the GlobalGoal layer sits above LoopRun and turns one global objective into Alpha -> Beta -> RC -> GA phase GoalTargets before each target is executed through the governed loop runtime:
 
 ```text
 GlobalGoal -> GoalTarget -> LoopRun -> Release Decision
@@ -194,7 +208,7 @@ Primary API surfaces include:
 | Projects and evidence | `GET /api/v1/projects`, `POST /api/v1/evidence/events` |
 | Project DevOps | `POST /api/v1/projects/{projectId}/devops`, `POST /api/v1/projects/{projectId}/devops/preflight` |
 | LLM profiles | `POST /api/v1/llm-profiles`, `POST /api/v1/llm-profiles/{profileId}/preflight`, `POST /api/v1/projects/{projectId}/llm` |
-| Global goals | `GET /api/v1/goals`, `POST /api/v1/goals`, `POST /api/v1/goals/{goalId}/plan`, `POST /api/v1/goals/{goalId}/advance`, `GET /api/v1/goals/{goalId}/snapshot` |
+| Global goals | `GET /api/v1/goals`, `POST /api/v1/goals`, `POST /api/v1/goals/{goalId}/plan`, `POST /api/v1/goals/{goalId}/plan/apply`, `POST /api/v1/goals/{goalId}/approve-plan`, `POST /api/v1/goals/{goalId}/advance`, `GET /api/v1/goals/{goalId}/phase-plan`, `GET /api/v1/goals/{goalId}/phases`, `GET /api/v1/goals/{goalId}/phase-packages`, `GET /api/v1/goals/{goalId}/snapshot` |
 | Loops | `POST /api/v1/loops`, `POST /api/v1/loops/{loopId}/start`, `GET /api/v1/loops/{loopId}/timeline` |
 | Source closure | `POST /api/v1/loops/{loopId}/source-closure/execute`, `POST /api/v1/loops/{loopId}/source-closure/review-decision` |
 | Release | `POST /api/v1/release/evidence`, `GET /api/v1/release/decisions` |

@@ -1,0 +1,50 @@
+{
+  "schema": "evopilot-maturity-standard-template/v1",
+  "id": "evopilot-default/v1/beta",
+  "standardSetId": "evopilot-default/v1",
+  "version": "1.0.0",
+  "phase": "beta",
+  "name": "Beta E2E Readiness",
+  "purpose": "Prove the requested business capability works through core end-to-end paths and repository-native CI with enough evidence for limited user trial.",
+  "baselineRules": [
+    "Beta depends on a passed Alpha package.",
+    "Core E2E evidence must be real-boundary evidence.",
+    "Repository-native GitHub Actions or GitLab CI must be observable when writeback is claimed."
+  ],
+  "acceptanceCriteria": [
+    "Alpha phase package is PASS and locked as dependency evidence.",
+    "Core end-to-end scenarios for the business objective pass.",
+    "GitHub Actions or GitLab CI is configured, observable, and tied to the working repository or fork claim boundary.",
+    "Critical tests and basic user/operator documentation exist.",
+    "No high open risk blocks limited user trial."
+  ],
+  "requiredEvidence": [
+    "alpha-phase-package",
+    "core-e2e-run",
+    "native-ci-status",
+    "critical-test-evidence",
+    "basic-docs",
+    "risk-closure"
+  ],
+  "reviewCapabilities": [
+    "testing",
+    "documentation"
+  ],
+  "packageOutputs": [
+    "beta-e2e-report",
+    "ci-evidence",
+    "test-summary",
+    "docs-readiness",
+    "risk-closure-matrix"
+  ],
+  "goNoGoRules": [
+    "GO only if Alpha is PASSED and every required Beta GoalTarget is DONE.",
+    "NO-GO if core E2E, native CI, or high-risk closure is missing."
+  ],
+  "overridePolicy": {
+    "canAddGoalTargets": true,
+    "canStrengthenCriteria": true,
+    "canRemoveBaselineCriteria": false,
+    "weakerPlanVerdict": "CONDITIONAL-GO"
+  }
+}

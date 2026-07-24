@@ -1,0 +1,61 @@
+{
+  "schema": "evopilot-maturity-standard-template/v1",
+  "id": "evopilot-default/v1/ga",
+  "standardSetId": "evopilot-default/v1",
+  "version": "1.0.0",
+  "phase": "ga",
+  "name": "GA Stable Release",
+  "purpose": "Prove the business objective is enterprise-ready with stability, observability, runbook, release notes, user docs, security governance, final signoff, and GO release decision.",
+  "baselineRules": [
+    "GA depends on a passed RC package.",
+    "GA must not claim beyond the GitHub/GitLab source and DevOps claim boundary.",
+    "Architecture signoff is mandatory."
+  ],
+  "acceptanceCriteria": [
+    "RC phase package is PASS and locked as dependency evidence.",
+    "Stability or soak evidence satisfies the product SLO and release target expectations.",
+    "Monitoring, logging, alerting, troubleshooting, and runbook evidence are complete.",
+    "Release notes, user documentation, API/CLI/Dashboard contracts, and migration notes are complete.",
+    "Security governance and dependency review pass.",
+    "Architecture signoff passes.",
+    "Final ReleaseDecision is GO."
+  ],
+  "requiredEvidence": [
+    "rc-phase-package",
+    "stability-or-soak-evidence",
+    "observability-evidence",
+    "runbook",
+    "release-notes",
+    "user-docs",
+    "api-cli-dashboard-contract",
+    "security-governance",
+    "architecture-signoff",
+    "final-release-decision"
+  ],
+  "reviewCapabilities": [
+    "architecture",
+    "security",
+    "documentation",
+    "operations",
+    "release"
+  ],
+  "packageOutputs": [
+    "ga-release-package",
+    "soak-summary",
+    "observability-runbook",
+    "release-notes",
+    "security-governance-report",
+    "architecture-signoff",
+    "final-release-decision"
+  ],
+  "goNoGoRules": [
+    "GO only if RC is PASSED, every required GA GoalTarget is DONE, and final ReleaseDecision is GO.",
+    "NO-GO if stability, observability, security governance, architecture signoff, or final release decision is missing."
+  ],
+  "overridePolicy": {
+    "canAddGoalTargets": true,
+    "canStrengthenCriteria": true,
+    "canRemoveBaselineCriteria": false,
+    "weakerPlanVerdict": "CONDITIONAL-GO"
+  }
+}

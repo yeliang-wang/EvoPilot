@@ -24,7 +24,11 @@ test("EvoPilot CLI exposes distribution metadata without a server", async () => 
   assert.match(help, /evopilot project devops preflight/);
   assert.match(help, /evopilot llm profile set/);
   assert.match(help, /evopilot project llm set/);
+  assert.match(help, /evopilot maturity standards list/);
+  assert.match(help, /evopilot target plan/);
+  assert.match(help, /evopilot target plan approve/);
   assert.match(help, /--llm-profile/);
+  assert.match(help, /--auto-approve-plan/);
   assert.match(help, /--execution-mode/);
   assert.match(help, /--devops-owner/);
   assert.match(help, /evopilot secret set/);
@@ -110,7 +114,7 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--deploy-environment", "production",
       "--health-url", `${github.baseUrl}/health`,
       "--template", "ga",
-      "--objective", "Promote github-cli-agent to GA stable",
+      "--objective", "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility",
       "--config", configPath,
       "--json"
     ]);
@@ -143,8 +147,8 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--devops-owner", "yeliang-wang",
       "--ci-workflow", "ci.yml",
       "--ci-required-check", "build",
-      "--template", "rc",
-      "--objective", "Validate SkyWalking fork before upstream PR",
+      "--template", "ga",
+      "--objective", "Provide fork-validated upstream PR readiness with native CI evidence and blocker reporting",
       "--config", configPath,
       "--json"
     ]);
@@ -167,8 +171,8 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--devops-owner", "yeliang-wang",
       "--ci-workflow", "ci.yml",
       "--ci-required-check", "build",
-      "--template", "rc",
-      "--objective", "Validate SkyWalking fork before upstream PR",
+      "--template", "ga",
+      "--objective", "Provide fork-validated upstream PR readiness with native CI evidence and blocker reporting",
       "--config", configPath,
       "--json"
     ], { status: 2 });
@@ -184,7 +188,7 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
       "--base-url", github.baseUrl,
       "--repo", "apache/skywalking",
       "--execution-mode", "read-only-public",
-      "--template", "rc",
+      "--template", "ga",
       "--objective", "Inspect SkyWalking and report blockers without writeback",
       "--config", configPath,
       "--json"
@@ -266,7 +270,7 @@ test("EvoPilot CLI configures project DevOps for GitHub Actions", async () => {
     const verify = await runCli([
       "project", "onboard", "verify", "github-cli-agent",
       "--template", "ga",
-      "--objective", "Promote github-cli-agent to GA stable",
+      "--objective", "Support tenant-level project onboarding and full lifecycle Goal Loop workflow visibility",
       "--config", configPath,
       "--json"
     ]);
@@ -496,6 +500,15 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     const projectLlmPreflight = await runCli(["project", "llm", "preflight", "cli-agent", "--config", configPath, "--json"]);
     assert.equal(projectLlmPreflight.status, "READY");
 
+    const maturityStandards = await runCli(["maturity", "standards", "list", "--config", configPath, "--json"]);
+    assert.equal(maturityStandards.schema, "evopilot-maturity-standard-set/v1");
+    assert.deepEqual(maturityStandards.phases, ["alpha", "beta", "rc", "ga"]);
+    assert.equal(maturityStandards.terminalMaturity, "ga");
+
+    const rcStandard = await runCli(["maturity", "standards", "inspect", "rc", "--config", configPath, "--json"]);
+    assert.equal(rcStandard.phase, "rc");
+    assert.ok(rcStandard.reviewCapabilities.includes("architecture"));
+
     const devopsMismatch = await runCli([
       "project", "devops", "set", "cli-agent",
       "--provider", "github-actions",
@@ -531,7 +544,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
       "--id", "cli-agent-beta-global-goal",
       "--project", "cli-agent",
       "--target", "cli-agent-beta",
-      "--objective", "CLI Agent reaches beta through visible GoalTargets",
+      "--objective", "CLI Agent provides visible GoalTargets for tenant operators and AI agents",
       "--idempotency-key", "goal-cli-agent-beta",
       "--config", configPath,
       "--json"
@@ -546,7 +559,7 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
 
     const inspectedGoal = await runCli(["goal", "inspect", goal.id, "--config", configPath, "--json"]);
     assert.equal(inspectedGoal.id, goal.id);
-    assert.equal(inspectedGoal.objective, "CLI Agent reaches beta through visible GoalTargets");
+    assert.equal(inspectedGoal.objective, "CLI Agent provides visible GoalTargets for tenant operators and AI agents");
 
     const goalSnapshotBeforePlan = await runCli(["goal", "snapshot", goal.id, "--config", configPath, "--json"]);
     assert.equal(goalSnapshotBeforePlan.status, "DRAFT");
@@ -556,7 +569,36 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(goalPlan.id, goal.id);
     assert.equal(goalPlan.status, "PLANNED");
     assert.equal(goalPlan.plan.status, "PENDING_APPROVAL");
-    assert.ok(goalPlan.plan.targets.length >= 4);
+    assert.equal(goalPlan.plan.decompositionStrategy, "ga-maturity-ladder");
+    assert.deepEqual(goalPlan.plan.phaseTargets.map((phase) => phase.phase), ["alpha", "beta", "rc", "ga"]);
+    assert.ok(goalPlan.plan.targets.length >= 12);
+
+    const goalPhasesBeforeApprove = await runCli(["goal", "phases", goal.id, "--config", configPath, "--json"]);
+    assert.deepEqual(goalPhasesBeforeApprove.map((phase) => phase.phase), ["alpha", "beta", "rc", "ga"]);
+    assert.ok(goalPhasesBeforeApprove.every((phase) => phase.status === "PENDING"));
+
+    const alphaPackageBeforeApprove = await runCli(["goal", "phase-package", goal.id, "--phase", "alpha", "--config", configPath, "--json"]);
+    assert.equal(alphaPackageBeforeApprove.schema, "evopilot-phase-package/v1");
+    assert.equal(alphaPackageBeforeApprove.phase, "alpha");
+
+    const exportedPlanFile = path.join(dataRoot, "exported-plan.json");
+    const exportedPlanText = await runCliText(["target", "plan", "export", goal.id, "--format", "json", "--config", configPath]);
+    fs.writeFileSync(exportedPlanFile, exportedPlanText);
+    const exportedPlan = JSON.parse(exportedPlanText);
+    assert.equal(exportedPlan.schema, "evopilot-goal-phase-plan/v1");
+    assert.deepEqual(exportedPlan.phases.map((phase) => phase.phase), ["alpha", "beta", "rc", "ga"]);
+
+    exportedPlan.phases[0].acceptanceCriteria.push("CLI-specific Alpha phase review evidence is documented.");
+    exportedPlan.targets[0].acceptanceCriteria.push("CLI-specific operator visibility SLO is documented.");
+    fs.writeFileSync(exportedPlanFile, JSON.stringify(exportedPlan, null, 2));
+    const planDiff = await runCli(["target", "plan", "diff", goal.id, "--file", exportedPlanFile, "--config", configPath, "--json"]);
+    assert.ok(planDiff.changedTargets.includes(exportedPlan.targets[0].id));
+    assert.equal(planDiff.baselineGuard.skipPhaseAllowed, false);
+
+    const appliedPlan = await runCli(["target", "plan", "apply", goal.id, "--file", exportedPlanFile, "--config", configPath, "--json"]);
+    assert.equal(appliedPlan.plan.status, "PENDING_APPROVAL");
+    assert.ok(appliedPlan.plan.phaseTargets[0].acceptanceCriteria.includes("CLI-specific Alpha phase review evidence is documented."));
+    assert.ok(appliedPlan.plan.targets[0].acceptanceCriteria.includes("CLI-specific operator visibility SLO is documented."));
 
     const approvedGoal = await runCli(["goal", "approve-plan", goal.id, "--config", configPath, "--json"]);
     assert.equal(approvedGoal.status, "APPROVED");
@@ -615,15 +657,28 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.match(goalRunText, /Next Action/);
     assert.match(goalRunText, /Evidence/);
 
+    const targetPlanJson = await runCli([
+      "target", "plan",
+      "--project", "cli-agent",
+      "--objective", "Expose tenant workflow state, phase packages, blockers, next actions, and LLM token usage to operators",
+      "--llm-profile", "qwen-private",
+      "--config", configPath,
+      "--json"
+    ]);
+    assert.equal(targetPlanJson.schema, "evopilot-cli-target-plan/v1");
+    assert.equal(targetPlanJson.command, "target plan");
+    assert.equal(targetPlanJson.terminalMaturity, "ga");
+    assert.equal(targetPlanJson.phasePlan.schema, "evopilot-goal-phase-plan/v1");
+    assert.deepEqual(targetPlanJson.phasePlan.phases.map((phase) => phase.phase), ["alpha", "beta", "rc", "ga"]);
+    assert.equal(targetPlanJson.result.nextAction, "approve-plan");
+
     const targetRunJson = await runCli([
       "target", "run",
       "--project", "cli-agent",
-      "--template", "alpha",
-      "--objective", "CLI wrapper target run reaches alpha visibility",
+      "--objective", "Expose tenant workflow state, phase packages, blockers, next actions, and LLM token usage to operators",
       "--llm-profile", "qwen-private",
       "--require-llm-ready",
       "--until", "terminal",
-      "--max-steps", "0",
       "--config", configPath,
       "--json"
     ], { status: 2 });
@@ -631,9 +686,26 @@ test("EvoPilot CLI drives the atomic Source-to-GA control-plane path", async () 
     assert.equal(targetRunJson.command, "target run");
     assert.equal(targetRunJson.until, "terminal");
     assert.equal(targetRunJson.status.goal.projectId, "cli-agent");
-    assert.equal(targetRunJson.status.goal.releaseTargetId, "cli-agent-alpha");
+    assert.equal(targetRunJson.status.goal.releaseTargetId, "cli-agent-ga");
     assert.equal(targetRunJson.status.goal.llm.profileId, "qwen-private");
+    assert.equal(targetRunJson.status.goal.plan.status, "PENDING_APPROVAL");
+    assert.deepEqual(targetRunJson.status.goal.plan.phaseTargets.map((phase) => phase.phase), ["alpha", "beta", "rc", "ga"]);
+    assert.ok(targetRunJson.steps.some((step) => step.type === "goal.plan-approval-required" && step.nextAction === "approve-plan"));
     assert.ok(targetRunJson.steps.some((step) => step.type === "llm.profile.preflight" && step.status === "READY"));
+
+    const targetRunAutoApproved = await runCli([
+      "target", "run",
+      "--project", "cli-agent",
+      "--objective", "Expose tenant workflow state, phase packages, blockers, next actions, and LLM token usage to operators",
+      "--llm-profile", "qwen-private",
+      "--require-llm-ready",
+      "--auto-approve-plan",
+      "--max-steps", "0",
+      "--config", configPath,
+      "--json"
+    ], { status: 2 });
+    assert.equal(targetRunAutoApproved.status.goal.plan.status, "APPROVED");
+    assert.ok(targetRunAutoApproved.steps.some((step) => step.type === "goal.plan-approved"));
 
     const loopTimeoutJson = await runCli([
       "loop", "run",

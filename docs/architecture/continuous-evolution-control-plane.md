@@ -51,20 +51,20 @@ flowchart LR
 
 ## GlobalGoal Layer
 
-GlobalGoal adds one product layer above LoopRun for objectives that should not be treated as a single execution run, such as "reach RC" or "promote this project to GA".
+GlobalGoal adds one product layer above LoopRun for business objectives that should not be treated as a single execution run. The user writes the desired product outcome; EvoPilot owns the maturity decomposition.
 
 ```mermaid
 flowchart TD
-  ReleaseTarget["ReleaseTarget\nAlpha / Beta / RC / GA criteria"] --> GlobalGoal["GlobalGoal\nobjective / plan / timeline / report"]
-  GlobalGoal --> GoalTargetA["GoalTarget\nsource readiness"]
-  GlobalGoal --> GoalTargetB["GoalTarget\nE2E and release evidence"]
-  GlobalGoal --> GoalTargetC["GoalTarget\nsource closure and deploy"]
-  GlobalGoal --> GoalTargetD["GoalTarget\nrelease decision"]
-  GoalTargetA --> GoalTargetB --> GoalTargetC --> GoalTargetD
-  GoalTargetA --> LoopRunA["LoopRun"]
-  GoalTargetB --> LoopRunB["LoopRun"]
-  GoalTargetC --> LoopRunC["LoopRun"]
-  GoalTargetD --> LoopRunD["LoopRun"]
+  ReleaseTarget["ReleaseTarget\nstandard profile / thresholds"] --> GlobalGoal["GlobalGoal\nbusiness objective / phase plan / timeline / report"]
+  Standards["MaturityStandardSet\nevopilot-default/v1"] --> GlobalGoal
+  GlobalGoal --> Alpha["Alpha phase\nsource / bootstrap / architecture"]
+  Alpha --> Beta["Beta phase\nE2E / native CI / docs"]
+  Beta --> RC["RC phase\nscope freeze / source closure / deploy / review"]
+  RC --> GA["GA phase\nstability / observability / signoff / release decision"]
+  Alpha --> LoopRunA["LoopRun(s)"]
+  Beta --> LoopRunB["LoopRun(s)"]
+  RC --> LoopRunC["LoopRun(s)"]
+  GA --> LoopRunD["LoopRun(s)"]
   LoopRunD --> Decision["Release Decision"]
 ```
 
@@ -72,13 +72,17 @@ From a DDD perspective:
 
 | Concept | Bounded-context responsibility |
 |---|---|
-| `GlobalGoal` aggregate | Owns the user's global objective, generated plan, ordered GoalTargets, timeline, progress, blockers, evidence matrix, and final report. It answers "where are we in this RC/GA goal?" |
-| `GoalTarget` entity | Represents one observable sub-target with dependencies, acceptance criteria, status, next action, evidence, blocker, and optional `loopId`. |
+| `GlobalGoal` aggregate | Owns the user's business objective, generated Alpha/Beta/RC/GA plan, ordered GoalTargets, timeline, progress, blockers, evidence matrix, phase packages, and final report. It answers "where are we in this goal ladder?" |
+| `GoalTarget` entity | Represents one observable sub-target with phase, dependencies, acceptance criteria, required evidence, review capabilities, status, next action, evidence, blocker, and optional `loopId`. |
+| `PhaseTarget` entity | Represents one maturity phase with baseline standards, project-specific additions, package outputs, and GO/NO-GO decision. |
 | `LoopRun` aggregate | Remains the execution substrate. It owns executor graph progress, iterations, sandbox proof, worker lease, approvals, source closure, artifacts, trace, and loop evidence. |
-| `ReleaseTarget` profile | Defines governance criteria for Alpha/Beta/RC/GA. It is not itself a running goal and is not a release verdict. |
+| `MaturityStandardTemplate` | Versioned standard asset for Alpha, Beta, RC, or GA. The default set is `evopilot-default/v1`; standards can evolve by version without changing CLI semantics. |
+| `ReleaseTarget` profile | Defines project/release thresholds and scenario context. It is not itself a running goal, a phase skip instruction, or a release verdict. |
 | `ReleaseDecision` aggregate | Remains the authoritative `GO` / `CONDITIONAL-GO` / `NO-GO` verdict, exposed through `/api/v1/release/decisions`. |
 
-The key design tradeoff is an extra control-plane layer instead of overloading LoopRun. This makes the dashboard and CLI white-box for multi-step goals without turning CLI commands into semantic orchestration. The CLI remains an adapter over atomic use cases such as create goal, plan goal, approve plan, advance one step, read snapshot, read graph, read evidence matrix, and read final report.
+For project-scoped targets, `ReleaseTarget.templateId` is a compatibility profile and threshold source. A target id such as `my-agent-ga` is only an identity and routing key. The planner always emits the Alpha -> Beta -> RC -> GA ladder for governed GlobalGoals; template values must not be interpreted by CLI or Dashboard as "skip to that level."
+
+The key design tradeoff is an extra control-plane layer instead of overloading LoopRun. This makes the dashboard and CLI white-box for multi-step goals without turning CLI commands into semantic orchestration. The CLI remains an adapter over atomic use cases such as create goal, plan goal, export/diff/apply/approve plan, read phases, read phase package, advance one step, read snapshot, read graph, read evidence matrix, and read final report.
 
 GlobalGoal exposes dashboard projections rather than forcing clients to reconstruct state from raw loops:
 
@@ -87,6 +91,8 @@ GlobalGoal exposes dashboard projections rather than forcing clients to reconstr
 | Snapshot | Current status, progress, active GoalTarget, next action, blockers, and release decision summary. |
 | Run status | CLI wrapper and Dashboard shared projection with scope, chain, active target, latest LoopRun, blockers, evidence links, release decision, and final report state. |
 | Graph | GoalTarget dependency map with bound LoopRun ids. |
+| Phase plan | User-reviewable Alpha/Beta/RC/GA plan with editable boundary before execution. |
+| Phases and phase packages | Maturity phase status, acceptance, required evidence, review capabilities, package outputs, blockers, and GO/NO-GO decision. |
 | Timeline | Goal-level events such as creation, plan generation, approval, target binding, advancement, and completion. |
 | Evidence matrix | Acceptance criteria, evidence, blockers, and loop links per GoalTarget. |
 | Final report | Terminal goal summary, target completion counts, evidence matrix, and release decision reference. |

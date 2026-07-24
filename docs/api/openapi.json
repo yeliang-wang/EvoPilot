@@ -793,6 +793,54 @@
         }
       }
     },
+    "/api/v1/maturity/standards": {
+      "get": {
+        "summary": "列出成熟度标准模板",
+        "description": "返回 EvoPilot 当前启用的 Alpha -> Beta -> RC -> GA 标准集。Dashboard、CLI 和 AI Agent 用它展示标准、验收、证据、review capabilities 和包输出。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成熟度标准模板列表"
+          },
+          "403": {
+            "description": "需要只读或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/maturity/standards/{phaseOrStandardId}": {
+      "get": {
+        "summary": "获取单个成熟度标准模板",
+        "description": "phaseOrStandardId 可为 alpha、beta、rc、ga，或完整 standard id。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "phaseOrStandardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成熟度标准模板"
+          },
+          "404": {
+            "description": "标准模板不存在"
+          }
+        }
+      }
+    },
     "/api/v1/release/decisions": {
       "get": {
         "summary": "列出发布判定",
@@ -879,7 +927,7 @@
     "/api/v1/goals": {
       "get": {
         "summary": "列出 GlobalGoal",
-        "description": "返回当前作用域内的 GlobalGoal。GlobalGoal 位于 release target 和 LoopRun 之间，用于把 RC/GA 等全局目标拆成可观察的 GoalTargets。",
+        "description": "返回当前作用域内的 GlobalGoal。GlobalGoal 位于 release target 和 LoopRun 之间，用于把业务目标拆成 Alpha -> Beta -> RC -> GA 的可观察 GoalTargets。",
         "security": [
           {
             "bearerAuth": []
@@ -943,7 +991,7 @@
     "/api/v1/goals/{goalId}/plan": {
       "post": {
         "summary": "生成 GlobalGoal 计划",
-        "description": "根据项目 release target 生成有依赖关系的 GoalTargets。",
+        "description": "根据业务 objective、项目 release target 和 maturity standard set 生成 Alpha -> Beta -> RC -> GA phase plan。计划默认进入 PENDING_APPROVAL。",
         "security": [
           {
             "bearerAuth": []
@@ -965,6 +1013,41 @@
           },
           "403": {
             "description": "需要操作员或更高角色"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/plan/apply": {
+      "post": {
+        "summary": "应用用户调整后的 GlobalGoal phase plan",
+        "description": "接受 phase-plan 导出的 phases/targets 或 plan.phaseTargets/targets。允许新增项目专属 GoalTargets、强化标准和 review，不允许删除 Alpha/Beta/RC/GA、跳级或移除基线标准。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "计划已更新并等待批准"
+          },
+          "400": {
+            "description": "计划不满足基线约束"
+          },
+          "403": {
+            "description": "需要操作员或更高角色"
+          },
+          "409": {
+            "description": "目标已运行或已终态，不能替换计划"
           }
         }
       }
@@ -997,6 +1080,61 @@
         }
       }
     },
+    "/api/v1/goals/{goalId}/phase-plan": {
+      "get": {
+        "summary": "读取 GlobalGoal phase plan",
+        "description": "返回用户可审查的 Alpha/Beta/RC/GA plan，包括 phases、targets、editablePlan、terminalMaturity 和 nextAction。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GlobalGoal phase plan"
+          },
+          "404": {
+            "description": "GlobalGoal 不存在"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/phases": {
+      "get": {
+        "summary": "读取 GlobalGoal 阶段状态",
+        "description": "返回 Alpha、Beta、RC、GA 四个 PhaseTarget 的状态、验收标准、所需证据、review capabilities、包输出和 GO/NO-GO decision。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PhaseTarget 列表"
+          }
+        }
+      }
+    },
     "/api/v1/goals/{goalId}/targets": {
       "get": {
         "summary": "列出 GlobalGoal 的 GoalTargets",
@@ -1018,6 +1156,78 @@
         "responses": {
           "200": {
             "description": "GoalTarget 列表"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/phase-packages": {
+      "get": {
+        "summary": "读取全部 phase package",
+        "description": "返回 Alpha/Beta/RC/GA 每一级的包摘要、证据矩阵、blockers、package outputs 和 GO/NO-GO decision。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Phase package 列表"
+          }
+        }
+      }
+    },
+    "/api/v1/goals/{goalId}/phase-packages/{phase}": {
+      "get": {
+        "summary": "读取单个 phase package",
+        "description": "phase 必须为 alpha、beta、rc 或 ga。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "goalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "phase",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "alpha",
+                "beta",
+                "rc",
+                "ga"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Phase package"
+          },
+          "400": {
+            "description": "phase 不合法"
+          },
+          "404": {
+            "description": "Phase package 不存在"
           }
         }
       }
@@ -1080,7 +1290,7 @@
     "/api/v1/goals/{goalId}/run-status": {
       "get": {
         "summary": "读取 GlobalGoal 运行聚合状态",
-        "description": "返回 CLI wrapper commands 和 Dashboard 共用的白盒运行投影，包含 scope、goal、snapshot、graph、timeline、evidenceMatrix、activeTarget、latestLoop、releaseDecision、finalReport、chain、blockers 和 nextAction。",
+        "description": "返回 CLI wrapper commands 和 Dashboard 共用的白盒运行投影，包含 scope、goal、snapshot、phasePackages、graph、timeline、evidenceMatrix、activeTarget、latestLoop、releaseDecision、finalReport、chain、blockers、nextAction 和 llmUsage。",
         "security": [
           {
             "bearerAuth": []

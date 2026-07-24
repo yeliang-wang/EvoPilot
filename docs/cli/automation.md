@@ -26,7 +26,9 @@ Automation must use `--json` and parse JSON fields:
 evopilot status --json
 evopilot project onboard plan github --repo owner/my-agent --id my-agent --token-ref GITHUB_TOKEN_MY_AGENT --execution-mode owned-repository --devops-owner owner --ci-workflow ci.yml --ci-required-check build --template ga --json
 evopilot project llm preflight my-agent --json
-evopilot target run --project my-agent --template ga --objective "..." --llm-profile my-agent-llm --require-llm-ready --client workbuddy --json
+evopilot target plan --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --llm-profile my-agent-llm --client workbuddy --json
+evopilot target plan approve <goal-id> --json
+evopilot target run --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --llm-profile my-agent-llm --require-llm-ready --client workbuddy --json
 ```
 
 Do not parse human-readable CLI output. Human output may change to improve operator readability.
@@ -43,8 +45,9 @@ For every `--json` command, automation should parse in this order:
 5. IDs: `projectId`, `releaseTargetId`, `goalId`, `activeTargetId`, `loopId`, `releaseRunId`, `releaseDecisionId`, `requestId`
 6. Execution boundary: `executionMode`, `devopsOwner`, `workflowRepository`, `credentialRef`, `credentialPrincipal`, `claimBoundary`
 7. LLM boundary: `llm.profileId`, `llm.source`, `llm.provider`, `llm.model`, project LLM readiness, and run override `--llm-profile`
-8. Release decision fields from EvoPilot release APIs, never local inference
-9. `llmUsage.summary`, `llmUsage.process.responses[]`, and `llmUsage.server.steps[]`
+8. Goal phase plan: `phasePlan.phases[]`, `phasePlan.targets[]`, `editablePlan`, `status.nextAction`
+9. Release decision fields from EvoPilot release APIs, never local inference
+10. `llmUsage.summary`, `llmUsage.process.responses[]`, and `llmUsage.server.steps[]`
 
 Do not continue just because a command printed a workflow graph. Continue only when the JSON status and `nextAction` allow it.
 
@@ -117,7 +120,7 @@ Daily wrapper commands should pass only the profile id:
 evopilot target run \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --llm-profile my-agent-llm \
   --require-llm-ready \
   --client workbuddy \
@@ -177,18 +180,36 @@ Use `--idempotency-key` for mutating commands in CI or repeated agent loops:
 evopilot goal create \
   --project my-agent \
   --target my-agent-ga \
-  --objective "Promote my-agent to GA" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --idempotency-key "my-agent-ga-goal-2026-07-20" \
   --json
 ```
 
 Mutating wrapper commands should use stable job or task identifiers when available.
 
+## Goal Plan Approval Rules
+
+Automation must treat the generated phase plan as a governed artifact. The normal path is:
+
+```bash
+evopilot target plan --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --json
+evopilot target plan export <goal-id> --format json > /tmp/my-agent-phase-plan.json
+evopilot target plan diff <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan apply <goal-id> --file /tmp/my-agent-phase-plan.json --json
+evopilot target plan approve <goal-id> --json
+evopilot target run --project my-agent --template ga --objective "Enable tenant onboarding and lifecycle workflow visibility" --json
+```
+
+`target run` stops with `result.exitCode=2` and `nextAction=approve-plan` when the plan is still pending. Agents should show the phase plan to the user, not retry blindly. `--auto-approve-plan` is allowed only when the user or organization policy explicitly authorizes unattended acceptance of the generated Alpha -> Beta -> RC -> GA plan.
+
+The plan must preserve Alpha, Beta, RC, and GA. Users may add project-specific GoalTargets or strengthen phase criteria, evidence, and review requirements. Removing baseline criteria or skipping a phase is blocked by the server and must be reported as a plan validation failure.
+
 ## Stop Conditions
 
 If a command returns any of these `nextAction` values, the agent must stop and report the blocker:
 
 ```text
+approve-plan
 connect-github-account
 connect-gitlab-account
 human-approval
@@ -275,7 +296,7 @@ evopilot project onboard github \
   --ci-workflow ci.yml \
   --ci-required-check build \
   --template ga \
-  --objective "Promote my-agent to GA stable" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for My Agent" \
   --require-source-ready \
   --require-devops-ready \
   --json

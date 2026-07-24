@@ -24,6 +24,7 @@ The CLI uses EvoPilot HTTP APIs. Global flags can be used with any command:
 --credential-principal <id> Optional operator-readable principal expected behind the DevOps tokenRef
 --llm-profile <id>          LLM profile for project onboarding or this Goal/Loop run
 --require-llm-ready         project onboard / target run fails fast unless the selected LLM profile is READY
+--auto-approve-plan         Wrapper explicitly approves the generated Alpha/Beta/RC/GA plan before execution
 --json                      Print JSON response data
 --config <file>             Config path, defaults to ~/.evopilot/config.json
 ```
@@ -39,11 +40,13 @@ Use `--json` for AI agents and CI. Human-readable output is for operators and ca
 | `project onboard verify ... --json` | `evopilot-project-onboarding-checklist/v1` | Persisted project readiness, same fields as `plan`, including project LLM readiness |
 | `project onboard ... --json` without `--template` | `evopilot-cli-project-onboard/v1` | `projectId`, `sourceCredentials`, `devops`, `steps`, `result`, `llmUsage` |
 | `project onboard ... --template ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage`; includes onboarding/preflight steps before Goal/Loop execution |
+| `target plan ... --json` | `evopilot-cli-target-plan/v1` | `projectId`, `targetId`, `goalId`, `terminalMaturity`, `phasePlan.phases`, `phasePlan.targets`, `editablePlan`, `llmUsage` |
+| `target plan diff ... --json` | `evopilot-cli-target-plan-diff/v1` | `addedTargets`, `removedTargets`, `changedTargets`, `changedPhases`, `baselineGuard` |
 | `target run ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage` |
 | `goal run ... --json` | `evopilot-cli-goal-run/v1` | `status`, `steps`, `result`, `llmUsage` |
 | `loop run ... --json` | `evopilot-cli-loop-run/v1` | `loop`, `steps`, `result`, `llmUsage` |
 
-Wrapper `result.exitCode=0` means the command reached its governed success boundary. `result.exitCode=2`, a non-zero process exit, or `nextAction` values such as `connect-github-account`, `connect-gitlab-account`, `human-approval`, `configure-source-credentials`, `configure-devops`, `policy-review`, `repair`, `BLOCKED`, `FAILED`, or `NO-GO` are stop conditions for automation.
+Wrapper `result.exitCode=0` means the command reached its governed success boundary. `result.exitCode=2`, a non-zero process exit, or `nextAction` values such as `approve-plan`, `connect-github-account`, `connect-gitlab-account`, `human-approval`, `configure-source-credentials`, `configure-devops`, `policy-review`, `repair`, `BLOCKED`, `FAILED`, or `NO-GO` are stop conditions for automation.
 
 Every wrapper schema includes `llmUsage` with `summary`, `process.responses[]`, and server-side usage evidence when the API returns it. Agents must report provider, model, token totals, and request IDs for LLM-backed runs.
 
@@ -360,19 +363,38 @@ evopilot evidence push --project <project-id> --file <events.json>
 
 The file must contain a JSON event object or an array of events accepted by EvoPilot evidence ingestion.
 
+## Maturity Standards
+
+```bash
+evopilot maturity standards list
+evopilot maturity standards inspect <alpha|beta|rc|ga|standard-id>
+```
+
+`maturity standards list` returns the active versioned maturity set. The default standard set is `evopilot-default/v1` and the terminal maturity is GA. `inspect` returns one `evopilot-maturity-standard-template/v1` with baseline rules, acceptance criteria, required evidence, review capabilities, package outputs, GO/NO-GO rules, and override policy.
+
 ## Target
 
 ```bash
 evopilot target templates
 evopilot target list [--project <project-id>]
 evopilot target create --project <project-id> --template <experimental|alpha|beta|rc|ga>
-evopilot target run --project <project-id> --template <template> --objective <text>
+evopilot target plan --project <project-id> --objective <business-goal> [--template ga]
+evopilot target plan export <goal-id> [--format json|yaml]
+evopilot target plan diff <goal-id> --file <plan.json>
+evopilot target plan apply <goal-id> --file <plan.json>
+evopilot target plan approve <goal-id>
+evopilot target run --project <project-id> --template ga --objective <business-goal>
 evopilot target decision <target-id> [--project <project-id>]
 ```
 
-`target run` is the one-command wrapper for a project release target.
+`target plan` creates or reuses the project release target and GlobalGoal, generates the server plan, and returns the Alpha -> Beta -> RC -> GA phase plan for user review. `target plan export` writes the same plan shape that `target plan apply` accepts, so a user or WorkBuddy can edit project-specific targets or strengthen phase criteria, run `diff`, apply the proposal, and then approve it.
+
+`target run` is the one-command wrapper for a project release target. It requires a business `--objective`; do not write the objective as "promote to GA" unless that is the actual business outcome. The terminal maturity is GA, and EvoPilot always expands the goal through Alpha, Beta, RC, and GA. If the plan is not approved, the wrapper stops at `PENDING_PLAN_APPROVAL` and returns `nextAction=approve-plan`; use `--auto-approve-plan` only when policy allows unattended plan acceptance.
+
 Use `--require-source-ready --require-devops-ready` when the run must fail before Goal/Loop execution if PR/merge or repository-native DevOps is not ready.
 Use `--llm-profile <id>` to override the project default LLM for this run, and `--require-llm-ready` to stop before Loop execution if the selected profile is blocked.
+
+`--template ga` is the normal compatibility flag for creating the project-scoped release target profile. Older template values such as `alpha`, `beta`, or `rc` may still be accepted for legacy target ids and threshold profiles, but they do not make EvoPilot skip phases or stop at that maturity.
 
 `target run`, `goal run`, `loop run`, and `project onboard` wrapper output includes command-level and step-level LLM visibility:
 
@@ -400,6 +422,8 @@ evopilot goal inspect <goal-id>
 evopilot goal plan <goal-id>
 evopilot goal approve-plan <goal-id>
 evopilot goal targets <goal-id>
+evopilot goal phases <goal-id>
+evopilot goal phase-package <goal-id> --phase <alpha|beta|rc|ga>
 evopilot goal advance <goal-id> [--no-auto-start] [--approve-human-gate]
 evopilot goal run [<goal-id>] [--project <id> --target <target-id> --objective <text>]
 evopilot goal snapshot <goal-id>
@@ -409,6 +433,7 @@ evopilot goal evidence-matrix <goal-id>
 evopilot goal final-report <goal-id>
 ```
 
+`goal phases` returns the current Alpha/Beta/RC/GA phase projection. `goal phase-package` returns the phase package with target summary, acceptance criteria, required evidence, blockers, review capabilities, package outputs, and GO/NO-GO decision.
 `goal advance` advances one server-governed step. It is atomic even when a wrapper command calls it repeatedly.
 `goal create` and `goal run` accept `--llm-profile <id>` for run-level LLM selection.
 

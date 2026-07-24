@@ -34,6 +34,10 @@ const requiredFiles = [
   "docs/reference/product-readiness.md",
   "docs/reference/release-package.md",
   "docs/architecture/loop-runtime.md",
+  "standards/maturity/evopilot-default/v1/alpha.json",
+  "standards/maturity/evopilot-default/v1/beta.json",
+  "standards/maturity/evopilot-default/v1/rc.json",
+  "standards/maturity/evopilot-default/v1/ga.json",
   "scripts/loop-worker.mjs",
   "scripts/loop-soak.mjs",
   "scripts/verify-runtime-lock.mjs",
@@ -70,6 +74,8 @@ assert.ok(openapi.paths["/api/v1/evidence/skywalking"]);
 assert.ok(openapi.paths["/api/v1/soak-reports"]);
 assert.ok(openapi.paths["/api/v1/release/targets"]);
 assert.ok(openapi.paths["/api/v1/release/targets/{targetId}"]);
+assert.ok(openapi.paths["/api/v1/maturity/standards"]);
+assert.ok(openapi.paths["/api/v1/maturity/standards/{phaseOrStandardId}"]);
 assert.ok(openapi.paths["/api/v1/release/decisions"]);
 assert.ok(openapi.paths["/api/v1/release/evidence"]);
 assert.ok(openapi.paths["/api/v1/release/evidence/{evidenceId}"]);
@@ -111,6 +117,11 @@ assert.ok(openapi.paths["/api/v1/projects/{projectId}/llm/preflight"]);
 assert.ok(openapi.paths["/api/v1/github-app/installations/{installationId}/preflight"]);
 assert.ok(openapi.paths["/api/v1/onboarding/project/checklist"]);
 assert.ok(openapi.paths["/api/v1/projects/{projectId}/onboarding-checklist"]);
+assert.ok(openapi.paths["/api/v1/goals/{goalId}/plan/apply"]);
+assert.ok(openapi.paths["/api/v1/goals/{goalId}/phase-plan"]);
+assert.ok(openapi.paths["/api/v1/goals/{goalId}/phases"]);
+assert.ok(openapi.paths["/api/v1/goals/{goalId}/phase-packages"]);
+assert.ok(openapi.paths["/api/v1/goals/{goalId}/phase-packages/{phase}"]);
 assert.ok(openapi.components.securitySchemes.bearerAuth);
 
 const deployment = fs.readFileSync("deploy/k8s/deployment.yaml", "utf8");
@@ -141,6 +152,10 @@ assert.match(aiAgentRunbook, /evopilot project onboard github/);
 assert.match(aiAgentRunbook, /evopilot secret set/);
 assert.match(aiAgentRunbook, /evopilot llm profile set/);
 assert.match(aiAgentRunbook, /evopilot project llm set/);
+assert.match(aiAgentRunbook, /evopilot target plan/);
+assert.match(aiAgentRunbook, /evopilot target plan export/);
+assert.match(aiAgentRunbook, /evopilot target plan approve/);
+assert.match(aiAgentRunbook, /Alpha -> Beta -> RC -> GA/);
 assert.match(aiAgentRunbook, /--require-llm-ready/);
 assert.match(aiAgentRunbook, /evopilot loop run/);
 assert.match(aiAgentRunbook, /cli\/automation\.md/);
@@ -167,10 +182,15 @@ assert.match(cliReadme, /evopilot project onboard github/);
 assert.match(cliReadme, /Custom LLM Profiles/);
 assert.match(cliReadme, /evopilot llm profile set/);
 assert.match(cliReadme, /evopilot project llm set/);
+assert.match(cliReadme, /Maturity Ladder/);
+assert.match(cliReadme, /evopilot target plan export/);
+assert.match(cliReadme, /PENDING_PLAN_APPROVAL/);
 assert.match(cliWorkflows, /evopilot target run/);
 assert.match(cliWorkflows, /evopilot project onboard plan github/);
 assert.match(cliWorkflows, /evopilot project onboard plan gitlab/);
 assert.match(cliWorkflows, /evopilot project onboard github/);
+assert.match(cliWorkflows, /evopilot maturity standards inspect ga/);
+assert.match(cliWorkflows, /evopilot target plan apply/);
 assert.match(cliWorkflows, /--require-devops-ready/);
 assert.match(cliWorkflows, /Configure A Project LLM/);
 assert.match(cliWorkflows, /--require-llm-ready/);
@@ -182,11 +202,16 @@ assert.match(cliCommands, /LLM Profiles/);
 assert.match(cliCommands, /Project LLM/);
 assert.match(cliCommands, /GitHub App/);
 assert.match(cliCommands, /Project DevOps/);
+assert.match(cliCommands, /Maturity Standards/);
+assert.match(cliCommands, /target plan apply/);
+assert.match(cliCommands, /goal phase-package/);
 assert.match(cliCommands, /source-closure execute/);
 assert.match(cliAutomation, /WorkBuddy/);
 assert.match(cliAutomation, /requestId/);
 assert.match(cliAutomation, /project onboard plan/);
 assert.match(cliAutomation, /LLM Profile Rules/);
+assert.match(cliAutomation, /Goal Plan Approval Rules/);
+assert.match(cliAutomation, /approve-plan/);
 assert.match(cliAutomation, /llmUsage\.summary\.provider/);
 assert.match(cliAutomation, /Do not parse human-readable CLI output/);
 assert.match(cliAutomation, /Only EvoPilot release decisions/);
@@ -217,6 +242,10 @@ assert.match(apiDoc, /evopilot-project-onboarding-checklist\/v1/);
 assert.match(apiDoc, /LLM Profile/);
 assert.match(apiDoc, /projects\/\{projectId\}\/llm/);
 assert.match(apiDoc, /evopilot-llm-profile-readiness\/v1/);
+assert.match(apiDoc, /maturity\/standards/);
+assert.match(apiDoc, /plan\/apply/);
+assert.match(apiDoc, /phase-packages/);
+assert.match(apiDoc, /Alpha -> Beta -> RC -> GA/);
 
 const loopRuntimeDoc = fs.readFileSync("docs/architecture/loop-runtime.md", "utf8");
 assert.match(loopRuntimeDoc, /Loop Engineering/);
@@ -229,6 +258,8 @@ assert.match(dashboardIntegration, /Dashboard is a UI client/);
 assert.match(dashboardIntegration, /must not call the EvoPilot CLI/);
 assert.match(dashboardIntegration, /GET \/api\/v1\/release\/decisions/);
 assert.match(dashboardIntegration, /onboarding\/project\/checklist/);
+assert.match(dashboardIntegration, /maturity\/standards/);
+assert.match(dashboardIntegration, /phase-packages/);
 assert.match(dashboardIntegration, /evopilot-dashboard/);
 assert.match(dashboardIntegration, /\.\.\/evopilot-dashboard\/docs\/README\.md/);
 

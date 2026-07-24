@@ -1,0 +1,57 @@
+{
+  "schema": "evopilot-maturity-standard-template/v1",
+  "id": "evopilot-default/v1/rc",
+  "standardSetId": "evopilot-default/v1",
+  "version": "1.0.0",
+  "phase": "rc",
+  "name": "Release Candidate Readiness",
+  "purpose": "Freeze scope and prove source closure, review, deployment health, rollback or repair, security, compatibility, and architecture readiness before GA.",
+  "baselineRules": [
+    "RC depends on a passed Beta package.",
+    "Scope must be frozen before release-candidate validation.",
+    "Architecture review is mandatory."
+  ],
+  "acceptanceCriteria": [
+    "Beta phase package is PASS and locked as dependency evidence.",
+    "Scope is frozen and source closure has branch, commit, PR/MR or review artifact.",
+    "Native CI/CD passes repeatedly within the declared claim boundary.",
+    "Deployment health and rollback or repair evidence exist.",
+    "Security, dependency, compatibility, and architecture reviews pass.",
+    "No P0/P1 blocker remains open."
+  ],
+  "requiredEvidence": [
+    "beta-phase-package",
+    "scope-freeze-record",
+    "source-closure-record",
+    "pr-or-mr-review",
+    "repeat-ci-cd-pass",
+    "deploy-health",
+    "rollback-or-repair",
+    "security-dependency-compatibility-review",
+    "architecture-review"
+  ],
+  "reviewCapabilities": [
+    "architecture",
+    "security",
+    "testing",
+    "operations"
+  ],
+  "packageOutputs": [
+    "rc-release-candidate-report",
+    "source-closure-package",
+    "deployment-health-package",
+    "rollback-or-repair-package",
+    "architecture-review",
+    "security-review"
+  ],
+  "goNoGoRules": [
+    "GO only if Beta is PASSED and every required RC GoalTarget is DONE.",
+    "NO-GO if scope is still changing, review evidence is missing, or any P0/P1 blocker remains open."
+  ],
+  "overridePolicy": {
+    "canAddGoalTargets": true,
+    "canStrengthenCriteria": true,
+    "canRemoveBaselineCriteria": false,
+    "weakerPlanVerdict": "CONDITIONAL-GO"
+  }
+}

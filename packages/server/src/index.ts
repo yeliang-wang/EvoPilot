@@ -1062,6 +1062,10 @@ type GlobalGoalStatus = "DRAFT" | "PLANNED" | "APPROVED" | "RUNNING" | "WAITING_
 type GoalPlanStatus = "MISSING" | "PENDING_APPROVAL" | "APPROVED";
 type GoalTargetStatus = "PENDING" | "READY" | "RUNNING" | "WAITING_HUMAN" | "BLOCKED" | "DONE" | "FAILED";
 type GoalTargetLayer = "planning" | "sandbox" | "context" | "harness" | "loop" | "release";
+type MaturityPhase = "alpha" | "beta" | "rc" | "ga";
+type PhaseTargetStatus = "PENDING" | "RUNNING" | "PASSED" | "BLOCKED" | "FAILED";
+type PhaseDecisionStatus = "PENDING" | "GO" | "NO-GO";
+type ReviewCapability = "architecture" | "security" | "testing" | "documentation" | "operations" | "release";
 type GoalNextAction =
   | "plan-goal"
   | "approve-plan"
@@ -1075,8 +1079,53 @@ type GoalNextAction =
   | "policy-review"
   | "release-decision"
   | "view-final-report"
+  | "review-phase-package"
   | "done"
   | "repair";
+
+interface MaturityStandardTemplate {
+  schema: "evopilot-maturity-standard-template/v1";
+  id: string;
+  standardSetId: string;
+  version: string;
+  phase: MaturityPhase;
+  name: string;
+  purpose: string;
+  baselineRules: string[];
+  acceptanceCriteria: string[];
+  requiredEvidence: string[];
+  reviewCapabilities: ReviewCapability[];
+  packageOutputs: string[];
+  goNoGoRules: string[];
+  overridePolicy: {
+    canAddGoalTargets: boolean;
+    canStrengthenCriteria: boolean;
+    canRemoveBaselineCriteria: boolean;
+    weakerPlanVerdict: "CONDITIONAL-GO" | "NO-GO";
+  };
+}
+
+interface PhaseTarget {
+  schema: "evopilot-phase-target/v1";
+  id: string;
+  goalId: string;
+  phase: MaturityPhase;
+  title: string;
+  status: PhaseTargetStatus;
+  dependencyPhase?: MaturityPhase;
+  goalTargetIds: string[];
+  acceptanceCriteria: string[];
+  requiredEvidence: string[];
+  reviewCapabilities: ReviewCapability[];
+  packageOutputs: string[];
+  decision: {
+    status: PhaseDecisionStatus;
+    rationale: string;
+    evidence: string[];
+  };
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface GoalTarget {
   schema: "evopilot-goal-target/v1";
@@ -1084,12 +1133,16 @@ interface GoalTarget {
   goalId: string;
   projectId: string;
   releaseTargetId: string;
+  phase?: MaturityPhase;
+  standardId?: string;
   title: string;
   description: string;
   layer: GoalTargetLayer;
   required: boolean;
   dependencyIds: string[];
   acceptanceCriteria: string[];
+  requiredEvidence?: string[];
+  reviewCapabilities?: ReviewCapability[];
   status: GoalTargetStatus;
   nextAction: GoalNextAction;
   loopId?: string;
@@ -1103,18 +1156,28 @@ interface GoalTarget {
 interface GoalPlan {
   schema: "evopilot-goal-plan/v1";
   status: GoalPlanStatus;
-  decompositionStrategy: "release-target-template" | "manual" | "none";
+  decompositionStrategy: "ga-maturity-ladder" | "release-target-template" | "manual" | "none";
+  terminalMaturity?: "ga";
+  maturityStandardSetId?: string;
+  standardVersion?: string;
   summary: string;
   targetCount: number;
   requiredTargetCount: number;
+  phaseTargets: PhaseTarget[];
   targets: GoalTarget[];
+  editablePlan?: {
+    status: "PENDING_USER_CONFIRMATION" | "APPROVED";
+    allowed: string[];
+    denied: string[];
+    nextAction: GoalNextAction;
+  };
   generatedAt?: string;
   approvedAt?: string;
   approvedBy?: string;
 }
 
 interface GoalTimelineEvent {
-  type: "CREATED" | "PLAN_GENERATED" | "PLAN_APPROVED" | "TARGET_CREATED" | "TARGET_ADVANCED" | "LOOP_BOUND" | "BLOCKED" | "COMPLETED" | "REPORT_GENERATED";
+  type: "CREATED" | "PLAN_GENERATED" | "PLAN_UPDATED" | "PLAN_APPROVED" | "TARGET_CREATED" | "TARGET_ADVANCED" | "LOOP_BOUND" | "PHASE_PACKAGE_GENERATED" | "BLOCKED" | "COMPLETED" | "REPORT_GENERATED";
   message: string;
   timestamp: string;
   targetId?: string;
@@ -1124,13 +1187,40 @@ interface GoalTimelineEvent {
 
 interface GoalEvidenceMatrixRow {
   targetId: string;
+  phase?: MaturityPhase;
   title: string;
   required: boolean;
   status: GoalTargetStatus;
   acceptanceCriteria: string[];
+  requiredEvidence?: string[];
+  reviewCapabilities?: ReviewCapability[];
   evidence: string[];
   blocker?: string;
   loopId?: string;
+}
+
+interface PhasePackage {
+  schema: "evopilot-phase-package/v1";
+  goalId: string;
+  projectId: string;
+  releaseTargetId: string;
+  phase: MaturityPhase;
+  status: PhaseTargetStatus;
+  generatedAt: string;
+  targetSummary: {
+    total: number;
+    required: number;
+    done: number;
+    blocked: number;
+    failed: number;
+  };
+  acceptanceCriteria: string[];
+  requiredEvidence: string[];
+  reviewCapabilities: ReviewCapability[];
+  evidenceMatrix: GoalEvidenceMatrixRow[];
+  blockers: string[];
+  decision: PhaseTarget["decision"];
+  packageOutputs: string[];
 }
 
 interface GoalCompletionReport {
@@ -1148,6 +1238,7 @@ interface GoalCompletionReport {
     blocked: number;
     failed: number;
   };
+  phasePackages: PhasePackage[];
   evidenceMatrix: GoalEvidenceMatrixRow[];
   releaseDecision?: ReleaseDecision;
   conclusion: string;
@@ -1161,6 +1252,8 @@ interface GlobalGoal {
   projectId: string;
   releaseTargetId: string;
   objective: string;
+  terminalMaturity?: "ga";
+  maturityStandardSetId?: string;
   llm?: LoopLlmSelection;
   status: GlobalGoalStatus;
   plan: GoalPlan;
@@ -1182,6 +1275,7 @@ interface GoalSnapshot {
     failedTargets: number;
     percent: number;
   };
+  phases: PhaseTarget[];
   activeTarget?: GoalTarget;
   nextAction: GoalNextAction;
   blockers: string[];
@@ -1215,6 +1309,7 @@ interface GoalRunStatus {
   latestLoop?: LoopRun;
   releaseDecision?: ReleaseDecision;
   finalReport?: GoalCompletionReport;
+  phasePackages: PhasePackage[];
   llmUsage: LlmUsageSummary;
   chain: Array<{
     id: string;
@@ -2505,6 +2600,24 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.listReleaseTargets()));
       }
+      if (request.method === "GET" && url.pathname === "/api/v1/maturity/standards") {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope({
+          schema: "evopilot-maturity-standard-set/v1",
+          id: DEFAULT_MATURITY_STANDARD_SET_ID,
+          terminalMaturity: "ga",
+          phases: MATURITY_PHASES,
+          templates: maturityStandardTemplates()
+        }));
+      }
+      const maturityStandardMatch = url.pathname.match(/^\/api\/v1\/maturity\/standards\/([^/]+)$/);
+      if (request.method === "GET" && maturityStandardMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const id = decodeURIComponent(maturityStandardMatch[1]);
+        const template = maturityStandardTemplates().find((item) => item.id === id || item.phase === id);
+        if (!template) return writeJson(response, 404, { error: "MATURITY_STANDARD_NOT_FOUND" });
+        return writeJson(response, 200, envelope(template));
+      }
       if (request.method === "POST" && url.pathname === "/api/v1/release/targets") {
         if (!hasRole(auth, "admin")) return writeJson(response, 403, { error: "FORBIDDEN" });
         const body = await readJson(request, options.maxBodyBytes);
@@ -2576,6 +2689,18 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         store.appendAudit(audit(auth, "goal.plan-generated", planned.id, { targetCount: planned.plan.targets.length, releaseTargetId: planned.releaseTargetId }));
         return writeJson(response, 201, envelope(planned));
       }
+      const goalPlanApplyMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/plan\/apply$/);
+      if (request.method === "POST" && goalPlanApplyMatch) {
+        if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const body = await readJson(request, options.maxBodyBytes);
+        const goal = store.readGoal(decodeURIComponent(goalPlanApplyMatch[1]));
+        if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const updated = store.applyGoalPlan(goal.id, auth.actor, body);
+        if (!updated) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        store.appendAudit(audit(auth, "goal.plan-updated", updated.id, { targetCount: updated.plan.targets.length, phases: updated.plan.phaseTargets.map((phase) => phase.phase) }));
+        return writeJson(response, 200, envelope(updated));
+      }
       const goalApprovePlanMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/approve-plan$/);
       if (request.method === "POST" && goalApprovePlanMatch) {
         if (!hasRole(auth, "operator")) return writeJson(response, 403, { error: "FORBIDDEN" });
@@ -2594,6 +2719,32 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
         if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(snapshot.goal.plan.targets));
+      }
+      const goalPhasePlanMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/phase-plan$/);
+      if (request.method === "GET" && goalPhasePlanMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const snapshot = store.goalSnapshot(decodeURIComponent(goalPhasePlanMatch[1]));
+        if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope({
+          schema: "evopilot-goal-phase-plan/v1",
+          goalId: snapshot.goal.id,
+          terminalMaturity: snapshot.goal.terminalMaturity ?? "ga",
+          maturityStandardSetId: snapshot.goal.maturityStandardSetId ?? DEFAULT_MATURITY_STANDARD_SET_ID,
+          status: snapshot.goal.plan.status,
+          editablePlan: snapshot.goal.plan.editablePlan,
+          phases: snapshot.phases,
+          targets: snapshot.goal.plan.targets,
+          nextAction: snapshot.nextAction
+        }));
+      }
+      const goalPhasesMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/phases$/);
+      if (request.method === "GET" && goalPhasesMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const snapshot = store.goalSnapshot(decodeURIComponent(goalPhasesMatch[1]));
+        if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        return writeJson(response, 200, envelope(snapshot.phases));
       }
       const goalAdvanceMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/advance$/);
       if (request.method === "POST" && goalAdvanceMatch) {
@@ -2650,6 +2801,19 @@ export function createServer(options: EvoPilotServerOptions): http.Server {
         if (!goal) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
         if (!canAccessScopedResource(auth, goal.tenantId, goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
         return writeJson(response, 200, envelope(store.goalEvidenceMatrix(goal.id)));
+      }
+      const goalPhasePackagesMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/phase-packages(?:\/([^/]+))?$/);
+      if (request.method === "GET" && goalPhasePackagesMatch) {
+        if (!hasRole(auth, "viewer")) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const snapshot = store.goalSnapshot(decodeURIComponent(goalPhasePackagesMatch[1]));
+        if (!snapshot) return writeJson(response, 404, { error: "GOAL_NOT_FOUND" });
+        if (!canAccessScopedResource(auth, snapshot.goal.tenantId, snapshot.goal.workspaceId)) return writeJson(response, 403, { error: "FORBIDDEN" });
+        const packages = buildPhasePackages(snapshot.goal);
+        const phase = normalizeOptionalMaturityPhase(goalPhasePackagesMatch[2]);
+        if (goalPhasePackagesMatch[2] && !phase) return writeJson(response, 400, { error: "MATURITY_PHASE_INVALID" });
+        const selected = phase ? packages.find((item) => item.phase === phase) : undefined;
+        if (phase && !selected) return writeJson(response, 404, { error: "PHASE_PACKAGE_NOT_FOUND" });
+        return writeJson(response, 200, envelope(selected ?? packages));
       }
       const goalReportMatch = url.pathname.match(/^\/api\/v1\/goals\/([^/]+)\/final-report$/);
       if (request.method === "GET" && goalReportMatch) {
@@ -6728,6 +6892,8 @@ class FileStore {
       projectId,
       releaseTargetId,
       objective: input.objective,
+      terminalMaturity: "ga",
+      maturityStandardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
       llm: input.llm,
       status: "DRAFT",
       plan: emptyGoalPlan(),
@@ -6746,25 +6912,33 @@ class FileStore {
     const now = new Date().toISOString();
     const releaseTarget = this.readReleaseTarget(goal.releaseTargetId) ?? defaultGAReleaseTarget();
     const targets = goalTargetsFromReleaseTarget(goal, releaseTarget, now);
+    const phaseTargets = phaseTargetsFromGoalTargets(goal.id, targets, now);
     return this.writeGoal({
       ...goal,
       status: "PLANNED",
       plan: {
         schema: "evopilot-goal-plan/v1",
         status: "PENDING_APPROVAL",
-        decompositionStrategy: "release-target-template",
-        summary: `${goal.objective} decomposed into ${targets.length} white-box GoalTargets for ${releaseTarget.name}.`,
+        decompositionStrategy: "ga-maturity-ladder",
+        terminalMaturity: "ga",
+        maturityStandardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
+        standardVersion: DEFAULT_MATURITY_STANDARD_VERSION,
+        summary: `${goal.objective} decomposed into Alpha -> Beta -> RC -> GA maturity phases with ${targets.length} white-box GoalTargets for ${releaseTarget.name}.`,
         targetCount: targets.length,
         requiredTargetCount: targets.filter((target) => target.required).length,
+        phaseTargets,
         targets,
+        editablePlan: editablePlanPolicy(),
         generatedAt: now
       },
       timeline: [
         ...goal.timeline,
         goalTimelineEvent("PLAN_GENERATED", `Goal plan generated by ${actor}.`, {
           targetCount: targets.length,
+          phases: MATURITY_PHASES,
+          terminalMaturity: "ga",
           releaseTargetId: goal.releaseTargetId,
-          strategy: "release-target-template"
+          strategy: "ga-maturity-ladder"
         })
       ],
       updatedAt: now
@@ -6784,6 +6958,11 @@ class FileStore {
       plan: {
         ...goal.plan,
         status: "APPROVED",
+        editablePlan: {
+          ...(goal.plan.editablePlan ?? editablePlanPolicy()),
+          status: "APPROVED",
+          nextAction: "start-target"
+        },
         approvedAt: now,
         approvedBy: actor
       },
@@ -6792,6 +6971,30 @@ class FileStore {
         goalTimelineEvent("PLAN_APPROVED", `Goal plan approved by ${actor}.`, {
           targetCount: goal.plan.targets.length,
           requiredTargetCount: goal.plan.targets.filter((target) => target.required).length
+        })
+      ],
+      updatedAt: now
+    });
+  }
+
+  applyGoalPlan(goalId: string, actor: string, input: unknown): GlobalGoal | undefined {
+    const goal = this.readGoal(goalId);
+    if (!goal) return undefined;
+    if (goal.status === "RUNNING" || goal.status === "WAITING_HUMAN" || goal.status === "COMPLETED") {
+      throw httpError(409, "GOAL_PLAN_LOCKED", "A running or completed goal plan cannot be replaced.");
+    }
+    const now = new Date().toISOString();
+    const plan = normalizeAppliedGoalPlan(input, goal, now);
+    return this.writeGoal({
+      ...goal,
+      status: "PLANNED",
+      plan,
+      timeline: [
+        ...goal.timeline,
+        goalTimelineEvent("PLAN_UPDATED", `Goal plan updated by ${actor}; user confirmation is required before execution.`, {
+          targetCount: plan.targets.length,
+          phases: plan.phaseTargets.map((phase) => phase.phase),
+          baselineEnforced: true
         })
       ],
       updatedAt: now
@@ -6972,9 +7175,13 @@ class FileStore {
       context: {
         globalGoalId: goal.id,
         goalTargetId: target.id,
+        maturityPhase: target.phase,
+        maturityStandardId: target.standardId,
         goalObjective: goal.objective,
         releaseTargetId: goal.releaseTargetId,
         acceptanceCriteria: target.acceptanceCriteria,
+        requiredEvidence: target.requiredEvidence,
+        reviewCapabilities: target.reviewCapabilities,
         dashboardGoalCockpit: true,
         createdBy: actor
       },
@@ -7100,6 +7307,7 @@ class FileStore {
       latestLoop,
       releaseDecision: snapshot.releaseDecision,
       finalReport: snapshot.goal.finalReport,
+      phasePackages: buildPhasePackages(snapshot.goal),
       llmUsage: buildGoalLlmUsageSummary(snapshot.goal, goalLoops),
       chain: buildGoalRunStatusChain(this, snapshot, latestLoop),
       blockers: snapshot.blockers,
@@ -7129,6 +7337,8 @@ class FileStore {
       projectId,
       releaseTargetId,
       objective: String(goal.objective ?? `${projectId} reaches ${releaseTargetId.toUpperCase()}.`),
+      terminalMaturity: "ga",
+      maturityStandardSetId: optionalTrimmedString(goal.maturityStandardSetId) ?? DEFAULT_MATURITY_STANDARD_SET_ID,
       llm: hydrateLoopLlmSelection(goal.llm),
       status: normalizeGlobalGoalStatus(goal.status),
       plan,
@@ -9504,6 +9714,7 @@ function emptyGoalPlan(): GoalPlan {
     summary: "Goal plan has not been generated.",
     targetCount: 0,
     requiredTargetCount: 0,
+    phaseTargets: [],
     targets: []
   };
 }
@@ -9513,14 +9724,22 @@ function hydrateGoalPlan(value: unknown, goalId: string, projectId: string, rele
   const targets = Array.isArray(value.targets)
     ? value.targets.map((target) => hydrateGoalTarget(target, goalId, projectId, releaseTargetId))
     : [];
+  const phaseTargets = Array.isArray(value.phaseTargets)
+    ? value.phaseTargets.map((phase) => hydratePhaseTarget(phase, goalId, targets))
+    : phaseTargetsFromGoalTargets(goalId, targets, new Date().toISOString());
   return {
     schema: "evopilot-goal-plan/v1",
     status: normalizeGoalPlanStatus(value.status),
     decompositionStrategy: normalizeGoalPlanStrategy(value.decompositionStrategy),
+    terminalMaturity: value.terminalMaturity === "ga" || targets.some((target) => target.phase) ? "ga" : undefined,
+    maturityStandardSetId: optionalTrimmedString(value.maturityStandardSetId),
+    standardVersion: optionalTrimmedString(value.standardVersion),
     summary: String(value.summary ?? (targets.length > 0 ? `Goal plan has ${targets.length} targets.` : "Goal plan has not been generated.")),
     targetCount: targets.length,
     requiredTargetCount: targets.filter((target) => target.required).length,
+    phaseTargets,
     targets,
+    editablePlan: hydrateEditableGoalPlan(value.editablePlan),
     generatedAt: optionalTrimmedString(value.generatedAt),
     approvedAt: optionalTrimmedString(value.approvedAt),
     approvedBy: optionalTrimmedString(value.approvedBy)
@@ -9537,12 +9756,16 @@ function hydrateGoalTarget(value: unknown, goalId: string, projectId: string, re
     goalId,
     projectId: safeFileName(String(record.projectId ?? projectId)),
     releaseTargetId: safeFileName(String(record.releaseTargetId ?? releaseTargetId)),
+    phase: normalizeOptionalMaturityPhase(record.phase),
+    standardId: optionalTrimmedString(record.standardId),
     title: String(record.title ?? id),
     description: String(record.description ?? ""),
     layer: normalizeGoalTargetLayer(record.layer),
     required: record.required !== false,
     dependencyIds: Array.isArray(record.dependencyIds) ? record.dependencyIds.map((item) => safeFileName(String(item))) : [],
     acceptanceCriteria: Array.isArray(record.acceptanceCriteria) ? record.acceptanceCriteria.map(String) : [],
+    requiredEvidence: Array.isArray(record.requiredEvidence) ? record.requiredEvidence.map(String) : undefined,
+    reviewCapabilities: Array.isArray(record.reviewCapabilities) ? record.reviewCapabilities.map(normalizeReviewCapability).filter((item): item is ReviewCapability => Boolean(item)) : undefined,
     status: normalizeGoalTargetStatus(record.status),
     nextAction: normalizeGoalNextAction(record.nextAction),
     loopId: optionalTrimmedString(record.loopId),
@@ -9551,6 +9774,48 @@ function hydrateGoalTarget(value: unknown, goalId: string, projectId: string, re
     blocker: optionalTrimmedString(record.blocker),
     createdAt: String(record.createdAt ?? now),
     updatedAt: String(record.updatedAt ?? record.createdAt ?? now)
+  };
+}
+
+function hydratePhaseTarget(value: unknown, goalId: string, targets: GoalTarget[]): PhaseTarget {
+  const record = isRecord(value) ? value : {};
+  const now = new Date().toISOString();
+  const phase = normalizeMaturityPhase(record.phase, "alpha");
+  const standard = maturityStandardTemplate(phase);
+  const goalTargetIds = Array.isArray(record.goalTargetIds)
+    ? record.goalTargetIds.map((item) => safeFileName(String(item))).filter(Boolean)
+    : targets.filter((target) => target.phase === phase).map((target) => target.id);
+  const decision = isRecord(record.decision) ? record.decision : {};
+  return {
+    schema: "evopilot-phase-target/v1",
+    id: safeFileName(String(record.id ?? `${goalId}-${phase}`)),
+    goalId,
+    phase,
+    title: String(record.title ?? standard.name),
+    status: normalizePhaseTargetStatus(record.status),
+    dependencyPhase: normalizeOptionalMaturityPhase(record.dependencyPhase),
+    goalTargetIds,
+    acceptanceCriteria: uniqueStrings(Array.isArray(record.acceptanceCriteria) ? record.acceptanceCriteria.map(String) : standard.acceptanceCriteria),
+    requiredEvidence: uniqueStrings(Array.isArray(record.requiredEvidence) ? record.requiredEvidence.map(String) : standard.requiredEvidence),
+    reviewCapabilities: normalizeReviewCapabilities(Array.isArray(record.reviewCapabilities) ? record.reviewCapabilities : standard.reviewCapabilities),
+    packageOutputs: uniqueStrings(Array.isArray(record.packageOutputs) ? record.packageOutputs.map(String) : standard.packageOutputs),
+    decision: {
+      status: normalizePhaseDecisionStatus(decision.status),
+      rationale: String(decision.rationale ?? "Phase decision is pending until all required GoalTargets pass."),
+      evidence: Array.isArray(decision.evidence) ? uniqueStrings(decision.evidence.map(String)) : []
+    },
+    createdAt: String(record.createdAt ?? now),
+    updatedAt: String(record.updatedAt ?? record.createdAt ?? now)
+  };
+}
+
+function hydrateEditableGoalPlan(value: unknown): GoalPlan["editablePlan"] {
+  if (!isRecord(value)) return undefined;
+  return {
+    status: value.status === "APPROVED" ? "APPROVED" : "PENDING_USER_CONFIRMATION",
+    allowed: Array.isArray(value.allowed) ? value.allowed.map(String) : editablePlanPolicy().allowed,
+    denied: Array.isArray(value.denied) ? value.denied.map(String) : editablePlanPolicy().denied,
+    nextAction: normalizeGoalNextAction(value.nextAction)
   };
 }
 
@@ -9578,6 +9843,474 @@ function normalizeStoredGoalTargetEvidence(value: unknown): string[] {
       seen.add(item);
       return true;
     });
+}
+
+const MATURITY_PHASES: MaturityPhase[] = ["alpha", "beta", "rc", "ga"];
+const DEFAULT_MATURITY_STANDARD_SET_ID = "evopilot-default/v1";
+const DEFAULT_MATURITY_STANDARD_VERSION = "1.0.0";
+let maturityStandardTemplatesCache: MaturityStandardTemplate[] | undefined;
+
+function maturityStandardTemplates(): MaturityStandardTemplate[] {
+  if (!maturityStandardTemplatesCache) {
+    maturityStandardTemplatesCache = loadMaturityStandardTemplatesFromDisk() ?? builtInMaturityStandardTemplates();
+  }
+  return maturityStandardTemplatesCache;
+}
+
+function loadMaturityStandardTemplatesFromDisk(): MaturityStandardTemplate[] | undefined {
+  const standardsDir = path.join(process.cwd(), "standards", "maturity", ...DEFAULT_MATURITY_STANDARD_SET_ID.split("/"));
+  if (!fs.existsSync(standardsDir)) return undefined;
+  return MATURITY_PHASES.map((phase) => {
+    const file = path.join(standardsDir, `${phase}.json`);
+    if (!fs.existsSync(file)) throw new Error(`Maturity standard file missing: ${file}`);
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return normalizeMaturityStandardTemplate(parsed, phase);
+  });
+}
+
+function normalizeMaturityStandardTemplate(input: unknown, expectedPhase: MaturityPhase): MaturityStandardTemplate {
+  if (!isRecord(input)) throw new Error(`Maturity standard ${expectedPhase} must be a JSON object.`);
+  const fallback = builtInMaturityStandardTemplates().find((template) => template.phase === expectedPhase)!;
+  const phase = normalizeMaturityPhase(input.phase, expectedPhase);
+  if (phase !== expectedPhase) throw new Error(`Maturity standard ${expectedPhase} has mismatched phase=${phase}.`);
+  const overridePolicy = isRecord(input.overridePolicy) ? input.overridePolicy : {};
+  const weakerPlanVerdict = String(overridePolicy.weakerPlanVerdict ?? fallback.overridePolicy.weakerPlanVerdict);
+  return {
+    schema: "evopilot-maturity-standard-template/v1",
+    id: String(input.id ?? fallback.id),
+    standardSetId: String(input.standardSetId ?? fallback.standardSetId),
+    version: String(input.version ?? fallback.version),
+    phase,
+    name: String(input.name ?? fallback.name),
+    purpose: String(input.purpose ?? fallback.purpose),
+    baselineRules: stringArrayOrDefault(input.baselineRules, fallback.baselineRules),
+    acceptanceCriteria: stringArrayOrDefault(input.acceptanceCriteria, fallback.acceptanceCriteria),
+    requiredEvidence: stringArrayOrDefault(input.requiredEvidence, fallback.requiredEvidence),
+    reviewCapabilities: normalizeReviewCapabilities(stringArrayOrDefault(input.reviewCapabilities, fallback.reviewCapabilities)),
+    packageOutputs: stringArrayOrDefault(input.packageOutputs, fallback.packageOutputs),
+    goNoGoRules: stringArrayOrDefault(input.goNoGoRules, fallback.goNoGoRules),
+    overridePolicy: {
+      canAddGoalTargets: overridePolicy.canAddGoalTargets !== false,
+      canStrengthenCriteria: overridePolicy.canStrengthenCriteria !== false,
+      canRemoveBaselineCriteria: overridePolicy.canRemoveBaselineCriteria === true,
+      weakerPlanVerdict: weakerPlanVerdict === "NO-GO" ? "NO-GO" : "CONDITIONAL-GO"
+    }
+  };
+}
+
+function stringArrayOrDefault(value: unknown, fallback: string[]): string[] {
+  return Array.isArray(value) && value.length > 0 ? value.map(String) : fallback;
+}
+
+function builtInMaturityStandardTemplates(): MaturityStandardTemplate[] {
+  return [
+    {
+      schema: "evopilot-maturity-standard-template/v1",
+      id: `${DEFAULT_MATURITY_STANDARD_SET_ID}/alpha`,
+      standardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
+      version: DEFAULT_MATURITY_STANDARD_VERSION,
+      phase: "alpha",
+      name: "Alpha Readiness",
+      purpose: "Prove the project can be understood, onboarded, built or explicitly blocked, and minimally smoke-tested without making a release claim.",
+      baselineRules: [
+        "Alpha is not a release claim.",
+        "The repository, branch, dependency path, and ownership boundary must be explicit.",
+        "Unknown build or smoke blockers must be recorded instead of hidden."
+      ],
+      acceptanceCriteria: [
+        "Project source is registered, readable, and scoped to the tenant/workspace.",
+        "Build, install, or runtime bootstrap path is known, reproducible, or explicitly blocked with owner and next action.",
+        "A minimal smoke path passes or the blocker is recorded with concrete repair guidance.",
+        "Architecture map and risk register exist for the requested business objective."
+      ],
+      requiredEvidence: [
+        "project-registration",
+        "source-readiness-preflight",
+        "build-or-bootstrap-evidence",
+        "smoke-or-blocker-evidence",
+        "architecture-map",
+        "risk-register"
+      ],
+      reviewCapabilities: ["architecture"],
+      packageOutputs: [
+        "alpha-readiness-report",
+        "architecture-map",
+        "risk-register",
+        "known-blockers"
+      ],
+      goNoGoRules: [
+        "GO only if every required Alpha GoalTarget is DONE.",
+        "NO-GO if source access, bootstrap, or smoke evidence is unavailable and no explicit blocker package exists."
+      ],
+      overridePolicy: maturityOverridePolicy()
+    },
+    {
+      schema: "evopilot-maturity-standard-template/v1",
+      id: `${DEFAULT_MATURITY_STANDARD_SET_ID}/beta`,
+      standardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
+      version: DEFAULT_MATURITY_STANDARD_VERSION,
+      phase: "beta",
+      name: "Beta E2E Readiness",
+      purpose: "Prove the requested business capability works through core end-to-end paths and repository-native CI with enough evidence for limited user trial.",
+      baselineRules: [
+        "Beta depends on a passed Alpha package.",
+        "Core E2E evidence must be real-boundary evidence.",
+        "Repository-native GitHub Actions or GitLab CI must be observable when writeback is claimed."
+      ],
+      acceptanceCriteria: [
+        "Alpha phase package is PASS and locked as dependency evidence.",
+        "Core end-to-end scenarios for the business objective pass.",
+        "GitHub Actions or GitLab CI is configured, observable, and tied to the working repository or fork claim boundary.",
+        "Critical tests and basic user/operator documentation exist.",
+        "No high open risk blocks limited user trial."
+      ],
+      requiredEvidence: [
+        "alpha-phase-package",
+        "core-e2e-run",
+        "native-ci-status",
+        "critical-test-evidence",
+        "basic-docs",
+        "risk-closure"
+      ],
+      reviewCapabilities: ["testing", "documentation"],
+      packageOutputs: [
+        "beta-e2e-report",
+        "ci-evidence",
+        "test-summary",
+        "docs-readiness",
+        "risk-closure-matrix"
+      ],
+      goNoGoRules: [
+        "GO only if Alpha is PASSED and every required Beta GoalTarget is DONE.",
+        "NO-GO if core E2E, native CI, or high-risk closure is missing."
+      ],
+      overridePolicy: maturityOverridePolicy()
+    },
+    {
+      schema: "evopilot-maturity-standard-template/v1",
+      id: `${DEFAULT_MATURITY_STANDARD_SET_ID}/rc`,
+      standardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
+      version: DEFAULT_MATURITY_STANDARD_VERSION,
+      phase: "rc",
+      name: "Release Candidate Readiness",
+      purpose: "Freeze scope and prove source closure, review, deployment health, rollback or repair, security, compatibility, and architecture readiness before GA.",
+      baselineRules: [
+        "RC depends on a passed Beta package.",
+        "Scope must be frozen before release-candidate validation.",
+        "Architecture review is mandatory."
+      ],
+      acceptanceCriteria: [
+        "Beta phase package is PASS and locked as dependency evidence.",
+        "Scope is frozen and source closure has branch, commit, PR/MR or review artifact.",
+        "Native CI/CD passes repeatedly within the declared claim boundary.",
+        "Deployment health and rollback or repair evidence exist.",
+        "Security, dependency, compatibility, and architecture reviews pass.",
+        "No P0/P1 blocker remains open."
+      ],
+      requiredEvidence: [
+        "beta-phase-package",
+        "scope-freeze-record",
+        "source-closure-record",
+        "pr-or-mr-review",
+        "repeat-ci-cd-pass",
+        "deploy-health",
+        "rollback-or-repair",
+        "security-dependency-compatibility-review",
+        "architecture-review"
+      ],
+      reviewCapabilities: ["architecture", "security", "testing", "operations"],
+      packageOutputs: [
+        "rc-release-candidate-report",
+        "source-closure-package",
+        "deployment-health-package",
+        "rollback-or-repair-package",
+        "architecture-review",
+        "security-review"
+      ],
+      goNoGoRules: [
+        "GO only if Beta is PASSED and every required RC GoalTarget is DONE.",
+        "NO-GO if scope is still changing, review evidence is missing, or any P0/P1 blocker remains open."
+      ],
+      overridePolicy: maturityOverridePolicy()
+    },
+    {
+      schema: "evopilot-maturity-standard-template/v1",
+      id: `${DEFAULT_MATURITY_STANDARD_SET_ID}/ga`,
+      standardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
+      version: DEFAULT_MATURITY_STANDARD_VERSION,
+      phase: "ga",
+      name: "GA Stable Release",
+      purpose: "Prove the business objective is enterprise-ready with stability, observability, runbook, release notes, user docs, security governance, final signoff, and GO release decision.",
+      baselineRules: [
+        "GA depends on a passed RC package.",
+        "GA must not claim beyond the GitHub/GitLab source and DevOps claim boundary.",
+        "Architecture signoff is mandatory."
+      ],
+      acceptanceCriteria: [
+        "RC phase package is PASS and locked as dependency evidence.",
+        "Stability or soak evidence satisfies the product SLO and release target expectations.",
+        "Monitoring, logging, alerting, troubleshooting, and runbook evidence are complete.",
+        "Release notes, user documentation, API/CLI/Dashboard contracts, and migration notes are complete.",
+        "Security governance and dependency review pass.",
+        "Architecture signoff passes.",
+        "Final ReleaseDecision is GO."
+      ],
+      requiredEvidence: [
+        "rc-phase-package",
+        "stability-or-soak-evidence",
+        "observability-evidence",
+        "runbook",
+        "release-notes",
+        "user-docs",
+        "api-cli-dashboard-contract",
+        "security-governance",
+        "architecture-signoff",
+        "final-release-decision"
+      ],
+      reviewCapabilities: ["architecture", "security", "documentation", "operations", "release"],
+      packageOutputs: [
+        "ga-release-package",
+        "soak-summary",
+        "observability-runbook",
+        "release-notes",
+        "security-governance-report",
+        "architecture-signoff",
+        "final-release-decision"
+      ],
+      goNoGoRules: [
+        "GO only if RC is PASSED, every required GA GoalTarget is DONE, and final ReleaseDecision is GO.",
+        "NO-GO if stability, observability, security governance, architecture signoff, or final release decision is missing."
+      ],
+      overridePolicy: maturityOverridePolicy()
+    }
+  ];
+}
+
+function maturityOverridePolicy(): MaturityStandardTemplate["overridePolicy"] {
+  return {
+    canAddGoalTargets: true,
+    canStrengthenCriteria: true,
+    canRemoveBaselineCriteria: false,
+    weakerPlanVerdict: "CONDITIONAL-GO"
+  };
+}
+
+function maturityStandardTemplate(phase: MaturityPhase): MaturityStandardTemplate {
+  return maturityStandardTemplates().find((template) => template.phase === phase) ?? maturityStandardTemplates()[0];
+}
+
+function editablePlanPolicy(): NonNullable<GoalPlan["editablePlan"]> {
+  return {
+    status: "PENDING_USER_CONFIRMATION",
+    allowed: [
+      "Add project-specific GoalTargets inside Alpha/Beta/RC/GA.",
+      "Strengthen acceptance criteria and required evidence.",
+      "Reorder GoalTargets within a phase when dependencies remain valid.",
+      "Add architecture, security, documentation, operations, or release review requirements."
+    ],
+    denied: [
+      "Delete Alpha, Beta, RC, or GA phases.",
+      "Skip a phase or run GA before Alpha/Beta/RC pass.",
+      "Remove built-in baseline criteria or required evidence and still claim standard GA.",
+      "Bypass source, DevOps, approval, policy, or release-decision gates."
+    ],
+    nextAction: "approve-plan"
+  };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .filter((value) => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+}
+
+function phaseTargetsFromGoalTargets(goalId: string, targets: GoalTarget[], now: string): PhaseTarget[] {
+  return MATURITY_PHASES.map((phase, index) => {
+    const standard = maturityStandardTemplate(phase);
+    const phaseTargets = targets.filter((target) => target.phase === phase);
+    return {
+      schema: "evopilot-phase-target/v1",
+      id: `${goalId}-${phase}`,
+      goalId,
+      phase,
+      title: standard.name,
+      status: "PENDING",
+      dependencyPhase: MATURITY_PHASES[index - 1],
+      goalTargetIds: phaseTargets.map((target) => target.id),
+      acceptanceCriteria: standard.acceptanceCriteria,
+      requiredEvidence: standard.requiredEvidence,
+      reviewCapabilities: standard.reviewCapabilities,
+      packageOutputs: standard.packageOutputs,
+      decision: {
+        status: "PENDING",
+        rationale: "Phase decision is pending until all required GoalTargets pass.",
+        evidence: []
+      },
+      createdAt: now,
+      updatedAt: now
+    };
+  });
+}
+
+function derivePhaseTargets(goal: GlobalGoal, targets: GoalTarget[]): PhaseTarget[] {
+  const now = new Date().toISOString();
+  const base = goal.plan.phaseTargets.length > 0
+    ? goal.plan.phaseTargets
+    : phaseTargetsFromGoalTargets(goal.id, targets, now);
+  return MATURITY_PHASES.map((phase, index) => {
+    const existing = base.find((item) => item.phase === phase);
+    const standard = maturityStandardTemplate(phase);
+    const phaseTargets = targets.filter((target) => target.phase === phase);
+    const required = phaseTargets.filter((target) => target.required);
+    const hasFailed = phaseTargets.some((target) => target.status === "FAILED");
+    const hasBlocked = phaseTargets.some((target) => target.status === "BLOCKED" || target.status === "WAITING_HUMAN");
+    const hasRunning = phaseTargets.some((target) => target.status === "RUNNING" || target.status === "READY");
+    const passed = required.length > 0 && required.every((target) => target.status === "DONE");
+    const status: PhaseTargetStatus = hasFailed ? "FAILED"
+      : hasBlocked ? "BLOCKED"
+        : passed ? "PASSED"
+          : hasRunning ? "RUNNING"
+            : "PENDING";
+    const decision: PhaseTarget["decision"] = {
+      status: status === "PASSED" ? "GO" : status === "FAILED" || status === "BLOCKED" ? "NO-GO" : "PENDING",
+      rationale: status === "PASSED"
+        ? `${phase.toUpperCase()} passed because every required GoalTarget is DONE.`
+        : status === "FAILED" || status === "BLOCKED"
+          ? `${phase.toUpperCase()} cannot pass until blockers are repaired.`
+          : `${phase.toUpperCase()} is pending execution.`,
+      evidence: [
+        `phase=${phase}`,
+        `goalTargets=${phaseTargets.length}`,
+        `requiredDone=${required.filter((target) => target.status === "DONE").length}/${required.length}`,
+        ...phaseTargets.flatMap((target) => target.loopId ? [`loop=${target.loopId}`] : [])
+      ]
+    };
+    return {
+      schema: "evopilot-phase-target/v1",
+      id: existing?.id ?? `${goal.id}-${phase}`,
+      goalId: goal.id,
+      phase,
+      title: existing?.title ?? standard.name,
+      status,
+      dependencyPhase: existing?.dependencyPhase ?? MATURITY_PHASES[index - 1],
+      goalTargetIds: phaseTargets.map((target) => target.id),
+      acceptanceCriteria: uniqueStrings([...(existing?.acceptanceCriteria ?? []), ...standard.acceptanceCriteria]),
+      requiredEvidence: uniqueStrings([...(existing?.requiredEvidence ?? []), ...standard.requiredEvidence]),
+      reviewCapabilities: normalizeReviewCapabilities([...(existing?.reviewCapabilities ?? []), ...standard.reviewCapabilities]),
+      packageOutputs: uniqueStrings([...(existing?.packageOutputs ?? []), ...standard.packageOutputs]),
+      decision,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+  });
+}
+
+function buildPhasePackages(goal: GlobalGoal): PhasePackage[] {
+  const matrix = buildGoalEvidenceMatrix(goal);
+  return goal.plan.phaseTargets.map((phaseTarget) => {
+    const rows = matrix.filter((row) => row.phase === phaseTarget.phase);
+    const required = rows.filter((row) => row.required);
+    return {
+      schema: "evopilot-phase-package/v1",
+      goalId: goal.id,
+      projectId: goal.projectId,
+      releaseTargetId: goal.releaseTargetId,
+      phase: phaseTarget.phase,
+      status: phaseTarget.status,
+      generatedAt: new Date().toISOString(),
+      targetSummary: {
+        total: rows.length,
+        required: required.length,
+        done: required.filter((row) => row.status === "DONE").length,
+        blocked: rows.filter((row) => row.status === "BLOCKED" || row.status === "WAITING_HUMAN").length,
+        failed: rows.filter((row) => row.status === "FAILED").length
+      },
+      acceptanceCriteria: phaseTarget.acceptanceCriteria,
+      requiredEvidence: phaseTarget.requiredEvidence,
+      reviewCapabilities: phaseTarget.reviewCapabilities,
+      evidenceMatrix: rows,
+      blockers: rows.flatMap((row) => row.blocker ? [`${row.targetId}: ${row.blocker}`] : []),
+      decision: phaseTarget.decision,
+      packageOutputs: phaseTarget.packageOutputs
+    };
+  });
+}
+
+function normalizeAppliedGoalPlan(input: unknown, goal: GlobalGoal, now: string): GoalPlan {
+  const root = isRecord(input) && isRecord(input.plan) ? input.plan : input;
+  if (!isRecord(root)) throw httpError(400, "GOAL_PLAN_INVALID", "Goal plan payload must be an object or { plan }.");
+  const rawTargets = Array.isArray(root.targets) ? root.targets : [];
+  if (rawTargets.length === 0) throw httpError(400, "GOAL_PLAN_TARGETS_REQUIRED", "Goal plan apply requires at least one GoalTarget.");
+  const targets = rawTargets.map((target) => {
+    const hydrated = hydrateGoalTarget(target, goal.id, goal.projectId, goal.releaseTargetId);
+    if (!hydrated.phase) throw httpError(400, "GOAL_PLAN_TARGET_PHASE_REQUIRED", `GoalTarget ${hydrated.id} requires phase=alpha|beta|rc|ga.`);
+    return {
+      ...hydrated,
+      status: "PENDING" as GoalTargetStatus,
+      nextAction: "advance-target" as GoalNextAction,
+      loopId: undefined,
+      evidence: uniqueStrings([
+        ...hydrated.evidence,
+        "planApplied=true",
+        `baseline=${DEFAULT_MATURITY_STANDARD_SET_ID}`
+      ]),
+      updatedAt: now
+    };
+  });
+  const targetIds = new Set(targets.map((target) => target.id));
+  for (const phase of MATURITY_PHASES) {
+    if (!targets.some((target) => target.phase === phase)) {
+      throw httpError(400, "GOAL_PLAN_PHASE_TARGETS_REQUIRED", `Goal plan must keep at least one GoalTarget in ${phase.toUpperCase()}.`);
+    }
+  }
+  for (const target of targets) {
+    const missing = target.dependencyIds.filter((dependencyId) => !targetIds.has(dependencyId));
+    if (missing.length > 0) throw httpError(400, "GOAL_PLAN_DEPENDENCY_MISSING", `GoalTarget ${target.id} has missing dependencies: ${missing.join(", ")}`);
+  }
+  const rawPhaseTargets = Array.isArray(root.phaseTargets)
+    ? root.phaseTargets
+    : Array.isArray(root.phases)
+      ? root.phases
+      : [];
+  const suppliedPhaseTargets = rawPhaseTargets.length > 0
+    ? rawPhaseTargets.map((phase) => hydratePhaseTarget(phase, goal.id, targets))
+    : [];
+  const generatedPhaseTargets = phaseTargetsFromGoalTargets(goal.id, targets, now);
+  const phaseTargets = MATURITY_PHASES.map((phase) => {
+    const standard = maturityStandardTemplate(phase);
+    const supplied = suppliedPhaseTargets.find((item) => item.phase === phase);
+    const generated = generatedPhaseTargets.find((item) => item.phase === phase)!;
+    return {
+      ...generated,
+      ...(supplied ? { title: supplied.title } : {}),
+      acceptanceCriteria: uniqueStrings([...(supplied?.acceptanceCriteria ?? []), ...standard.acceptanceCriteria]),
+      requiredEvidence: uniqueStrings([...(supplied?.requiredEvidence ?? []), ...standard.requiredEvidence]),
+      reviewCapabilities: normalizeReviewCapabilities([...(supplied?.reviewCapabilities ?? []), ...standard.reviewCapabilities]),
+      packageOutputs: uniqueStrings([...(supplied?.packageOutputs ?? []), ...standard.packageOutputs]),
+      updatedAt: now
+    };
+  });
+  return {
+    schema: "evopilot-goal-plan/v1",
+    status: "PENDING_APPROVAL",
+    decompositionStrategy: "ga-maturity-ladder",
+    terminalMaturity: "ga",
+    maturityStandardSetId: DEFAULT_MATURITY_STANDARD_SET_ID,
+    standardVersion: DEFAULT_MATURITY_STANDARD_VERSION,
+    summary: String(root.summary ?? `${goal.objective} adjusted by user and normalized against the Alpha -> Beta -> RC -> GA baseline.`),
+    targetCount: targets.length,
+    requiredTargetCount: targets.filter((target) => target.required).length,
+    phaseTargets,
+    targets,
+    editablePlan: editablePlanPolicy(),
+    generatedAt: optionalTrimmedString(root.generatedAt) ?? now
+  };
 }
 
 function hydrateGoalTimelineEvent(value: unknown): GoalTimelineEvent {
@@ -9619,6 +10352,7 @@ function buildGoalSnapshot(store: FileStore, goal: GlobalGoal): GoalSnapshot {
     ...goal.plan,
     targetCount: derivedTargets.length,
     requiredTargetCount: derivedTargets.filter((target) => target.required).length,
+    phaseTargets: derivePhaseTargets(goal, derivedTargets),
     targets: derivedTargets
   };
   const derivedGoal: GlobalGoal = {
@@ -9638,6 +10372,7 @@ function buildGoalSnapshot(store: FileStore, goal: GlobalGoal): GoalSnapshot {
     `releaseTarget=${goal.releaseTargetId}`,
     `plan=${goal.plan.status}`,
     `targets=${derivedTargets.length}`,
+    `phases=${derivedPlan.phaseTargets.map((phase) => `${phase.phase}:${phase.status}`).join(",")}`,
     `completedTargets=${completedTargets}/${requiredTargets.length}`,
     releaseDecision ? `releaseDecision=${releaseDecision.status}` : "releaseDecision=not-generated"
   ];
@@ -9656,6 +10391,7 @@ function buildGoalSnapshot(store: FileStore, goal: GlobalGoal): GoalSnapshot {
       failedTargets,
       percent: requiredTargets.length === 0 ? 0 : Math.round((completedTargets / requiredTargets.length) * 100)
     },
+    phases: derivedPlan.phaseTargets,
     activeTarget,
     nextAction,
     blockers: derivedTargets.flatMap((target) => target.blocker ? [`${target.id}: ${target.blocker}`] : []),
@@ -9765,10 +10501,13 @@ function goalNextAction(status: GlobalGoalStatus, activeTarget?: GoalTarget): Go
 function buildGoalEvidenceMatrix(goal: GlobalGoal): GoalEvidenceMatrixRow[] {
   return goal.plan.targets.map((target) => ({
     targetId: target.id,
+    phase: target.phase,
     title: target.title,
     required: target.required,
     status: target.status,
     acceptanceCriteria: target.acceptanceCriteria,
+    requiredEvidence: target.requiredEvidence,
+    reviewCapabilities: target.reviewCapabilities,
     evidence: target.evidence,
     blocker: target.blocker,
     loopId: target.loopId
@@ -9782,6 +10521,12 @@ function buildGoalRunStatusChain(store: FileStore, snapshot: GoalSnapshot, lates
   const latestReleaseRun = latestLoop ? store.listSourceReleaseClosureRuns(latestLoop.id).at(-1) : undefined;
   const deployFinalizers = latestLoop ? store.listSourceReleaseDeployFinalizers().filter((item) => item.loopId === latestLoop.id) : [];
   const latestDeploy = deployFinalizers.at(-1);
+  const phaseNodes = snapshot.phases.map((phase) => ({
+    id: `phase-${phase.phase}`,
+    label: `${phase.phase.toUpperCase()} Phase`,
+    status: phase.status,
+    detail: `${phase.title} / targets=${phase.goalTargetIds.length} / decision=${phase.decision.status}`
+  }));
   return [
     {
       id: "project",
@@ -9801,6 +10546,7 @@ function buildGoalRunStatusChain(store: FileStore, snapshot: GoalSnapshot, lates
       status: snapshot.status,
       detail: `${snapshot.goal.id} / ${snapshot.progress.completedTargets}/${snapshot.progress.requiredTargets} required targets`
     },
+    ...phaseNodes,
     {
       id: "goal-target",
       label: "GoalTarget",
@@ -9841,128 +10587,265 @@ function buildGoalRunStatusChain(store: FileStore, snapshot: GoalSnapshot, lates
 }
 
 function goalTargetsFromReleaseTarget(goal: GlobalGoal, releaseTarget: ReleaseTargetProfile, now: string): GoalTarget[] {
-  const targetLevel = goal.releaseTargetId.toLowerCase();
   const requiredScenarios = releaseTarget.requiredScenarioIds.length > 0
     ? releaseTarget.requiredScenarioIds
     : ["source-to-release", "runtime-validation", "release-decision"];
-  const base: Array<Omit<GoalTarget, "schema" | "goalId" | "projectId" | "releaseTargetId" | "createdAt" | "updatedAt">> = [
+  const specs: Array<{
+    phase: MaturityPhase;
+    slug: string;
+    title: string;
+    description: string;
+    layer: GoalTargetLayer;
+    acceptanceCriteria: string[];
+    requiredEvidence: string[];
+    reviewCapabilities?: ReviewCapability[];
+  }> = [
     {
-      id: `${goal.id}-source-readiness`,
-      title: "Source and credential readiness",
-      description: "Confirm the project, source repository, branch, writeback credential, and workspace scope before any loop writes source.",
+      phase: "alpha",
+      slug: "source-readiness",
+      title: "Alpha source and ownership readiness",
+      description: "Confirm the project, source repository, branch, workspace scope, and credential/read-only boundary before execution.",
       layer: "planning",
-      required: true,
-      dependencyIds: [],
       acceptanceCriteria: [
+        `Business objective is captured without redefining maturity: ${goal.objective}.`,
         "Project is registered in the current tenant and workspace.",
         "Source repository and default branch are readable.",
-        "Writeback credential or tokenRef preflight has a clear READY/BLOCKED result."
+        "Writeback credential, tokenRef, read-only boundary, or account blocker has a clear READY/BLOCKED result."
       ],
-      status: "PENDING",
-      nextAction: "start-target",
-      targetVersion: `${goal.releaseTargetId}-source-readiness`,
-      evidence: ["planner=release-target-template"]
+      requiredEvidence: ["project-registration", "source-readiness-preflight", "credential-or-read-only-boundary"],
+      reviewCapabilities: ["architecture"]
     },
     {
-      id: `${goal.id}-core-e2e-evidence`,
-      title: "Core E2E and release evidence",
-      description: "Collect the product evidence required for the selected release target.",
+      phase: "alpha",
+      slug: "bootstrap-smoke-architecture",
+      title: "Alpha bootstrap, smoke, and architecture map",
+      description: "Establish the build/bootstrap path, minimal smoke result, architecture map, and risk register for the business objective.",
       layer: "harness",
-      required: true,
-      dependencyIds: [`${goal.id}-source-readiness`],
       acceptanceCriteria: [
+        "Build, install, or runtime bootstrap path is reproducible or explicitly blocked.",
+        "Minimal smoke path passes or blocker is recorded with owner and next action.",
+        "Architecture map and risk register exist."
+      ],
+      requiredEvidence: ["build-or-bootstrap-evidence", "smoke-or-blocker-evidence", "architecture-map", "risk-register"],
+      reviewCapabilities: ["architecture"]
+    },
+    {
+      phase: "alpha",
+      slug: "phase-package",
+      title: "Alpha package and GO/NO-GO decision",
+      description: "Produce the Alpha phase package and lock the decision before Beta may start.",
+      layer: "release",
+      acceptanceCriteria: [
+        "Alpha readiness report links every Alpha GoalTarget to evidence or blockers.",
+        "Alpha decision is GO only when every required Alpha GoalTarget is DONE.",
+        "Alpha package does not claim external release readiness."
+      ],
+      requiredEvidence: ["alpha-readiness-report", "alpha-phase-decision"],
+      reviewCapabilities: ["architecture"]
+    },
+    {
+      phase: "beta",
+      slug: "core-e2e-native-ci",
+      title: "Beta core E2E and native CI",
+      description: "Run core end-to-end scenarios and prove repository-native GitHub Actions or GitLab CI observability within the declared claim boundary.",
+      layer: "harness",
+      acceptanceCriteria: [
+        "Alpha phase package is PASS.",
         `Required scenarios are represented: ${requiredScenarios.join(", ")}.`,
         `Successful runs satisfy release target threshold: ${releaseTarget.minSuccessfulRuns}.`,
+        "GitHub Actions or GitLab CI is configured and observable when writeback or CI/CD readiness is claimed.",
         "Evidence is production-boundary evidence, not mock, fixture-only, or chat-only proof."
       ],
-      status: "PENDING",
-      nextAction: "start-target",
-      targetVersion: `${goal.releaseTargetId}-core-e2e`,
-      evidence: ["planner=release-target-template"]
+      requiredEvidence: ["alpha-phase-package", "core-e2e-run", "native-ci-status", "real-boundary-evidence"],
+      reviewCapabilities: ["testing"]
     },
     {
-      id: `${goal.id}-sandbox-secret-boundary`,
-      title: "Sandbox and secret boundary",
-      description: "Prove execution, network, credential, and protected-path boundaries for the target loop.",
-      layer: "sandbox",
-      required: targetLevel !== "experimental",
-      dependencyIds: [`${goal.id}-core-e2e-evidence`],
+      phase: "beta",
+      slug: "docs-tests-risk",
+      title: "Beta documentation, tests, and risk closure",
+      description: "Confirm critical tests, basic docs, and risk closure for limited user trial.",
+      layer: "context",
       acceptanceCriteria: [
-        "Loop sandbox policy is recorded with runtime, network, credential scope, allowed paths, and denied paths.",
-        "Sandbox proof or policy proof is attached to the LoopRun.",
-        "Secrets are referenced by tokenRef or scoped configuration and are not exposed in API responses or logs."
+        "Critical tests exist for the requested business capability.",
+        "Basic user or operator documentation is usable.",
+        "No high open risk blocks limited user trial."
       ],
-      status: "PENDING",
-      nextAction: "start-target",
-      targetVersion: `${goal.releaseTargetId}-sandbox-boundary`,
-      evidence: ["planner=release-target-template"]
+      requiredEvidence: ["critical-test-evidence", "basic-docs", "risk-closure"],
+      reviewCapabilities: ["testing", "documentation"]
     },
     {
-      id: `${goal.id}-source-closure-deploy`,
-      title: "Source closure and deploy gates",
-      description: "Close source writeback, deploy connector, and health-ready gates for the release target.",
+      phase: "beta",
+      slug: "phase-package",
+      title: "Beta package and GO/NO-GO decision",
+      description: "Produce the Beta phase package and lock the decision before RC may start.",
+      layer: "release",
+      acceptanceCriteria: [
+        "Beta E2E report links every Beta GoalTarget to evidence or blockers.",
+        "Beta decision is GO only when Alpha is PASSED and every required Beta GoalTarget is DONE.",
+        "Beta package states the GitHub/GitLab DevOps claim boundary."
+      ],
+      requiredEvidence: ["beta-e2e-report", "beta-phase-decision", "devops-claim-boundary"],
+      reviewCapabilities: ["testing", "documentation"]
+    },
+    {
+      phase: "rc",
+      slug: "scope-source-closure",
+      title: "RC scope freeze and source closure",
+      description: "Freeze scope and close source writeback with branch, commit, PR/MR or local review evidence.",
       layer: "loop",
-      required: ["beta", "rc", "ga"].includes(targetLevel),
-      dependencyIds: [`${goal.id}-sandbox-secret-boundary`],
       acceptanceCriteria: [
+        "Beta phase package is PASS.",
+        "Scope is frozen for the release candidate.",
         "Source closure preflight passes before writeback.",
-        "Source closure records branch, commit, PR/MR or local review artifact, and required gate evidence.",
-        "Deploy and health-ready gates produce auditable evidence or a clear rollback/blocker."
+        "Source closure records branch, commit, PR/MR or local review artifact."
       ],
-      status: "PENDING",
-      nextAction: "start-target",
-      targetVersion: `${goal.releaseTargetId}-source-closure`,
-      evidence: ["planner=release-target-template"]
+      requiredEvidence: ["beta-phase-package", "scope-freeze-record", "source-closure-preflight", "source-closure-record", "pr-or-mr-review"],
+      reviewCapabilities: ["architecture", "release"]
     },
     {
-      id: `${goal.id}-release-decision`,
-      title: `${releaseTarget.name} release decision`,
-      description: "Produce the final product-native release decision and completion report.",
+      phase: "rc",
+      slug: "deploy-rollback-security-architecture",
+      title: "RC deploy, rollback, security, and architecture review",
+      description: "Prove repeated native CI/CD, deployment health, rollback or repair, security, dependency, compatibility, and architecture readiness.",
       layer: "release",
-      required: true,
-      dependencyIds: ["beta", "rc", "ga"].includes(targetLevel)
-        ? [`${goal.id}-source-closure-deploy`]
-        : [`${goal.id}-sandbox-secret-boundary`],
       acceptanceCriteria: [
-        `Release decision target is ${releaseTarget.id}.`,
-        "Decision status is GO, CONDITIONAL-GO, or NO-GO with explicit criteria.",
-        "GoalCompletionReport links every required target to evidence and blockers."
+        `Successful pipelines satisfy release target threshold: ${releaseTarget.minSuccessfulPipelines}.`,
+        "Deploy and health-ready gates produce auditable evidence.",
+        "Rollback or repair evidence exists.",
+        "Security, dependency, compatibility, and architecture reviews pass.",
+        "No P0/P1 blocker remains open."
       ],
-      status: "PENDING",
-      nextAction: "start-target",
-      targetVersion: `${goal.releaseTargetId}-decision`,
-      evidence: ["planner=release-target-template"]
+      requiredEvidence: ["repeat-ci-cd-pass", "deploy-health", "rollback-or-repair", "security-dependency-compatibility-review", "architecture-review"],
+      reviewCapabilities: ["architecture", "security", "testing", "operations"]
     },
     {
-      id: `${goal.id}-ga-soak-and-risk`,
-      title: "GA soak and risk closure",
-      description: "For GA, prove active soak, risk closure, and promoted release evidence before the final decision.",
+      phase: "rc",
+      slug: "phase-package",
+      title: "RC package and GO/NO-GO decision",
+      description: "Produce the release-candidate package and lock the decision before GA may start.",
       layer: "release",
-      required: targetLevel === "ga",
-      dependencyIds: [`${goal.id}-release-decision`],
+      acceptanceCriteria: [
+        "RC package links scope freeze, source closure, deploy health, rollback/repair, security, compatibility, and architecture evidence.",
+        "RC decision is GO only when Beta is PASSED and every required RC GoalTarget is DONE.",
+        "RC package records there are no open P0/P1 blockers."
+      ],
+      requiredEvidence: ["rc-release-candidate-report", "rc-phase-decision", "no-p0-p1-blockers"],
+      reviewCapabilities: ["architecture", "security", "operations", "release"]
+    },
+    {
+      phase: "ga",
+      slug: "stability-observability-docs",
+      title: "GA stability, observability, and documentation",
+      description: "Prove soak/stability, monitoring, logging, alerting, runbook, release notes, and user documentation readiness.",
+      layer: "release",
+      acceptanceCriteria: [
+        "RC phase package is PASS.",
+        `Active soak requirement is ${releaseTarget.requireActiveSoak ? "required" : "tracked"}.`,
+        `Succeeded soak seconds target is ${releaseTarget.minSucceededSoakSeconds}.`,
+        "Monitoring, logging, alerting, troubleshooting, and runbook evidence are complete.",
+        "Release notes and user documentation are complete."
+      ],
+      requiredEvidence: ["rc-phase-package", "stability-or-soak-evidence", "observability-evidence", "runbook", "release-notes", "user-docs"],
+      reviewCapabilities: ["documentation", "operations", "release"]
+    },
+    {
+      phase: "ga",
+      slug: "security-architecture-signoff",
+      title: "GA security governance and architecture signoff",
+      description: "Complete final security governance, dependency review, compatibility check, and architecture signoff.",
+      layer: "release",
       acceptanceCriteria: [
         `No high open risks is ${releaseTarget.requireNoHighOpenRisks ? "required" : "tracked"}.`,
-        `Active soak requirement is ${releaseTarget.requireActiveSoak ? "required" : "tracked"}.`,
-        "GA evidence can be replayed through release decisions, source release runs, artifacts, and audit."
+        "Security governance and dependency review pass.",
+        "Architecture signoff passes.",
+        "Final claim does not exceed source/DevOps claim boundary."
       ],
-      status: "PENDING",
-      nextAction: "start-target",
-      targetVersion: `${goal.releaseTargetId}-soak-risk`,
-      evidence: ["planner=release-target-template"]
+      requiredEvidence: ["security-governance", "dependency-review", "compatibility-check", "architecture-signoff", "claim-boundary-review"],
+      reviewCapabilities: ["architecture", "security", "release"]
+    },
+    {
+      phase: "ga",
+      slug: "phase-package-final-decision",
+      title: "GA package and final release decision",
+      description: "Produce the final GA release package, GoalCompletionReport, and product-native ReleaseDecision=GO.",
+      layer: "release",
+      acceptanceCriteria: [
+        "GA release package links every Alpha/Beta/RC/GA phase package.",
+        `Release decision target is ${releaseTarget.id}.`,
+        "Final ReleaseDecision is GO.",
+        "GoalCompletionReport links every required target to evidence and blockers."
+      ],
+      requiredEvidence: ["ga-release-package", "phase-package-index", "final-release-decision", "goal-completion-report"],
+      reviewCapabilities: ["architecture", "release"]
     }
   ];
-  const filtered = base.filter((target) => target.required || ["rc", "ga"].includes(targetLevel));
-  const availableIds = new Set(filtered.map((target) => target.id));
-  return filtered.map((target) => ({
-    schema: "evopilot-goal-target/v1",
-    goalId: goal.id,
-    projectId: goal.projectId,
-    releaseTargetId: goal.releaseTargetId,
-    ...target,
-    dependencyIds: target.dependencyIds.filter((dependency) => availableIds.has(dependency)),
-    createdAt: now,
-    updatedAt: now
-  }));
+  let previousId: string | undefined;
+  return specs.map((spec) => {
+    const standard = maturityStandardTemplate(spec.phase);
+    const id = `${goal.id}-${spec.phase}-${spec.slug}`;
+    const target: GoalTarget = {
+      schema: "evopilot-goal-target/v1",
+      id,
+      goalId: goal.id,
+      projectId: goal.projectId,
+      releaseTargetId: goal.releaseTargetId,
+      phase: spec.phase,
+      standardId: standard.id,
+      title: spec.title,
+      description: spec.description,
+      layer: spec.layer,
+      required: true,
+      dependencyIds: previousId ? [previousId] : [],
+      acceptanceCriteria: uniqueStrings([
+        ...spec.acceptanceCriteria,
+        ...standard.acceptanceCriteria
+      ]),
+      requiredEvidence: uniqueStrings([
+        ...spec.requiredEvidence,
+        ...standard.requiredEvidence
+      ]),
+      reviewCapabilities: normalizeReviewCapabilities([
+        ...(spec.reviewCapabilities ?? []),
+        ...standard.reviewCapabilities
+      ]),
+      status: "PENDING",
+      nextAction: "start-target",
+      targetVersion: `${goal.releaseTargetId}-${spec.phase}-${spec.slug}`,
+      evidence: [
+        "planner=ga-maturity-ladder",
+        "terminalMaturity=ga",
+        `phase=${spec.phase}`,
+        `standard=${standard.id}`,
+        `maturityStandardSet=${DEFAULT_MATURITY_STANDARD_SET_ID}`,
+        `businessObjective=${goal.objective}`
+      ],
+      createdAt: now,
+      updatedAt: now
+    };
+    previousId = id;
+    return target;
+  });
+}
+
+type ReleaseTargetLevel = "experimental" | "alpha" | "beta" | "rc" | "ga" | "custom";
+
+function releaseTargetLevelForGoal(goal: GlobalGoal, releaseTarget: ReleaseTargetProfile): ReleaseTargetLevel {
+  const candidates = [
+    releaseTarget.templateId,
+    releaseTarget.id,
+    goal.releaseTargetId
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeReleaseTargetLevel(candidate);
+    if (normalized !== "custom") return normalized;
+  }
+  return "custom";
+}
+
+function normalizeReleaseTargetLevel(value: unknown): ReleaseTargetLevel {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (["experimental", "alpha", "beta", "rc", "ga"].includes(normalized)) return normalized as ReleaseTargetLevel;
+  return "custom";
 }
 
 function buildGoalCompletionReport(snapshot: GoalSnapshot, actor: string): GoalCompletionReport {
@@ -9987,6 +10870,7 @@ function buildGoalCompletionReport(snapshot: GoalSnapshot, actor: string): GoalC
       blocked: blocked.length,
       failed: failed.length
     },
+    phasePackages: buildPhasePackages(snapshot.goal),
     evidenceMatrix: matrix,
     releaseDecision: snapshot.releaseDecision,
     conclusion: status === "COMPLETED"
@@ -10035,8 +10919,46 @@ function normalizeGoalPlanStatus(value: unknown): GoalPlanStatus {
 
 function normalizeGoalPlanStrategy(value: unknown): GoalPlan["decompositionStrategy"] {
   const strategy = String(value ?? "none");
-  if (strategy === "release-target-template" || strategy === "manual" || strategy === "none") return strategy;
+  if (strategy === "ga-maturity-ladder" || strategy === "release-target-template" || strategy === "manual" || strategy === "none") return strategy;
   return "none";
+}
+
+function normalizeMaturityPhase(value: unknown, fallback: MaturityPhase): MaturityPhase {
+  const phase = String(value ?? fallback).trim().toLowerCase();
+  if (MATURITY_PHASES.includes(phase as MaturityPhase)) return phase as MaturityPhase;
+  return fallback;
+}
+
+function normalizeOptionalMaturityPhase(value: unknown): MaturityPhase | undefined {
+  const phase = String(value ?? "").trim().toLowerCase();
+  return MATURITY_PHASES.includes(phase as MaturityPhase) ? phase as MaturityPhase : undefined;
+}
+
+function normalizePhaseTargetStatus(value: unknown): PhaseTargetStatus {
+  const status = String(value ?? "PENDING");
+  if (["PENDING", "RUNNING", "PASSED", "BLOCKED", "FAILED"].includes(status)) return status as PhaseTargetStatus;
+  return "PENDING";
+}
+
+function normalizePhaseDecisionStatus(value: unknown): PhaseDecisionStatus {
+  const status = String(value ?? "PENDING");
+  if (["PENDING", "GO", "NO-GO"].includes(status)) return status as PhaseDecisionStatus;
+  return "PENDING";
+}
+
+function normalizeReviewCapability(value: unknown): ReviewCapability | undefined {
+  const capability = String(value ?? "").trim().toLowerCase();
+  if (["architecture", "security", "testing", "documentation", "operations", "release"].includes(capability)) return capability as ReviewCapability;
+  return undefined;
+}
+
+function normalizeReviewCapabilities(value: unknown[]): ReviewCapability[] {
+  const result: ReviewCapability[] = [];
+  for (const item of value) {
+    const capability = normalizeReviewCapability(item);
+    if (capability && !result.includes(capability)) result.push(capability);
+  }
+  return result;
 }
 
 function normalizeGoalTargetStatus(value: unknown): GoalTargetStatus {
@@ -10066,6 +10988,7 @@ function normalizeGoalNextAction(value: unknown): GoalNextAction {
     "policy-review",
     "release-decision",
     "view-final-report",
+    "review-phase-package",
     "done",
     "repair"
   ].includes(action)) return action as GoalNextAction;
@@ -10074,7 +10997,7 @@ function normalizeGoalNextAction(value: unknown): GoalNextAction {
 
 function normalizeGoalTimelineEventType(value: unknown): GoalTimelineEvent["type"] {
   const type = String(value ?? "CREATED");
-  if (["CREATED", "PLAN_GENERATED", "PLAN_APPROVED", "TARGET_CREATED", "TARGET_ADVANCED", "LOOP_BOUND", "BLOCKED", "COMPLETED", "REPORT_GENERATED"].includes(type)) return type as GoalTimelineEvent["type"];
+  if (["CREATED", "PLAN_GENERATED", "PLAN_UPDATED", "PLAN_APPROVED", "TARGET_CREATED", "TARGET_ADVANCED", "LOOP_BOUND", "PHASE_PACKAGE_GENERATED", "BLOCKED", "COMPLETED", "REPORT_GENERATED"].includes(type)) return type as GoalTimelineEvent["type"];
   return "CREATED";
 }
 

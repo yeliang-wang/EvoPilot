@@ -93,9 +93,11 @@ WorkBuddy, Codex, Claude Code, CI jobs, and other agents should treat this file 
 4. Store or repair server-side `tokenRef` values when the checklist asks for it.
 5. Verify with `project preflight`, `project devops preflight`, and `project onboard verify`.
 6. When the project needs a non-default model, store the LLM key server-side, create an LLM profile, bind it to the project, and run `project llm preflight`.
-7. Run `target run`, `goal run`, `loop run`, or `project onboard ... --template ...` with `--json`.
-8. Stop on blockers, human gates, credential gaps, policy review, repair actions, `NO-GO`, `BLOCKED`, `FAILED`, timeouts, or max-step boundaries.
-9. Report the server-derived result, release verdict, IDs, LLM provider/model, token totals, and request IDs.
+7. Generate the Goal phase plan with `target plan` or the first `target run`.
+8. Export, review, optionally edit, diff, apply, and approve the Alpha -> Beta -> RC -> GA phase plan.
+9. Run `target run`, `goal run`, `loop run`, or `project onboard ... --template ga` with `--json`.
+10. Stop on blockers, human gates, credential gaps, policy review, repair actions, `NO-GO`, `BLOCKED`, `FAILED`, timeouts, or max-step boundaries.
+11. Report the server-derived result, release verdict, IDs, LLM provider/model, token totals, and request IDs.
 
 An agent must not parse human-readable output when `--json` is available, must not pass raw GitHub/GitLab tokens in daily wrapper commands, and must not claim a stronger DevOps or release result than the server-returned `claimBoundary` and release decision.
 
@@ -168,7 +170,7 @@ Run with the project default LLM:
 evopilot target run \
   --project my-agent \
   --template ga \
-  --objective "Promote my-agent to GA stable" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and repair guidance for My Agent" \
   --until terminal \
   --max-steps 20 \
   --require-llm-ready \
@@ -180,8 +182,8 @@ Override the LLM for one run:
 ```bash
 evopilot target run \
   --project my-agent \
-  --template rc \
-  --objective "Run an RC target with a private model" \
+  --template ga \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and repair guidance with a private model" \
   --llm-profile my-agent-llm \
   --require-llm-ready \
   --json
@@ -241,19 +243,68 @@ Use `requestId`, `goalId`, `loopId`, `releaseRunId`, and `releaseDecisionId` to 
 | Layer | Commands | When To Use |
 |---|---|---|
 | Wrapper | `project onboard`, `target run`, `goal run`, `loop run` | WorkBuddy, CI, and operators need one command that advances until terminal, blocked, timeout, or max-step boundary. |
+| Planning | `maturity standards list`, `maturity standards inspect`, `target plan`, `target plan export`, `target plan diff`, `target plan apply`, `target plan approve`, `goal phases`, `goal phase-package` | A user or AI agent needs to review or adjust the generated Alpha/Beta/RC/GA plan before execution. |
 | Atomic | `project preflight`, `project devops preflight`, `goal plan`, `goal approve-plan`, `goal advance`, `source-closure preflight`, `release decisions`, `audit list`, `trace tree` | A wrapper stopped, an agent needs white-box inspection, or a human must approve a governed action. |
 
 Wrappers compose atomic operations but remain server-governed. They do not approve human gates, bypass source credential preflight, bypass DevOps ownership, or fabricate release decisions.
+
+## Maturity Ladder
+
+The CLI does not ask users to choose a terminal maturity. `--objective` is a business outcome, for example "Enable tenant onboarding and lifecycle workflow visibility." EvoPilot treats GA as the governed terminal maturity and decomposes the objective through the fixed ladder:
+
+```text
+Alpha -> Beta -> RC -> GA
+```
+
+Each phase has a versioned server standard under `evopilot-default/v1`:
+
+| Phase | Standard Focus |
+|---|---|
+| Alpha | Source readability, bootstrap/smoke path, architecture map, risk register, no release claim. |
+| Beta | Passed Alpha package, core E2E evidence, repository-native CI, critical tests, basic docs, limited-trial risk closure. |
+| RC | Passed Beta package, scope freeze, source closure, repeated native CI/CD, deploy health, rollback/repair, security and architecture review. |
+| GA | Passed RC package, stability/soak, observability, runbook, release notes, user docs, security governance, architecture signoff, final `ReleaseDecision=GO`. |
+
+The built-in standard set is versioned in `standards/maturity/evopilot-default/v1/`. Later versions can add or strengthen standards without changing the CLI contract. Users may add project-specific GoalTargets, required evidence, or review requirements, but they cannot delete Alpha/Beta/RC/GA or remove baseline criteria and still claim standard GA.
+
+Inspect the active standards:
+
+```bash
+evopilot maturity standards list --json
+evopilot maturity standards inspect ga --json
+```
 
 ## Fast Path
 
 For an already registered project, run toward GA with one wrapper command:
 
 ```bash
+evopilot target plan \
+  --project <project-id> \
+  --template ga \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for this project" \
+  --client workbuddy \
+  --json
+```
+
+The plan command creates or reuses a project release target and GlobalGoal, then returns `evopilot-cli-target-plan/v1` with `terminalMaturity=ga`, `phasePlan.phases[]`, `phasePlan.targets[]`, and `editablePlan`.
+
+Review and approve the generated Alpha -> Beta -> RC -> GA plan:
+
+```bash
+evopilot target plan export <goal-id> --format json > /tmp/evopilot-phase-plan.json
+evopilot target plan diff <goal-id> --file /tmp/evopilot-phase-plan.json --json
+evopilot target plan apply <goal-id> --file /tmp/evopilot-phase-plan.json --json
+evopilot target plan approve <goal-id> --json
+```
+
+Then resume the wrapper:
+
+```bash
 evopilot target run \
   --project <project-id> \
   --template ga \
-  --objective "Promote the project to GA with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for this project" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
@@ -264,7 +315,7 @@ evopilot target run \
   --json
 ```
 
-This prints a server-governed chain covering project, release target, GlobalGoal, GoalTarget, LoopRun, source closure, deploy, release decision, evidence links, blockers, next action, LLM provider/model, command-level token totals, and step-level token usage.
+If the plan is not approved, `target run` stops at `PENDING_PLAN_APPROVAL` with `nextAction=approve-plan` and exit code `2`. Use `--auto-approve-plan` only for controlled automation where the generated plan may be accepted without a separate user review. The console prints a server-governed chain covering project, release target, GlobalGoal, Alpha/Beta/RC/GA phases, GoalTarget, LoopRun, source closure, deploy, release decision, evidence links, blockers, next action, LLM provider/model, command-level token totals, and step-level token usage.
 
 ## First Project Checklist
 
@@ -298,7 +349,7 @@ evopilot project onboard plan github \
   --llm-profile <llm-profile-id> \
   --require-llm-ready \
   --template ga \
-  --objective "Promote <project-id> to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for <project-id>" \
   --json
 ```
 
@@ -336,7 +387,7 @@ evopilot project onboard github \
   --health-url https://<app>/health \
   --llm-profile <llm-profile-id> \
   --template ga \
-  --objective "Promote <project-id> to GA stable with source closure, native DevOps evidence, deploy evidence, release decision, and blocker review" \
+  --objective "Enable tenant onboarding, lifecycle workflow visibility, and operator repair guidance for <project-id>" \
   --until terminal \
   --max-steps 20 \
   --require-source-ready \
@@ -361,8 +412,8 @@ evopilot project onboard github \
   --devops-owner my-org \
   --ci-workflow ci.yml \
   --ci-required-check build \
-  --template rc \
-  --objective "Validate the fork and open an upstream PR readiness path" \
+  --template ga \
+  --objective "Add the requested upstream-compatible capability and produce fork CI plus PR readiness evidence" \
   --require-source-ready \
   --require-devops-ready \
   --json
